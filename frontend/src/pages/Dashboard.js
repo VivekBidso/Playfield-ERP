@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { Package, Box, AlertTriangle, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import useBranchStore from "@/store/branchStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Dashboard = () => {
+  const { selectedBranch } = useBranchStore();
   const [stats, setStats] = useState(null);
   const [productionData, setProductionData] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
