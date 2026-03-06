@@ -214,11 +214,13 @@ const SKUs = () => {
           <table className="w-full" data-testid="sku-table">
             <thead className="bg-zinc-50 border-b border-zinc-200">
               <tr>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Name</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Buyer SKU ID</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Bidso SKU</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Description</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Threshold</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Brand</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Vertical</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Model</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Stock</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
               </tr>
@@ -226,13 +228,15 @@ const SKUs = () => {
             <tbody>
               {filteredSkus.map((sku) => (
                 <tr key={sku.id} className="border-b border-zinc-100 hover:bg-zinc-50/50" data-testid={`sku-row-${sku.sku_id}`}>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{sku.sku_id}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{sku.name}</td>
+                  <td className="p-4 align-middle font-mono text-sm font-bold text-zinc-700">{sku.sku_id}</td>
+                  <td className="p-4 align-middle font-mono text-sm text-zinc-700">{sku.bidso_sku}</td>
                   <td className="p-4 align-middle text-sm text-zinc-600 max-w-xs truncate">{sku.description || '-'}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{sku.low_stock_threshold}</td>
+                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.brand}</td>
+                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.vertical}</td>
+                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.model}</td>
+                  <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock || 0}</td>
                   <td className="p-4 align-middle">
-                    {sku.current_stock < sku.low_stock_threshold ? (
+                    {(sku.current_stock || 0) < sku.low_stock_threshold ? (
                       <span className="text-xs font-mono text-red-600 border border-red-600 px-2 py-1 uppercase tracking-wider">
                         Low Stock
                       </span>
