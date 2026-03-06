@@ -55,7 +55,6 @@ class RawMaterial(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RawMaterialCreate(BaseModel):
-    rm_id: str
     category: str
     category_data: Dict[str, Any]
     low_stock_threshold: float = 10.0
