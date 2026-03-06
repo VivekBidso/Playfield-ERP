@@ -170,16 +170,50 @@ const SKUMapping = () => {
           <h1 className="text-4xl font-black tracking-tight uppercase">RM-SKU Mapping</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">Define bill of materials</p>
         </div>
-        <Dialog open={showDialog} onOpenChange={(open) => {
-          setShowDialog(open);
-          if (!open) setFormData({ sku_id: "", rm_mappings: [{ rm_id: "", quantity_required: 0 }] });
-        }}>
-          <DialogTrigger asChild>
-            <Button data-testid="create-mapping-btn" className="uppercase text-xs tracking-wide">
-              <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
-              Create Mapping
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-3">
+          <Button 
+            variant="secondary" 
+            onClick={exportMappings}
+            data-testid="export-mappings-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            Export
+          </Button>
+          <Button 
+            variant="secondary" 
+            onClick={downloadTemplate}
+            data-testid="download-mapping-template-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            Template
+          </Button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleBulkUpload} 
+            accept=".xlsx,.xls"
+            className="hidden"
+          />
+          <Button 
+            variant="secondary" 
+            onClick={() => fileInputRef.current.click()}
+            data-testid="bulk-upload-mapping-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            Bulk Upload
+          </Button>
+          <Dialog open={showDialog} onOpenChange={(open) => {
+            setShowDialog(open);
+            if (!open) setFormData({ sku_id: "", rm_mappings: [{ rm_id: "", quantity_required: 0 }] });
+          }}>
+            <DialogTrigger asChild>
+              <Button data-testid="create-mapping-btn" className="uppercase text-xs tracking-wide">
+                <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                Create Mapping
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-bold uppercase">SKU to RM Mapping</DialogTitle>
