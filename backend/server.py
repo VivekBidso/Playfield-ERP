@@ -171,6 +171,23 @@ class DispatchEntryCreate(BaseModel):
     date: datetime
     notes: Optional[str] = None
 
+class ProductionPlanEntry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    branch: str
+    plan_month: str  # YYYY-MM format
+    date: datetime
+    sku_id: str
+    planned_quantity: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProductionPlanCreate(BaseModel):
+    branch: str
+    plan_month: str
+    date: datetime
+    sku_id: str
+    planned_quantity: float
+
 class ActivateItemRequest(BaseModel):
     item_id: str
     branch: str
