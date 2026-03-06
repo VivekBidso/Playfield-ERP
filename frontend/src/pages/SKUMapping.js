@@ -1,11 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Upload, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -15,6 +17,7 @@ const SKUMapping = () => {
   const [rawMaterials, setRawMaterials] = useState([]);
   const [mappings, setMappings] = useState([]);
   const [showDialog, setShowDialog] = useState(false);
+  const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     sku_id: "",
