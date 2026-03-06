@@ -22,7 +22,6 @@ db = client[os.environ['DB_NAME']]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-# Branch configuration
 BRANCHES = [
     "Unit 1 Vedica",
     "Unit 2 Trikes",
@@ -33,7 +32,6 @@ BRANCHES = [
     "BHDG WH"
 ]
 
-# RM Categories with prefixes
 RM_CATEGORIES = {
     "INP": {"name": "In-house Plastic", "fields": ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"]},
     "ACC": {"name": "Accessories", "fields": ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"]},
@@ -47,22 +45,80 @@ RM_CATEGORIES = {
 # ============ Models ============
 
 class RawMaterial(BaseModel):
+    """Global RM definition"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     rm_id: str
-    branch: str
-    category: str  # INP, ACC, ELC, SP, BS, PM, LB
-    category_data: Dict[str, Any] = {}  # Dynamic fields based on category
-    current_stock: float = 0.0
+    category: str
+    category_data: Dict[str, Any] = {}
     low_stock_threshold: float = 10.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class RawMaterialCreate(BaseModel):
     rm_id: str
-    branch: str
     category: str
     category_data: Dict[str, Any]
     low_stock_threshold: float = 10.0
+
+class BranchRMInventory(BaseModel):
+    """Branch-specific RM inventory"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    rm_id: str
+    branch: str
+    current_stock: float = 0.0
+    is_active: bool = True
+    activated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SKU(BaseModel):
+    """Global SKU definition"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku_id: str
+    bidso_sku: str
+    buyer_sku_id: str
+    description: str
+    brand: str
+    vertical: str
+    model: str
+    low_stock_threshold: float = 5.0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SKUCreate(BaseModel):
+    sku_id: str
+    bidso_sku: str
+    buyer_sku_id: str
+    description: str
+    brand: str
+    vertical: str
+    model: str
+    low_stock_threshold: float = 5.0
+
+class BranchSKUInventory(BaseModel):
+    """Branch-specific SKU inventory"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku_id: str
+    branch: str
+    current_stock: float = 0.0
+    is_active: bool = True
+    activated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class RMMapping(BaseModel):
+    rm_id: str
+    quantity_required: float
+
+class SKUMapping(BaseModel):
+    """Global SKU to RM mapping (BOM)"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku_id: str
+    rm_mappings: List[RMMapping]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SKUMappingCreate(BaseModel):
+    sku_id: str
+    rm_mappings: List[RMMapping]
 
 class PurchaseEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -80,49 +136,6 @@ class PurchaseEntryCreate(BaseModel):
     quantity: float
     date: datetime
     notes: Optional[str] = None
-
-class SKU(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    sku_id: str
-    bidso_sku: str
-    buyer_sku_id: str
-    description: str
-    brand: str
-    vertical: str
-    model: str
-    branch: str
-    current_stock: float = 0.0
-    low_stock_threshold: float = 5.0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class SKUCreate(BaseModel):
-    sku_id: str
-    bidso_sku: str
-    buyer_sku_id: str
-    description: str
-    brand: str
-    vertical: str
-    model: str
-    branch: str
-    low_stock_threshold: float = 5.0
-
-class RMMapping(BaseModel):
-    rm_id: str
-    quantity_required: float
-
-class SKUMapping(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    sku_id: str
-    branch: str
-    rm_mappings: List[RMMapping]
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class SKUMappingCreate(BaseModel):
-    sku_id: str
-    branch: str
-    rm_mappings: List[RMMapping]
 
 class ProductionEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -158,11 +171,9 @@ class DispatchEntryCreate(BaseModel):
     date: datetime
     notes: Optional[str] = None
 
-class DashboardStats(BaseModel):
-    total_rm_value: int
-    total_sku_value: int
-    low_stock_items: int
-    today_production: int
+class ActivateItemRequest(BaseModel):
+    item_id: str
+    branch: str
 
 # ============ Helper Functions ============
 
@@ -171,12 +182,14 @@ def serialize_doc(doc):
         doc['created_at'] = datetime.fromisoformat(doc['created_at'])
     if doc and 'date' in doc and isinstance(doc['date'], str):
         doc['date'] = datetime.fromisoformat(doc['date'])
+    if doc and 'activated_at' in doc and isinstance(doc['activated_at'], str):
+        doc['activated_at'] = datetime.fromisoformat(doc['activated_at'])
     return doc
 
-async def get_next_rm_sequence(category: str, branch: str) -> int:
-    """Get next sequence number for RM category in branch"""
+async def get_next_rm_sequence(category: str) -> int:
+    """Get next global sequence number for RM category"""
     last_rm = await db.raw_materials.find_one(
-        {"category": category, "branch": branch},
+        {"category": category},
         {"_id": 0},
         sort=[("rm_id", -1)]
     )
@@ -198,13 +211,14 @@ async def get_branches():
 async def get_rm_categories():
     return {"categories": RM_CATEGORIES}
 
-# ============ Raw Material Routes ============
+# ============ Global Raw Material Routes ============
 
 @api_router.post("/raw-materials", response_model=RawMaterial)
 async def create_raw_material(input: RawMaterialCreate):
-    existing = await db.raw_materials.find_one({"rm_id": input.rm_id, "branch": input.branch}, {"_id": 0})
+    """Create global RM (not branch-specific)"""
+    existing = await db.raw_materials.find_one({"rm_id": input.rm_id}, {"_id": 0})
     if existing:
-        raise HTTPException(status_code=400, detail="RM ID already exists in this branch")
+        raise HTTPException(status_code=400, detail="RM ID already exists globally")
     
     rm_obj = RawMaterial(**input.model_dump())
     doc = rm_obj.model_dump()
@@ -213,7 +227,8 @@ async def create_raw_material(input: RawMaterialCreate):
     return rm_obj
 
 @api_router.post("/raw-materials/bulk-upload")
-async def bulk_upload_raw_materials(file: UploadFile = File(...), branch: str = "Unit 1 Vedica"):
+async def bulk_upload_raw_materials(file: UploadFile = File(...)):
+    """Bulk upload global RMs"""
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Only Excel files are supported")
     
@@ -226,9 +241,8 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...), branch: str = 
         skipped_count = 0
         errors = []
         
-        # Expected format: Category, then category-specific fields
         for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            if not row[0]:  # Skip empty rows
+            if not row[0]:
                 continue
             
             try:
@@ -237,17 +251,14 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...), branch: str = 
                     errors.append(f"Row {idx}: Invalid category {category}")
                     continue
                 
-                # Get next sequence for this category
-                seq = await get_next_rm_sequence(category, branch)
+                seq = await get_next_rm_sequence(category)
                 rm_id = f"{category}_{seq:03d}"
                 
-                # Check if already exists
-                existing = await db.raw_materials.find_one({"rm_id": rm_id, "branch": branch}, {"_id": 0})
+                existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
                 if existing:
                     skipped_count += 1
                     continue
                 
-                # Build category_data from row
                 category_fields = RM_CATEGORIES[category]["fields"]
                 category_data = {}
                 for i, field in enumerate(category_fields):
@@ -258,7 +269,6 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...), branch: str = 
                 
                 rm_obj = RawMaterial(
                     rm_id=rm_id,
-                    branch=branch,
                     category=category,
                     category_data=category_data,
                     low_stock_threshold=threshold
@@ -278,38 +288,93 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...), branch: str = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
-@api_router.get("/raw-materials", response_model=List[RawMaterial])
-async def get_raw_materials(branch: Optional[str] = None, search: Optional[str] = None):
-    query = {}
+@api_router.get("/raw-materials")
+async def get_raw_materials(branch: Optional[str] = None, search: Optional[str] = None, include_inactive: bool = False):
+    """Get RMs - if branch specified, return only active RMs in that branch"""
     if branch:
-        query["branch"] = branch
-    if search:
-        query["$or"] = [{"rm_id": {"$regex": search, "$options": "i"}}]
-    
-    materials = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
-    return [serialize_doc(m) for m in materials]
+        # Get active RMs in branch
+        inventory_query = {"branch": branch}
+        if not include_inactive:
+            inventory_query["is_active"] = True
+        
+        branch_inventories = await db.branch_rm_inventory.find(inventory_query, {"_id": 0}).to_list(1000)
+        active_rm_ids = [inv['rm_id'] for inv in branch_inventories]
+        
+        query = {"rm_id": {"$in": active_rm_ids}}
+        if search:
+            query["$and"] = [{"rm_id": {"$in": active_rm_ids}}, {"rm_id": {"$regex": search, "$options": "i"}}]
+        
+        materials = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
+        
+        # Merge with inventory data
+        result = []
+        for mat in materials:
+            inv = next((i for i in branch_inventories if i['rm_id'] == mat['rm_id']), None)
+            mat['current_stock'] = inv['current_stock'] if inv else 0
+            mat['branch'] = branch
+            result.append(serialize_doc(mat))
+        return result
+    else:
+        # Get all global RMs
+        query = {}
+        if search:
+            query["rm_id"] = {"$regex": search, "$options": "i"}
+        materials = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
+        return [serialize_doc(m) for m in materials]
 
-@api_router.get("/raw-materials/{rm_id}", response_model=RawMaterial)
-async def get_raw_material(rm_id: str, branch: str):
-    material = await db.raw_materials.find_one({"rm_id": rm_id, "branch": branch}, {"_id": 0})
-    if not material:
-        raise HTTPException(status_code=404, detail="Raw material not found")
-    return serialize_doc(material)
+@api_router.post("/raw-materials/activate")
+async def activate_rm_in_branch(request: ActivateItemRequest):
+    """Activate an RM in a specific branch"""
+    rm = await db.raw_materials.find_one({"rm_id": request.item_id}, {"_id": 0})
+    if not rm:
+        raise HTTPException(status_code=404, detail="RM not found globally")
+    
+    existing_inv = await db.branch_rm_inventory.find_one(
+        {"rm_id": request.item_id, "branch": request.branch},
+        {"_id": 0}
+    )
+    
+    if existing_inv:
+        if existing_inv['is_active']:
+            return {"message": "RM already active in this branch"}
+        # Reactivate
+        await db.branch_rm_inventory.update_one(
+            {"rm_id": request.item_id, "branch": request.branch},
+            {"$set": {"is_active": True, "activated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    else:
+        # Create new inventory entry
+        inv_obj = BranchRMInventory(rm_id=request.item_id, branch=request.branch)
+        doc = inv_obj.model_dump()
+        doc['activated_at'] = doc['activated_at'].isoformat()
+        await db.branch_rm_inventory.insert_one(doc)
+    
+    return {"message": f"RM {request.item_id} activated in {request.branch}"}
 
 @api_router.delete("/raw-materials/{rm_id}")
-async def delete_raw_material(rm_id: str, branch: str):
-    result = await db.raw_materials.delete_one({"rm_id": rm_id, "branch": branch})
+async def delete_raw_material(rm_id: str):
+    """Delete global RM"""
+    result = await db.raw_materials.delete_one({"rm_id": rm_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Raw material not found")
-    return {"message": "Raw material deleted"}
+    # Also delete from all branch inventories
+    await db.branch_rm_inventory.delete_many({"rm_id": rm_id})
+    return {"message": "Raw material deleted globally"}
 
 # ============ Purchase Entry Routes ============
 
-@api_router.post("/purchase-entries", response_model=PurchaseEntry)
+@api_router.post("/purchase-entries")
 async def create_purchase_entry(input: PurchaseEntryCreate):
-    material = await db.raw_materials.find_one({"rm_id": input.rm_id, "branch": input.branch}, {"_id": 0})
-    if not material:
+    rm = await db.raw_materials.find_one({"rm_id": input.rm_id}, {"_id": 0})
+    if not rm:
         raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    inventory = await db.branch_rm_inventory.find_one(
+        {"rm_id": input.rm_id, "branch": input.branch, "is_active": True},
+        {"_id": 0}
+    )
+    if not inventory:
+        raise HTTPException(status_code=400, detail=f"RM not active in {input.branch}. Please activate it first.")
     
     entry_obj = PurchaseEntry(**input.model_dump())
     doc = entry_obj.model_dump()
@@ -317,15 +382,14 @@ async def create_purchase_entry(input: PurchaseEntryCreate):
     doc['date'] = doc['date'].isoformat()
     await db.purchase_entries.insert_one(doc)
     
-    # Update stock
-    await db.raw_materials.update_one(
+    await db.branch_rm_inventory.update_one(
         {"rm_id": input.rm_id, "branch": input.branch},
         {"$inc": {"current_stock": input.quantity}}
     )
     
     return entry_obj
 
-@api_router.get("/purchase-entries", response_model=List[PurchaseEntry])
+@api_router.get("/purchase-entries")
 async def get_purchase_entries(branch: Optional[str] = None, rm_id: Optional[str] = None):
     query = {}
     if branch:
@@ -336,13 +400,14 @@ async def get_purchase_entries(branch: Optional[str] = None, rm_id: Optional[str
     entries = await db.purchase_entries.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return [serialize_doc(e) for e in entries]
 
-# ============ SKU Routes ============
+# ============ Global SKU Routes ============
 
 @api_router.post("/skus", response_model=SKU)
 async def create_sku(input: SKUCreate):
-    existing = await db.skus.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
+    """Create global SKU"""
+    existing = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
     if existing:
-        raise HTTPException(status_code=400, detail="SKU ID already exists in this branch")
+        raise HTTPException(status_code=400, detail="SKU ID already exists globally")
     
     sku_obj = SKU(**input.model_dump())
     doc = sku_obj.model_dump()
@@ -350,63 +415,142 @@ async def create_sku(input: SKUCreate):
     await db.skus.insert_one(doc)
     return sku_obj
 
-@api_router.get("/skus", response_model=List[SKU])
-async def get_skus(branch: Optional[str] = None, search: Optional[str] = None):
-    query = {}
+@api_router.get("/skus")
+async def get_skus(branch: Optional[str] = None, search: Optional[str] = None, include_inactive: bool = False):
+    """Get SKUs - if branch specified, return only active SKUs in that branch"""
     if branch:
-        query["branch"] = branch
-    if search:
-        query["$or"] = [
-            {"sku_id": {"$regex": search, "$options": "i"}},
-            {"bidso_sku": {"$regex": search, "$options": "i"}},
-            {"buyer_sku_id": {"$regex": search, "$options": "i"}}
-        ]
-    
-    skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
-    return [serialize_doc(s) for s in skus]
+        inventory_query = {"branch": branch}
+        if not include_inactive:
+            inventory_query["is_active"] = True
+        
+        branch_inventories = await db.branch_sku_inventory.find(inventory_query, {"_id": 0}).to_list(1000)
+        active_sku_ids = [inv['sku_id'] for inv in branch_inventories]
+        
+        query = {"sku_id": {"$in": active_sku_ids}}
+        if search:
+            query["$and"] = [
+                {"sku_id": {"$in": active_sku_ids}},
+                {"$or": [
+                    {"sku_id": {"$regex": search, "$options": "i"}},
+                    {"bidso_sku": {"$regex": search, "$options": "i"}},
+                    {"buyer_sku_id": {"$regex": search, "$options": "i"}}
+                ]}
+            ]
+        
+        skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
+        
+        result = []
+        for sku in skus:
+            inv = next((i for i in branch_inventories if i['sku_id'] == sku['sku_id']), None)
+            sku['current_stock'] = inv['current_stock'] if inv else 0
+            sku['branch'] = branch
+            result.append(serialize_doc(sku))
+        return result
+    else:
+        query = {}
+        if search:
+            query["$or"] = [
+                {"sku_id": {"$regex": search, "$options": "i"}},
+                {"bidso_sku": {"$regex": search, "$options": "i"}},
+                {"buyer_sku_id": {"$regex": search, "$options": "i"}}
+            ]
+        skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
+        return [serialize_doc(s) for s in skus]
 
-@api_router.get("/skus/{sku_id}", response_model=SKU)
-async def get_sku(sku_id: str, branch: str):
-    sku = await db.skus.find_one({"sku_id": sku_id, "branch": branch}, {"_id": 0})
+@api_router.post("/skus/activate")
+async def activate_sku_in_branch(request: ActivateItemRequest):
+    """Activate SKU in branch and auto-activate its BOM RMs"""
+    sku = await db.skus.find_one({"sku_id": request.item_id}, {"_id": 0})
     if not sku:
-        raise HTTPException(status_code=404, detail="SKU not found")
-    return serialize_doc(sku)
+        raise HTTPException(status_code=404, detail="SKU not found globally")
+    
+    # Check if already active
+    existing_inv = await db.branch_sku_inventory.find_one(
+        {"sku_id": request.item_id, "branch": request.branch},
+        {"_id": 0}
+    )
+    
+    if existing_inv:
+        if existing_inv['is_active']:
+            return {"message": "SKU already active in this branch"}
+        await db.branch_sku_inventory.update_one(
+            {"sku_id": request.item_id, "branch": request.branch},
+            {"$set": {"is_active": True, "activated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    else:
+        inv_obj = BranchSKUInventory(sku_id=request.item_id, branch=request.branch)
+        doc = inv_obj.model_dump()
+        doc['activated_at'] = doc['activated_at'].isoformat()
+        await db.branch_sku_inventory.insert_one(doc)
+    
+    # Auto-activate BOM RMs
+    mapping = await db.sku_mappings.find_one({"sku_id": request.item_id}, {"_id": 0})
+    activated_rms = []
+    if mapping:
+        for rm_mapping in mapping['rm_mappings']:
+            rm_id = rm_mapping['rm_id']
+            # Check if RM exists globally
+            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+            if rm:
+                # Activate in branch if not already
+                existing_rm_inv = await db.branch_rm_inventory.find_one(
+                    {"rm_id": rm_id, "branch": request.branch},
+                    {"_id": 0}
+                )
+                if not existing_rm_inv:
+                    rm_inv_obj = BranchRMInventory(rm_id=rm_id, branch=request.branch)
+                    doc = rm_inv_obj.model_dump()
+                    doc['activated_at'] = doc['activated_at'].isoformat()
+                    await db.branch_rm_inventory.insert_one(doc)
+                    activated_rms.append(rm_id)
+                elif not existing_rm_inv['is_active']:
+                    await db.branch_rm_inventory.update_one(
+                        {"rm_id": rm_id, "branch": request.branch},
+                        {"$set": {"is_active": True, "activated_at": datetime.now(timezone.utc).isoformat()}}
+                    )
+                    activated_rms.append(rm_id)
+    
+    return {
+        "message": f"SKU {request.item_id} activated in {request.branch}",
+        "auto_activated_rms": activated_rms
+    }
 
 @api_router.put("/skus/{sku_id}", response_model=SKU)
-async def update_sku(sku_id: str, branch: str, input: SKUCreate):
-    existing = await db.skus.find_one({"sku_id": sku_id, "branch": branch}, {"_id": 0})
+async def update_sku(sku_id: str, input: SKUCreate):
+    existing = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="SKU not found")
     
     update_data = input.model_dump()
-    await db.skus.update_one({"sku_id": sku_id, "branch": branch}, {"$set": update_data})
+    await db.skus.update_one({"sku_id": sku_id}, {"$set": update_data})
     
-    updated = await db.skus.find_one({"sku_id": sku_id, "branch": branch}, {"_id": 0})
+    updated = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
     return serialize_doc(updated)
 
 @api_router.delete("/skus/{sku_id}")
-async def delete_sku(sku_id: str, branch: str):
-    result = await db.skus.delete_one({"sku_id": sku_id, "branch": branch})
+async def delete_sku(sku_id: str):
+    result = await db.skus.delete_one({"sku_id": sku_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="SKU not found")
-    return {"message": "SKU deleted"}
+    await db.branch_sku_inventory.delete_many({"sku_id": sku_id})
+    return {"message": "SKU deleted globally"}
 
-# ============ SKU Mapping Routes ============
+# ============ SKU Mapping Routes (Global BOM) ============
 
 @api_router.post("/sku-mappings", response_model=SKUMapping)
 async def create_sku_mapping(input: SKUMappingCreate):
-    sku = await db.skus.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
+    sku = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     
     for mapping in input.rm_mappings:
-        rm = await db.raw_materials.find_one({"rm_id": mapping.rm_id, "branch": input.branch}, {"_id": 0})
+        rm = await db.raw_materials.find_one({"rm_id": mapping.rm_id}, {"_id": 0})
         if not rm:
-            raise HTTPException(status_code=404, detail=f"Raw material {mapping.rm_id} not found in this branch")
+            raise HTTPException(status_code=404, detail=f"Raw material {mapping.rm_id} not found globally")
     
-    existing = await db.sku_mappings.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
+    existing = await db.sku_mappings.find_one({"sku_id": input.sku_id}, {"_id": 0})
     if existing:
-        await db.sku_mappings.delete_one({"sku_id": input.sku_id, "branch": input.branch})
+        await db.sku_mappings.delete_one({"sku_id": input.sku_id})
     
     mapping_obj = SKUMapping(**input.model_dump())
     doc = mapping_obj.model_dump()
@@ -415,40 +559,46 @@ async def create_sku_mapping(input: SKUMappingCreate):
     return mapping_obj
 
 @api_router.get("/sku-mappings/{sku_id}", response_model=SKUMapping)
-async def get_sku_mapping(sku_id: str, branch: str):
-    mapping = await db.sku_mappings.find_one({"sku_id": sku_id, "branch": branch}, {"_id": 0})
+async def get_sku_mapping(sku_id: str):
+    mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found")
     return serialize_doc(mapping)
 
 @api_router.get("/sku-mappings", response_model=List[SKUMapping])
-async def get_all_sku_mappings(branch: Optional[str] = None):
-    query = {}
-    if branch:
-        query["branch"] = branch
-    mappings = await db.sku_mappings.find(query, {"_id": 0}).to_list(1000)
+async def get_all_sku_mappings():
+    mappings = await db.sku_mappings.find({}, {"_id": 0}).to_list(1000)
     return [serialize_doc(m) for m in mappings]
 
 # ============ Production Entry Routes ============
 
-@api_router.post("/production-entries", response_model=ProductionEntry)
+@api_router.post("/production-entries")
 async def create_production_entry(input: ProductionEntryCreate):
-    sku = await db.skus.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
-    if not sku:
-        raise HTTPException(status_code=404, detail="SKU not found")
+    # Check SKU is active in branch
+    sku_inv = await db.branch_sku_inventory.find_one(
+        {"sku_id": input.sku_id, "branch": input.branch, "is_active": True},
+        {"_id": 0}
+    )
+    if not sku_inv:
+        raise HTTPException(status_code=400, detail=f"SKU not active in {input.branch}")
     
-    mapping = await db.sku_mappings.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
+    mapping = await db.sku_mappings.find_one({"sku_id": input.sku_id}, {"_id": 0})
     if not mapping:
         raise HTTPException(status_code=400, detail="SKU mapping not found. Please map raw materials first.")
     
-    # Check if sufficient raw materials are available
+    # Check RM stock
     for rm_mapping in mapping['rm_mappings']:
         required_qty = rm_mapping['quantity_required'] * input.quantity
-        rm = await db.raw_materials.find_one({"rm_id": rm_mapping['rm_id'], "branch": input.branch}, {"_id": 0})
-        if rm['current_stock'] < required_qty:
+        rm_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": rm_mapping['rm_id'], "branch": input.branch, "is_active": True},
+            {"_id": 0}
+        )
+        if not rm_inv:
+            raise HTTPException(status_code=400, detail=f"RM {rm_mapping['rm_id']} not active in {input.branch}")
+        if rm_inv['current_stock'] < required_qty:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient stock for {rm_mapping['rm_id']}. Required: {required_qty}, Available: {rm['current_stock']}"
+                detail=f"Insufficient stock for {rm_mapping['rm_id']}. Required: {required_qty}, Available: {rm_inv['current_stock']}"
             )
     
     entry_obj = ProductionEntry(**input.model_dump())
@@ -457,22 +607,23 @@ async def create_production_entry(input: ProductionEntryCreate):
     doc['date'] = doc['date'].isoformat()
     await db.production_entries.insert_one(doc)
     
-    # Deduct raw materials and add to SKU stock
+    # Deduct RM stock
     for rm_mapping in mapping['rm_mappings']:
         required_qty = rm_mapping['quantity_required'] * input.quantity
-        await db.raw_materials.update_one(
+        await db.branch_rm_inventory.update_one(
             {"rm_id": rm_mapping['rm_id'], "branch": input.branch},
             {"$inc": {"current_stock": -required_qty}}
         )
     
-    await db.skus.update_one(
+    # Add SKU stock
+    await db.branch_sku_inventory.update_one(
         {"sku_id": input.sku_id, "branch": input.branch},
         {"$inc": {"current_stock": input.quantity}}
     )
     
     return entry_obj
 
-@api_router.get("/production-entries", response_model=List[ProductionEntry])
+@api_router.get("/production-entries")
 async def get_production_entries(branch: Optional[str] = None, sku_id: Optional[str] = None):
     query = {}
     if branch:
@@ -485,16 +636,19 @@ async def get_production_entries(branch: Optional[str] = None, sku_id: Optional[
 
 # ============ Dispatch Entry Routes ============
 
-@api_router.post("/dispatch-entries", response_model=DispatchEntry)
+@api_router.post("/dispatch-entries")
 async def create_dispatch_entry(input: DispatchEntryCreate):
-    sku = await db.skus.find_one({"sku_id": input.sku_id, "branch": input.branch}, {"_id": 0})
-    if not sku:
-        raise HTTPException(status_code=404, detail="SKU not found")
+    sku_inv = await db.branch_sku_inventory.find_one(
+        {"sku_id": input.sku_id, "branch": input.branch, "is_active": True},
+        {"_id": 0}
+    )
+    if not sku_inv:
+        raise HTTPException(status_code=400, detail=f"SKU not active in {input.branch}")
     
-    if sku['current_stock'] < input.quantity:
+    if sku_inv['current_stock'] < input.quantity:
         raise HTTPException(
             status_code=400,
-            detail=f"Insufficient SKU stock. Required: {input.quantity}, Available: {sku['current_stock']}"
+            detail=f"Insufficient SKU stock. Required: {input.quantity}, Available: {sku_inv['current_stock']}"
         )
     
     entry_obj = DispatchEntry(**input.model_dump())
@@ -503,15 +657,14 @@ async def create_dispatch_entry(input: DispatchEntryCreate):
     doc['date'] = doc['date'].isoformat()
     await db.dispatch_entries.insert_one(doc)
     
-    # Deduct from SKU stock
-    await db.skus.update_one(
+    await db.branch_sku_inventory.update_one(
         {"sku_id": input.sku_id, "branch": input.branch},
         {"$inc": {"current_stock": -input.quantity}}
     )
     
     return entry_obj
 
-@api_router.get("/dispatch-entries", response_model=List[DispatchEntry])
+@api_router.get("/dispatch-entries")
 async def get_dispatch_entries(branch: Optional[str] = None, sku_id: Optional[str] = None):
     query = {}
     if branch:
@@ -524,66 +677,107 @@ async def get_dispatch_entries(branch: Optional[str] = None, sku_id: Optional[st
 
 # ============ Dashboard & Reports Routes ============
 
-@api_router.get("/dashboard/stats", response_model=DashboardStats)
+@api_router.get("/dashboard/stats")
 async def get_dashboard_stats(branch: Optional[str] = None):
-    query = {}
-    if branch:
-        query["branch"] = branch
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch parameter required")
     
-    rm_count = await db.raw_materials.count_documents(query)
-    sku_count = await db.skus.count_documents(query)
+    rm_count = await db.branch_rm_inventory.count_documents({"branch": branch, "is_active": True})
+    sku_count = await db.branch_sku_inventory.count_documents({"branch": branch, "is_active": True})
     
-    # Low stock items
-    all_rm = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
-    low_stock_rm = sum(1 for rm in all_rm if rm['current_stock'] < rm['low_stock_threshold'])
+    # Low stock
+    rm_invs = await db.branch_rm_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    low_stock_rm = 0
+    for rm_inv in rm_invs:
+        rm = await db.raw_materials.find_one({"rm_id": rm_inv['rm_id']}, {"_id": 0})
+        if rm and rm_inv['current_stock'] < rm.get('low_stock_threshold', 10):
+            low_stock_rm += 1
     
-    all_sku = await db.skus.find(query, {"_id": 0}).to_list(1000)
-    low_stock_sku = sum(1 for sku in all_sku if sku['current_stock'] < sku['low_stock_threshold'])
+    sku_invs = await db.branch_sku_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    low_stock_sku = 0
+    for sku_inv in sku_invs:
+        sku = await db.skus.find_one({"sku_id": sku_inv['sku_id']}, {"_id": 0})
+        if sku and sku_inv['current_stock'] < sku.get('low_stock_threshold', 5):
+            low_stock_sku += 1
     
     # Today's production
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    prod_query = {"date": {"$gte": today_start.isoformat()}}
-    if branch:
-        prod_query["branch"] = branch
-    today_entries = await db.production_entries.find(prod_query, {"_id": 0}).to_list(1000)
+    today_entries = await db.production_entries.find(
+        {"branch": branch, "date": {"$gte": today_start.isoformat()}},
+        {"_id": 0}
+    ).to_list(1000)
     today_production = sum(e.get('quantity', 0) for e in today_entries)
     
-    return DashboardStats(
-        total_rm_value=rm_count,
-        total_sku_value=sku_count,
-        low_stock_items=low_stock_rm + low_stock_sku,
-        today_production=int(today_production)
-    )
+    return {
+        "total_rm_value": rm_count,
+        "total_sku_value": sku_count,
+        "low_stock_items": low_stock_rm + low_stock_sku,
+        "today_production": int(today_production)
+    }
+
+@api_router.get("/reports/master-dashboard")
+async def get_master_dashboard():
+    stats_by_branch = {}
+    for branch in BRANCHES:
+        stats = await get_dashboard_stats(branch)
+        stats_by_branch[branch] = stats
+    
+    total_rm = sum(s['total_rm_value'] for s in stats_by_branch.values())
+    total_sku = sum(s['total_sku_value'] for s in stats_by_branch.values())
+    total_low_stock = sum(s['low_stock_items'] for s in stats_by_branch.values())
+    total_production = sum(s['today_production'] for s in stats_by_branch.values())
+    
+    return {
+        "overall": {
+            "total_rm_value": total_rm,
+            "total_sku_value": total_sku,
+            "low_stock_items": total_low_stock,
+            "today_production": total_production
+        },
+        "by_branch": stats_by_branch
+    }
 
 @api_router.get("/reports/low-stock")
 async def get_low_stock_report(branch: Optional[str] = None):
-    query = {}
-    if branch:
-        query["branch"] = branch
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch parameter required")
     
-    all_rm = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
-    low_stock_rm = [rm for rm in all_rm if rm['current_stock'] < rm['low_stock_threshold']]
+    low_stock_rm = []
+    rm_invs = await db.branch_rm_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    for rm_inv in rm_invs:
+        rm = await db.raw_materials.find_one({"rm_id": rm_inv['rm_id']}, {"_id": 0})
+        if rm and rm_inv['current_stock'] < rm.get('low_stock_threshold', 10):
+            rm_data = rm.copy()
+            rm_data['current_stock'] = rm_inv['current_stock']
+            low_stock_rm.append(serialize_doc(rm_data))
     
-    all_sku = await db.skus.find(query, {"_id": 0}).to_list(1000)
-    low_stock_sku = [sku for sku in all_sku if sku['current_stock'] < sku['low_stock_threshold']]
+    low_stock_sku = []
+    sku_invs = await db.branch_sku_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    for sku_inv in sku_invs:
+        sku = await db.skus.find_one({"sku_id": sku_inv['sku_id']}, {"_id": 0})
+        if sku and sku_inv['current_stock'] < sku.get('low_stock_threshold', 5):
+            sku_data = sku.copy()
+            sku_data['current_stock'] = sku_inv['current_stock']
+            low_stock_sku.append(serialize_doc(sku_data))
     
     return {
-        "raw_materials": [serialize_doc(rm) for rm in low_stock_rm],
-        "skus": [serialize_doc(sku) for sku in low_stock_sku]
+        "raw_materials": low_stock_rm,
+        "skus": low_stock_sku
     }
 
 @api_router.get("/reports/production-summary")
 async def get_production_summary(days: int = 7, branch: Optional[str] = None):
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch parameter required")
+    
     from datetime import timedelta
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
     
-    query = {"date": {"$gte": start_date.isoformat()}}
-    if branch:
-        query["branch"] = branch
+    entries = await db.production_entries.find(
+        {"branch": branch, "date": {"$gte": start_date.isoformat()}},
+        {"_id": 0}
+    ).sort("date", -1).to_list(1000)
     
-    entries = await db.production_entries.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
-    
-    # Group by date
     daily_summary = {}
     for entry in entries:
         date_str = entry['date'][:10]
@@ -599,40 +793,30 @@ async def get_production_summary(days: int = 7, branch: Optional[str] = None):
 
 @api_router.get("/reports/inventory")
 async def get_inventory_report(branch: Optional[str] = None):
-    query = {}
-    if branch:
-        query["branch"] = branch
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch parameter required")
     
-    raw_materials = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
-    skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
+    rm_invs = await db.branch_rm_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    raw_materials = []
+    for rm_inv in rm_invs:
+        rm = await db.raw_materials.find_one({"rm_id": rm_inv['rm_id']}, {"_id": 0})
+        if rm:
+            rm_data = rm.copy()
+            rm_data['current_stock'] = rm_inv['current_stock']
+            raw_materials.append(serialize_doc(rm_data))
     
-    return {
-        "raw_materials": [serialize_doc(rm) for rm in raw_materials],
-        "skus": [serialize_doc(sku) for sku in skus]
-    }
-
-@api_router.get("/reports/master-dashboard")
-async def get_master_dashboard():
-    """Master dashboard with all branches aggregated"""
-    stats_by_branch = {}
-    for branch in BRANCHES:
-        stats = await get_dashboard_stats(branch)
-        stats_by_branch[branch] = stats.model_dump()
-    
-    # Overall totals
-    total_rm = sum(s['total_rm_value'] for s in stats_by_branch.values())
-    total_sku = sum(s['total_sku_value'] for s in stats_by_branch.values())
-    total_low_stock = sum(s['low_stock_items'] for s in stats_by_branch.values())
-    total_production = sum(s['today_production'] for s in stats_by_branch.values())
+    sku_invs = await db.branch_sku_inventory.find({"branch": branch, "is_active": True}, {"_id": 0}).to_list(1000)
+    skus = []
+    for sku_inv in sku_invs:
+        sku = await db.skus.find_one({"sku_id": sku_inv['sku_id']}, {"_id": 0})
+        if sku:
+            sku_data = sku.copy()
+            sku_data['current_stock'] = sku_inv['current_stock']
+            skus.append(serialize_doc(sku_data))
     
     return {
-        "overall": {
-            "total_rm_value": total_rm,
-            "total_sku_value": total_sku,
-            "low_stock_items": total_low_stock,
-            "today_production": total_production
-        },
-        "by_branch": stats_by_branch
+        "raw_materials": raw_materials,
+        "skus": skus
     }
 
 app.include_router(api_router)
