@@ -575,6 +575,95 @@ async def create_sku_mapping(input: SKUMappingCreate):
     await db.sku_mappings.insert_one(doc)
     return mapping_obj
 
+@api_router.post("/sku-mappings/bulk-upload")
+async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
+    """Bulk upload SKU to RM mappings via Excel"""
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        # Group mappings by SKU
+        sku_mappings_dict = {}  # {sku_id: [{"rm_id": "...", "quantity_required": ...}]}
+        
+        created_count = 0
+        updated_count = 0
+        errors = []
+        
+        # Expected format: SKU_ID, RM_ID, Qty
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0] or not row[1]:
+                continue
+            
+            try:
+                sku_id = str(row[0]).strip()
+                rm_id = str(row[1]).strip()
+                qty = float(row[2]) if row[2] else 0
+                
+                if qty <= 0:
+                    errors.append(f"Row {idx}: Invalid quantity for {sku_id} - {rm_id}")
+                    continue
+                
+                # Verify SKU exists
+                sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+                if not sku:
+                    errors.append(f"Row {idx}: SKU {sku_id} not found")
+                    continue
+                
+                # Verify RM exists
+                rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+                if not rm:
+                    errors.append(f"Row {idx}: RM {rm_id} not found")
+                    continue
+                
+                # Add to mapping dictionary
+                if sku_id not in sku_mappings_dict:
+                    sku_mappings_dict[sku_id] = []
+                
+                sku_mappings_dict[sku_id].append({
+                    "rm_id": rm_id,
+                    "quantity_required": qty
+                })
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+        
+        # Create/update mappings for each SKU
+        for sku_id, rm_mappings in sku_mappings_dict.items():
+            try:
+                existing = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
+                
+                mapping_obj = SKUMapping(
+                    sku_id=sku_id,
+                    rm_mappings=[RMMapping(**rm) for rm in rm_mappings]
+                )
+                doc = mapping_obj.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                
+                if existing:
+                    # Replace existing mapping
+                    await db.sku_mappings.delete_one({"sku_id": sku_id})
+                    await db.sku_mappings.insert_one(doc)
+                    updated_count += 1
+                else:
+                    await db.sku_mappings.insert_one(doc)
+                    created_count += 1
+                    
+            except Exception as e:
+                errors.append(f"SKU {sku_id}: {str(e)}")
+        
+        return {
+            "created": created_count,
+            "updated": updated_count,
+            "total_skus": len(sku_mappings_dict),
+            "errors": errors
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
 @api_router.get("/sku-mappings/{sku_id}", response_model=SKUMapping)
 async def get_sku_mapping(sku_id: str):
     mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
