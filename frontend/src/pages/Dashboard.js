@@ -15,14 +15,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [selectedBranch]);
 
   const fetchDashboardData = async () => {
     try {
       const [statsRes, prodRes, dispatchRes] = await Promise.all([
-        axios.get(`${API}/dashboard/stats`),
-        axios.get(`${API}/production-entries`),
-        axios.get(`${API}/dispatch-entries`)
+        axios.get(`${API}/dashboard/stats?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/production-entries?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/dispatch-entries?branch=${encodeURIComponent(selectedBranch)}`)
       ]);
 
       setStats(statsRes.data);
