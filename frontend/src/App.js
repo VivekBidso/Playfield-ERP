@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
+import MasterDashboard from "@/pages/MasterDashboard";
 import RawMaterials from "@/pages/RawMaterials";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
@@ -18,6 +19,7 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="master-dashboard" element={<MasterDashboard />} />
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="skus" element={<SKUs />} />
             <Route path="sku-mapping" element={<SKUMapping />} />
