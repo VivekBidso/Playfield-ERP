@@ -1,0 +1,122 @@
+{
+  "identity": {
+    "name": "E1 - The Industrial Architect",
+    "vibe": "Precision, Clarity, Raw Materiality",
+    "principles": [
+      "Data is the decoration",
+      "Grid lines are visible and structural",
+      "Color is for function (status/action), not mood",
+      "Typography hierarchy > Whitespace"
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "headings": {
+        "family": "Chivo, sans-serif",
+        "weights": ["700", "900"],
+        "usage": "Page titles, Section headers, KPI values"
+      },
+      "body": {
+        "family": "IBM Plex Sans, sans-serif",
+        "weights": ["400", "500"],
+        "usage": "General UI text, labels, descriptions"
+      },
+      "mono": {
+        "family": "IBM Plex Mono, monospace",
+        "weights": ["400", "600"],
+        "usage": "Table data, SKU IDs, Inventory counts, Timestamps"
+      }
+    },
+    "scale": {
+      "h1": "text-4xl font-black tracking-tight uppercase",
+      "h2": "text-2xl font-bold tracking-tight",
+      "h3": "text-lg font-bold uppercase tracking-widest text-muted-foreground",
+      "body": "text-sm leading-relaxed",
+      "mono_sm": "text-xs font-mono",
+      "mono_base": "text-sm font-mono"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#FFFFFF",
+      "surface": "#F4F4F5",
+      "foreground": "#09090B",
+      "border": "#E4E4E7",
+      "primary": "#F97316",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#27272A",
+      "secondary_foreground": "#FFFFFF",
+      "muted": "#71717A",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "error": "#EF4444"
+    },
+    "usage_rules": {
+      "primary": "Use ONLY for main Call-to-Actions (Create, Upload, Save). Do not use for backgrounds.",
+      "status_indicators": "Use solid 1px borders + colored text for status badges. No soft backgrounds.",
+      "gradients": "FORBIDDEN. Use solid colors only."
+    }
+  },
+  "layout": {
+    "grid_system": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-4 gap-px bg-border border border-border",
+      "card": "bg-background p-6 h-full"
+    },
+    "spacing": {
+      "container_padding": "p-6 md:p-8",
+      "section_gap": "gap-8",
+      "item_gap": "gap-4"
+    },
+    "borders": {
+      "style": "1px solid",
+      "radius": "rounded-none md:rounded-sm",
+      "color": "border-zinc-200"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 rounded-sm font-medium px-6 py-2 uppercase tracking-wide text-xs shadow-none",
+      "secondary": "bg-white border border-input hover:bg-accent hover:text-accent-foreground rounded-sm font-medium px-6 py-2 uppercase tracking-wide text-xs shadow-none",
+      "ghost": "hover:bg-accent hover:text-accent-foreground rounded-sm"
+    },
+    "cards": {
+      "style": "border border-border bg-card text-card-foreground shadow-none rounded-sm",
+      "header": "p-6 border-b border-border",
+      "content": "p-6"
+    },
+    "tables": {
+      "style": "w-full caption-bottom text-sm border-collapse",
+      "header": "border-b border-zinc-200 bg-zinc-50 h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider",
+      "row": "border-b border-zinc-100 transition-colors hover:bg-zinc-50/50 data-[state=selected]:bg-zinc-100",
+      "cell": "p-4 align-middle font-mono text-zinc-700"
+    },
+    "inputs": {
+      "style": "flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+    }
+  },
+  "visual_enhancers": {
+    "textures": "Use a subtle 'noise' texture on the sidebar background only.",
+    "icons": "Lucide React (Stroke width: 1.5px)",
+    "empty_states": "Use the industrial factory image with a grayscale filter and 0.1 opacity as a background watermark for empty states."
+  },
+  "image_urls": {
+    "factory_bg": "https://images.unsplash.com/photo-1761034278174-bf8d69530182?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBmYWN0b3J5JTIwaW50ZXJpb3IlMjBtaW5pbWFsfGVufDB8fHx8MTc3Mjc3ODYzMXww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": {
+    "general": "Build a 'Swiss Industrial' interface. Think of a Braun calculator or a printed shipping manifest. High legibility, zero clutter.",
+    "dashboard": "Use the 'Bento Grid' layout. Top row: 4 key metrics (Total RM Value, Total SKU Value, Low Stock Items, Today's Production). Middle: Production Chart (Bar) + Recent Activity List.",
+    "tables": "Tables are the heart of this app. Make them dense but readable. Use 'IBM Plex Mono' for all ID columns (RM ID, SKU ID) and numerical values.",
+    "forms": "Group form inputs logically. Use 'Fieldsets' with legends for complex forms like 'RM to SKU Mapping'.",
+    "charts": "Use Recharts. Colors: Primary (Orange) for Production, Zinc-800 for Inventory, Red-500 for Low Stock. No gradients in charts.",
+    "navigation": "Sidebar navigation. Active state: Left border 2px solid Orange, background Zinc-100, text Zinc-900."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not use gradients.",
+    "Do not use rounded corners > 4px (sm).",
+    "Do not use 'Inter' font.",
+    "Always use 'data-testid' for interactive elements.",
+    "Use 'sonner' for toasts.",
+    "Use 'lucide-react' for icons.",
+    "Ensure all text has contrast ratio > 4.5:1."
+  ]
+}
