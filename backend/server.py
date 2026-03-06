@@ -232,12 +232,24 @@ async def get_rm_categories():
 
 @api_router.post("/raw-materials", response_model=RawMaterial)
 async def create_raw_material(input: RawMaterialCreate):
-    """Create global RM (not branch-specific)"""
-    existing = await db.raw_materials.find_one({"rm_id": input.rm_id}, {"_id": 0})
-    if existing:
-        raise HTTPException(status_code=400, detail="RM ID already exists globally")
+    """Create global RM with auto-generated ID"""
+    # Auto-generate RM ID based on category
+    seq = await get_next_rm_sequence(input.category)
+    rm_id = f"{input.category}_{seq:03d}"
     
-    rm_obj = RawMaterial(**input.model_dump())
+    # Check if somehow this ID exists (shouldn't happen)
+    existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+    if existing:
+        # Get next available
+        seq = await get_next_rm_sequence(input.category)
+        rm_id = f"{input.category}_{seq:03d}"
+    
+    rm_obj = RawMaterial(
+        rm_id=rm_id,
+        category=input.category,
+        category_data=input.category_data,
+        low_stock_threshold=input.low_stock_threshold
+    )
     doc = rm_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.raw_materials.insert_one(doc)
