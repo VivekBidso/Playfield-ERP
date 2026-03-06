@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -12,28 +14,47 @@ import { saveAs } from 'file-saver';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+const RM_CATEGORIES = {
+  "INP": { 
+    name: "In-house Plastic", 
+    fields: ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"]
+  },
+  "ACC": { 
+    name: "Accessories", 
+    fields: ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"]
+  },
+  "ELC": { 
+    name: "Electric Components", 
+    fields: ["model", "type", "specs", "per_unit_weight", "unit"]
+  },
+  "SP": { 
+    name: "Spares", 
+    fields: ["type", "specs", "per_unit_weight", "unit"]
+  },
+  "BS": { 
+    name: "Brand Assets", 
+    fields: ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"]
+  },
+  "PM": { 
+    name: "Packaging", 
+    fields: ["model", "type", "specs", "brand", "per_unit_weight", "unit"]
+  },
+  "LB": { 
+    name: "Labels", 
+    fields: ["type", "buyer_sku", "per_unit_weight", "unit"]
+  }
+};
+
 const RawMaterials = () => {
   const [materials, setMaterials] = useState([]);
   const [filteredMaterials, setFilteredMaterials] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
-  const [selectedRM, setSelectedRM] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState("");
   const fileInputRef = useRef(null);
 
-  const [newRM, setNewRM] = useState({
-    rm_id: "",
-    name: "",
-    unit: "",
-    low_stock_threshold: 10
-  });
-
-  const [purchaseEntry, setPurchaseEntry] = useState({
-    rm_id: "",
-    quantity: 0,
-    date: new Date().toISOString().split('T')[0],
-    notes: ""
-  });
+  const [categoryData, setCategoryData] = useState({});
+  const [lowStockThreshold, setLowStockThreshold] = useState(10);
 
   useEffect(() => {
     fetchMaterials();
@@ -42,8 +63,7 @@ const RawMaterials = () => {
   useEffect(() => {
     if (searchQuery) {
       const filtered = materials.filter(m => 
-        m.rm_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.name.toLowerCase().includes(searchQuery.toLowerCase())
+        m.rm_id.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredMaterials(filtered);
     } else {
@@ -82,31 +102,44 @@ const RawMaterials = () => {
   };
 
   const handleAddRM = async () => {
+    if (!selectedCategory) {
+      toast.error("Please select a category");
+      return;
+    }
+
     try {
-      await axios.post(`${API}/raw-materials`, newRM);
-      toast.success("Raw material added");
+      await axios.post(`${API}/raw-materials`, {
+        category: selectedCategory,
+        category_data: categoryData,
+        low_stock_threshold: lowStockThreshold
+      });
+      toast.success("Raw material added with auto-generated ID");
       setShowAddDialog(false);
-      setNewRM({ rm_id: "", name: "", unit: "", low_stock_threshold: 10 });
+      resetForm();
       fetchMaterials();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to add raw material");
     }
   };
 
-  const handleAddPurchase = async () => {
-    try {
-      const payload = {
-        ...purchaseEntry,
-        date: new Date(purchaseEntry.date).toISOString()
-      };
-      await axios.post(`${API}/purchase-entries`, payload);
-      toast.success("Purchase entry added");
-      setShowPurchaseDialog(false);
-      setPurchaseEntry({ rm_id: "", quantity: 0, date: new Date().toISOString().split('T')[0], notes: "" });
-      fetchMaterials();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to add purchase entry");
-    }
+  const resetForm = () => {
+    setSelectedCategory("");
+    setCategoryData({});
+    setLowStockThreshold(10);
+  };
+
+  const handleCategoryChange = (category) => {
+    setSelectedCategory(category);
+    const fields = RM_CATEGORIES[category].fields;
+    const initialData = {};
+    fields.forEach(field => {
+      initialData[field] = "";
+    });
+    setCategoryData(initialData);
+  };
+
+  const updateCategoryField = (field, value) => {
+    setCategoryData({...categoryData, [field]: value});
   };
 
   const handleDelete = async (rm_id) => {
@@ -120,12 +153,25 @@ const RawMaterials = () => {
     }
   };
 
+  const downloadCategoryTemplate = (category) => {
+    const categoryInfo = RM_CATEGORIES[category];
+    const headers = ["Category", ...categoryInfo.fields, "low_stock_threshold"];
+    const sampleRow = [category, ...categoryInfo.fields.map(() => "sample_value"), 10];
+    
+    const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, categoryInfo.name);
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(
+      new Blob([wbout], { type: 'application/octet-stream' }), 
+      `rm_template_${category}_${categoryInfo.name.replace(/\s+/g, '_')}.xlsx`
+    );
+  };
+
   const handleExport = () => {
     const ws = XLSX.utils.json_to_sheet(materials.map(m => ({
       'RM ID': m.rm_id,
-      'Name': m.name,
-      'Unit': m.unit,
-      'Current Stock': m.current_stock,
+      'Category': m.category,
       'Low Stock Threshold': m.low_stock_threshold
     })));
     const wb = XLSX.utils.book_new();
@@ -135,13 +181,10 @@ const RawMaterials = () => {
     toast.success("Exported to Excel");
   };
 
-  const downloadTemplate = () => {
-    const template = [{ rm_id: 'RM001', name: 'Sample Material', unit: 'kg', low_stock_threshold: 10 }];
-    const ws = XLSX.utils.json_to_sheet(template);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'rm_upload_template.xlsx');
+  const formatFieldName = (field) => {
+    return field.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
   };
 
   return (
@@ -149,7 +192,7 @@ const RawMaterials = () => {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Raw Materials</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">Manage inventory & purchases</p>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">Global RM management with auto-generated IDs</p>
         </div>
         <div className="flex gap-3">
           <Button 
@@ -161,6 +204,38 @@ const RawMaterials = () => {
             <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Export
           </Button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button 
+                variant="secondary"
+                data-testid="templates-btn"
+                className="uppercase text-xs tracking-wide"
+              >
+                Templates
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="font-bold uppercase">Download Category Templates</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {Object.entries(RM_CATEGORIES).map(([code, info]) => (
+                  <Button
+                    key={code}
+                    variant="outline"
+                    onClick={() => downloadCategoryTemplate(code)}
+                    className="justify-start text-left h-auto py-3"
+                    data-testid={`template-${code}`}
+                  >
+                    <div>
+                      <div className="font-mono text-sm font-bold text-primary">{code}</div>
+                      <div className="text-xs text-muted-foreground">{info.name}</div>
+                    </div>
+                  </Button>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -177,80 +252,78 @@ const RawMaterials = () => {
             <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Bulk Upload
           </Button>
-          <Button 
-            variant="secondary" 
-            onClick={downloadTemplate}
-            data-testid="download-template-btn"
-            className="uppercase text-xs tracking-wide"
-          >
-            Template
-          </Button>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <Dialog open={showAddDialog} onOpenChange={(open) => {
+            setShowAddDialog(open);
+            if (!open) resetForm();
+          }}>
             <DialogTrigger asChild>
               <Button data-testid="add-rm-btn" className="uppercase text-xs tracking-wide">
                 <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
                 Add RM
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="font-bold uppercase">Add Raw Material</DialogTitle>
+                <p className="text-xs text-muted-foreground font-mono">RM ID will be auto-generated</p>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label>RM ID *</Label>
-                  <Input 
-                    value={newRM.rm_id} 
-                    onChange={(e) => setNewRM({...newRM, rm_id: e.target.value})}
-                    data-testid="rm-id-input"
-                    className="font-mono"
-                  />
+                  <Label>Category *</Label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
+                    data-testid="rm-category-select"
+                  >
+                    <option value="">Select Category</option>
+                    {Object.entries(RM_CATEGORIES).map(([code, info]) => (
+                      <option key={code} value={code}>{code} - {info.name}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <Label>Name *</Label>
-                  <Input 
-                    value={newRM.name} 
-                    onChange={(e) => setNewRM({...newRM, name: e.target.value})}
-                    data-testid="rm-name-input"
-                  />
-                </div>
-                <div>
-                  <Label>Unit *</Label>
-                  <Input 
-                    value={newRM.unit} 
-                    onChange={(e) => setNewRM({...newRM, unit: e.target.value})}
-                    data-testid="rm-unit-input"
-                    placeholder="e.g., kg, liters, units"
-                  />
-                </div>
-                <div>
-                  <Label>Low Stock Threshold</Label>
-                  <Input 
-                    type="number" 
-                    value={newRM.low_stock_threshold} 
-                    onChange={(e) => setNewRM({...newRM, low_stock_threshold: parseFloat(e.target.value)})}
-                    data-testid="rm-threshold-input"
-                  />
-                </div>
-                <Button onClick={handleAddRM} data-testid="submit-rm-btn" className="w-full uppercase text-xs tracking-wide">
-                  Add Raw Material
-                </Button>
+
+                {selectedCategory && (
+                  <>
+                    <div className="border-t border-border pt-4">
+                      <Label className="text-base mb-3 block">Category Details</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {RM_CATEGORIES[selectedCategory].fields.map((field) => (
+                          <div key={field}>
+                            <Label className="text-xs">{formatFieldName(field)}</Label>
+                            <Input
+                              value={categoryData[field] || ""}
+                              onChange={(e) => updateCategoryField(field, e.target.value)}
+                              data-testid={`rm-field-${field}`}
+                              className="font-mono"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label>Low Stock Threshold</Label>
+                      <Input 
+                        type="number" 
+                        value={lowStockThreshold} 
+                        onChange={(e) => setLowStockThreshold(parseFloat(e.target.value))}
+                        data-testid="rm-threshold-input"
+                      />
+                    </div>
+
+                    <Button 
+                      onClick={handleAddRM} 
+                      data-testid="submit-rm-btn" 
+                      className="w-full uppercase text-xs tracking-wide"
+                    >
+                      Add Raw Material
+                    </Button>
+                  </>
+                )}
               </div>
             </DialogContent>
           </Dialog>
-          <Button 
-            onClick={() => {
-              setShowPurchaseDialog(true);
-              if (materials.length > 0) {
-                setPurchaseEntry({...purchaseEntry, rm_id: materials[0].rm_id});
-              }
-            }}
-            data-testid="add-purchase-btn"
-            className="uppercase text-xs tracking-wide"
-          >
-            <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
-            Add Purchase
-          </Button>
         </div>
       </div>
 
@@ -259,7 +332,7 @@ const RawMaterials = () => {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={1.5} />
           <Input 
-            placeholder="Search by RM ID or Name..." 
+            placeholder="Search by RM ID..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             data-testid="search-rm-input"
@@ -275,33 +348,26 @@ const RawMaterials = () => {
             <thead className="bg-zinc-50 border-b border-zinc-200">
               <tr>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">RM ID</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Name</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Unit</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Category</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Details</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Threshold</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredMaterials.map((material) => (
                 <tr key={material.id} className="border-b border-zinc-100 hover:bg-zinc-50/50" data-testid={`rm-row-${material.rm_id}`}>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.rm_id}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.name}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.unit}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.current_stock}</td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.low_stock_threshold}</td>
+                  <td className="p-4 align-middle font-mono text-sm font-bold text-zinc-700">{material.rm_id}</td>
                   <td className="p-4 align-middle">
-                    {material.current_stock < material.low_stock_threshold ? (
-                      <span className="text-xs font-mono text-red-600 border border-red-600 px-2 py-1 uppercase tracking-wider">
-                        Low Stock
-                      </span>
-                    ) : (
-                      <span className="text-xs font-mono text-green-600 border border-green-600 px-2 py-1 uppercase tracking-wider">
-                        OK
-                      </span>
-                    )}
+                    <div className="text-xs font-mono text-primary font-bold">{material.category}</div>
+                    <div className="text-xs text-muted-foreground">{RM_CATEGORIES[material.category]?.name}</div>
                   </td>
+                  <td className="p-4 align-middle text-xs text-zinc-600">
+                    {Object.entries(material.category_data || {}).slice(0, 3).map(([key, value]) => (
+                      <div key={key} className="font-mono">{key}: {value}</div>
+                    ))}
+                  </td>
+                  <td className="p-4 align-middle font-mono text-zinc-700">{material.low_stock_threshold}</td>
                   <td className="p-4 align-middle">
                     <Button 
                       variant="ghost" 
@@ -323,61 +389,6 @@ const RawMaterials = () => {
           )}
         </div>
       </div>
-
-      {/* Purchase Dialog */}
-      <Dialog open={showPurchaseDialog} onOpenChange={setShowPurchaseDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-bold uppercase">Add Purchase Entry</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>RM ID *</Label>
-              <select 
-                className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
-                value={purchaseEntry.rm_id}
-                onChange={(e) => setPurchaseEntry({...purchaseEntry, rm_id: e.target.value})}
-                data-testid="purchase-rm-select"
-              >
-                <option value="">Select RM</option>
-                {materials.map(m => (
-                  <option key={m.rm_id} value={m.rm_id}>{m.rm_id} - {m.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>Quantity *</Label>
-              <Input 
-                type="number" 
-                value={purchaseEntry.quantity} 
-                onChange={(e) => setPurchaseEntry({...purchaseEntry, quantity: parseFloat(e.target.value)})}
-                data-testid="purchase-quantity-input"
-                className="font-mono"
-              />
-            </div>
-            <div>
-              <Label>Date *</Label>
-              <Input 
-                type="date" 
-                value={purchaseEntry.date} 
-                onChange={(e) => setPurchaseEntry({...purchaseEntry, date: e.target.value})}
-                data-testid="purchase-date-input"
-              />
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Input 
-                value={purchaseEntry.notes} 
-                onChange={(e) => setPurchaseEntry({...purchaseEntry, notes: e.target.value})}
-                data-testid="purchase-notes-input"
-              />
-            </div>
-            <Button onClick={handleAddPurchase} data-testid="submit-purchase-btn" className="w-full uppercase text-xs tracking-wide">
-              Add Purchase
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
