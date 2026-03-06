@@ -110,6 +110,59 @@ const SKUMapping = () => {
     return rm ? `${rm.name} (${rm.unit})` : rm_id;
   };
 
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post(`${API}/sku-mappings/bulk-upload`, formData);
+      toast.success(`Uploaded: ${response.data.created} created, ${response.data.updated} updated`);
+      if (response.data.errors.length > 0) {
+        console.error('Upload errors:', response.data.errors);
+        toast.warning(`${response.data.errors.length} rows had errors. Check console.`);
+      }
+      fetchData();
+    } catch (error) {
+      toast.error("Upload failed");
+    }
+    e.target.value = null;
+  };
+
+  const downloadTemplate = () => {
+    const template = [
+      { SKU_ID: 'SKU001', RM_ID: 'INP_001', Qty: 2 },
+      { SKU_ID: 'SKU001', RM_ID: 'ACC_001', Qty: 1 },
+      { SKU_ID: 'SKU002', RM_ID: 'INP_001', Qty: 3 }
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'sku_mapping_template.xlsx');
+  };
+
+  const exportMappings = () => {
+    const data = [];
+    mappings.forEach(mapping => {
+      mapping.rm_mappings.forEach(rm => {
+        data.push({
+          SKU_ID: mapping.sku_id,
+          RM_ID: rm.rm_id,
+          Qty: rm.quantity_required
+        });
+      });
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mappings');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'sku_mappings.xlsx');
+    toast.success("Mappings exported");
+  };
+
   return (
     <div className="p-6 md:p-8" data-testid="sku-mapping-page">
       <div className="mb-8 flex items-center justify-between">
