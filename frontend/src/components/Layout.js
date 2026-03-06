@@ -30,6 +30,7 @@ const Layout = () => {
           <h1 className="text-2xl font-black uppercase tracking-tight">Factory Ops</h1>
           <p className="text-xs text-zinc-400 mt-1 font-mono">Manufacturing Control</p>
         </div>
+        <BranchSelector />
         <nav className="flex-1 p-4">
           {navItems.map((item) => (
             <NavLink
