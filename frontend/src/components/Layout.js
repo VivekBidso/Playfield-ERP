@@ -10,7 +10,8 @@ import {
   Gauge,
   ClipboardList,
   Users,
-  LogOut
+  LogOut,
+  PackagePlus
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -26,6 +27,7 @@ const Layout = () => {
     { path: "/master-dashboard", label: "Master Dashboard", icon: Gauge, show: isMasterAdmin },
     { path: "/user-management", label: "User Management", icon: Users, show: isMasterAdmin },
     { path: "/raw-materials", label: "Raw Materials", icon: Package, show: true },
+    { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: true },
     { path: "/skus", label: "SKUs", icon: Box, show: true },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: true },
     { path: "/production-planning", label: "Production Planning", icon: ClipboardList, show: true },
