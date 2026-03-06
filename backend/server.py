@@ -836,6 +836,213 @@ async def get_inventory_report(branch: Optional[str] = None):
         "skus": skus
     }
 
+# ============ Production Planning Routes ============
+
+@api_router.post("/production-plans/bulk-upload")
+async def bulk_upload_production_plan(file: UploadFile = File(...), branch: str = "Unit 1 Vedica"):
+    """Upload production plan for the month"""
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        created_count = 0
+        skipped_count = 0
+        errors = []
+        
+        # Expected format: Date, SKU_ID, Planned_Quantity
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0] or not row[1]:
+                continue
+            
+            try:
+                date_val = row[0]
+                if isinstance(date_val, str):
+                    date_obj = datetime.strptime(date_val, "%Y-%m-%d")
+                else:
+                    date_obj = datetime.combine(date_val, datetime.min.time())
+                
+                sku_id = str(row[1]).strip()
+                planned_qty = float(row[2]) if row[2] else 0
+                
+                if planned_qty <= 0:
+                    errors.append(f"Row {idx}: Invalid quantity")
+                    continue
+                
+                # Check if SKU exists globally
+                sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+                if not sku:
+                    errors.append(f"Row {idx}: SKU {sku_id} not found")
+                    continue
+                
+                plan_month = date_obj.strftime("%Y-%m")
+                
+                # Check if entry already exists
+                existing = await db.production_plans.find_one({
+                    "branch": branch,
+                    "date": date_obj.isoformat(),
+                    "sku_id": sku_id
+                }, {"_id": 0})
+                
+                if existing:
+                    # Update existing
+                    await db.production_plans.update_one(
+                        {"branch": branch, "date": date_obj.isoformat(), "sku_id": sku_id},
+                        {"$set": {"planned_quantity": planned_qty, "plan_month": plan_month}}
+                    )
+                    skipped_count += 1
+                else:
+                    plan_obj = ProductionPlanEntry(
+                        branch=branch,
+                        plan_month=plan_month,
+                        date=date_obj,
+                        sku_id=sku_id,
+                        planned_quantity=planned_qty
+                    )
+                    doc = plan_obj.model_dump()
+                    doc['created_at'] = doc['created_at'].isoformat()
+                    doc['date'] = doc['date'].isoformat()
+                    await db.production_plans.insert_one(doc)
+                    created_count += 1
+                    
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+        
+        return {
+            "created": created_count,
+            "updated": skipped_count,
+            "errors": errors
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+@api_router.get("/production-plans")
+async def get_production_plans(branch: str, plan_month: Optional[str] = None):
+    """Get production plans for a branch"""
+    query = {"branch": branch}
+    if plan_month:
+        query["plan_month"] = plan_month
+    
+    plans = await db.production_plans.find(query, {"_id": 0}).sort("date", 1).to_list(1000)
+    return [serialize_doc(p) for p in plans]
+
+@api_router.delete("/production-plans/{plan_month}")
+async def delete_production_plan(plan_month: str, branch: str):
+    """Delete production plan for a specific month"""
+    result = await db.production_plans.delete_many({"branch": branch, "plan_month": plan_month})
+    return {"message": f"Deleted {result.deleted_count} plan entries"}
+
+@api_router.get("/production-plans/shortage-analysis")
+async def get_shortage_analysis(branch: str, plan_month: str):
+    """Calculate RM shortages based on production plan"""
+    # Get all plans for the month
+    plans = await db.production_plans.find(
+        {"branch": branch, "plan_month": plan_month},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    if not plans:
+        raise HTTPException(status_code=404, detail="No production plan found for this month")
+    
+    # Calculate total RM requirements
+    rm_requirements = {}  # {rm_id: total_required}
+    sku_details = {}  # {sku_id: {name, total_planned}}
+    
+    for plan in plans:
+        sku_id = plan['sku_id']
+        planned_qty = plan['planned_quantity']
+        
+        # Get SKU details
+        if sku_id not in sku_details:
+            sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+            if sku:
+                sku_details[sku_id] = {
+                    "name": sku.get('description', sku_id),
+                    "total_planned": 0
+                }
+        
+        if sku_id in sku_details:
+            sku_details[sku_id]["total_planned"] += planned_qty
+        
+        # Get BOM mapping
+        mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
+        if mapping:
+            for rm_mapping in mapping['rm_mappings']:
+                rm_id = rm_mapping['rm_id']
+                qty_per_unit = rm_mapping['quantity_required']
+                total_required = qty_per_unit * planned_qty
+                
+                if rm_id in rm_requirements:
+                    rm_requirements[rm_id] += total_required
+                else:
+                    rm_requirements[rm_id] = total_required
+    
+    # Get current inventory levels
+    shortage_report = []
+    sufficient_stock = []
+    
+    for rm_id, total_required in rm_requirements.items():
+        # Get RM details
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        if not rm:
+            continue
+        
+        # Get current stock in branch
+        rm_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": rm_id, "branch": branch, "is_active": True},
+            {"_id": 0}
+        )
+        
+        current_stock = rm_inv['current_stock'] if rm_inv else 0
+        shortage = total_required - current_stock
+        
+        rm_info = {
+            "rm_id": rm_id,
+            "category": rm.get('category', ''),
+            "category_data": rm.get('category_data', {}),
+            "total_required": round(total_required, 2),
+            "current_stock": round(current_stock, 2),
+            "shortage": round(shortage, 2) if shortage > 0 else 0,
+            "status": "shortage" if shortage > 0 else "sufficient"
+        }
+        
+        if shortage > 0:
+            shortage_report.append(rm_info)
+        else:
+            sufficient_stock.append(rm_info)
+    
+    # Calculate plan summary
+    total_skus = len(sku_details)
+    total_units = sum(s['total_planned'] for s in sku_details.values())
+    total_rm_types = len(rm_requirements)
+    rm_with_shortage = len(shortage_report)
+    
+    return {
+        "plan_summary": {
+            "branch": branch,
+            "plan_month": plan_month,
+            "total_skus": total_skus,
+            "total_units_planned": int(total_units),
+            "total_rm_types": total_rm_types,
+            "rm_with_shortage": rm_with_shortage,
+            "plan_entries": len(plans)
+        },
+        "sku_details": sku_details,
+        "shortage_report": sorted(shortage_report, key=lambda x: x['shortage'], reverse=True),
+        "sufficient_stock": sufficient_stock
+    }
+
+@api_router.get("/production-plans/months")
+async def get_available_plan_months(branch: str):
+    """Get list of months with production plans"""
+    plans = await db.production_plans.find({"branch": branch}, {"_id": 0, "plan_month": 1}).to_list(1000)
+    months = list(set(p['plan_month'] for p in plans))
+    months.sort(reverse=True)
+    return {"months": months}
+
 app.include_router(api_router)
 
 app.add_middleware(
