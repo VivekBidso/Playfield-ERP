@@ -5,6 +5,7 @@ import MasterDashboard from "@/pages/MasterDashboard";
 import RawMaterials from "@/pages/RawMaterials";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
+import ProductionPlanning from "@/pages/ProductionPlanning";
 import Production from "@/pages/Production";
 import Dispatch from "@/pages/Dispatch";
 import Reports from "@/pages/Reports";
@@ -23,6 +24,7 @@ function App() {
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="skus" element={<SKUs />} />
             <Route path="sku-mapping" element={<SKUMapping />} />
+            <Route path="production-planning" element={<ProductionPlanning />} />
             <Route path="production" element={<Production />} />
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="reports" element={<Reports />} />
