@@ -5,6 +5,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import MasterDashboard from "@/pages/MasterDashboard";
 import RawMaterials from "@/pages/RawMaterials";
+import RMInward from "@/pages/RMInward";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
 import ProductionPlanning from "@/pages/ProductionPlanning";
@@ -69,6 +70,7 @@ function App() {
             <Route path="master-dashboard" element={<AdminRoute><MasterDashboard /></AdminRoute>} />
             <Route path="user-management" element={<AdminRoute><UserManagement /></AdminRoute>} />
             <Route path="raw-materials" element={<RawMaterials />} />
+            <Route path="rm-inward" element={<RMInward />} />
             <Route path="skus" element={<SKUs />} />
             <Route path="sku-mapping" element={<SKUMapping />} />
             <Route path="production-planning" element={<ProductionPlanning />} />
