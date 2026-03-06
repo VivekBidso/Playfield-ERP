@@ -296,6 +296,7 @@ const SKUMapping = () => {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Mappings List */}
