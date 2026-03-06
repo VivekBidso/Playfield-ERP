@@ -7,7 +7,8 @@ import {
   Factory, 
   Truck, 
   FileText,
-  Gauge
+  Gauge,
+  ClipboardList
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 
@@ -18,6 +19,7 @@ const Layout = () => {
     { path: "/raw-materials", label: "Raw Materials", icon: Package },
     { path: "/skus", label: "SKUs", icon: Box },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge },
+    { path: "/production-planning", label: "Production Planning", icon: ClipboardList },
     { path: "/production", label: "Production", icon: Factory },
     { path: "/dispatch", label: "Dispatch", icon: Truck },
     { path: "/reports", label: "Reports", icon: FileText },
