@@ -6,12 +6,15 @@ import {
   GitMerge, 
   Factory, 
   Truck, 
-  FileText 
+  FileText,
+  Gauge
 } from "lucide-react";
+import BranchSelector from "@/components/BranchSelector";
 
 const Layout = () => {
   const navItems = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/master-dashboard", label: "Master Dashboard", icon: Gauge },
     { path: "/raw-materials", label: "Raw Materials", icon: Package },
     { path: "/skus", label: "SKUs", icon: Box },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge },
