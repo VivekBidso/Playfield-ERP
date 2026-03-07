@@ -145,8 +145,7 @@ const RMInward = () => {
   };
 
   const getCurrentStock = (rm_id) => {
-    const rm = availableRMs.find(r => r.rm_id === rm_id);
-    return rm ? rm.current_stock : 0;
+    return branchInventory[rm_id] || 0;
   };
 
   return (
