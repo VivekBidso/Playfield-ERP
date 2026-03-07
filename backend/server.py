@@ -624,6 +624,110 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
+@api_router.post("/raw-materials/import-with-ids")
+async def import_raw_materials_with_ids(file: UploadFile = File(...), category: str = ""):
+    """Import RMs from Excel where RM IDs are provided in the first column.
+    Skips duplicates, preserves the ID sequence for future uploads.
+    File format: RM_ID in first column, then category-specific fields.
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    if not category or category.upper() not in RM_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {list(RM_CATEGORIES.keys())}")
+    
+    category = category.upper()
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        # Get headers from first row
+        headers = [str(cell.value).strip().lower() if cell.value else "" for cell in sheet[1]]
+        
+        created_count = 0
+        skipped_count = 0
+        updated_count = 0
+        errors = []
+        
+        category_fields = RM_CATEGORIES[category]["fields"]
+        
+        # Build mapping from headers to category fields
+        field_mapping = {}
+        header_to_field = {
+            'rm code': 'rm_id', 'raw material id': 'rm_id', 'rm_id': 'rm_id', 'rm id': 'rm_id',
+            'type': 'type', 'model': 'model', 'model name': 'model_name', 'mould code': 'mould_code',
+            'part name': 'part_name', 'colour': 'colour', 'color': 'colour', 'mb': 'mb',
+            'specs': 'specs', 'brand': 'brand', 'buyer sku': 'buyer_sku', 'buyer_sku': 'buyer_sku',
+            'per unit weight (in grams)': 'per_unit_weight', 'per unit weight': 'per_unit_weight',
+            'per unit weight (g)': 'per_unit_weight', 'unit': 'unit', 'position': 'position'
+        }
+        
+        rm_id_col = None
+        for i, h in enumerate(headers):
+            mapped = header_to_field.get(h)
+            if mapped == 'rm_id':
+                rm_id_col = i
+            elif mapped in category_fields:
+                field_mapping[mapped] = i
+        
+        if rm_id_col is None:
+            raise HTTPException(status_code=400, detail="Could not find RM ID column. Expected 'RM Code' or 'Raw Material Id'.")
+        
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[rm_id_col]:
+                continue
+            
+            try:
+                rm_id = str(row[rm_id_col]).strip()
+                
+                # Validate RM ID format matches category
+                if not rm_id.startswith(f"{category}_"):
+                    errors.append(f"Row {idx}: RM ID '{rm_id}' doesn't match category {category}")
+                    continue
+                
+                # Build category_data
+                category_data = {}
+                for field in category_fields:
+                    col_idx = field_mapping.get(field)
+                    if col_idx is not None and col_idx < len(row):
+                        val = row[col_idx]
+                        category_data[field] = val if val is not None else ""
+                    else:
+                        category_data[field] = ""
+                
+                # Check if RM exists
+                existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                rm_obj = RawMaterial(
+                    rm_id=rm_id,
+                    category=category,
+                    category_data=category_data,
+                    low_stock_threshold=10.0
+                )
+                doc = rm_obj.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.raw_materials.insert_one(doc)
+                created_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+        
+        return {
+            "created": created_count,
+            "skipped": skipped_count,
+            "errors": errors[:20] if errors else [],
+            "total_errors": len(errors)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
 @api_router.get("/raw-materials")
 async def get_raw_materials(branch: Optional[str] = None, search: Optional[str] = None, include_inactive: bool = False):
     """Get RMs - if branch specified, return only active RMs in that branch"""
