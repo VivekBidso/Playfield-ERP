@@ -2075,6 +2075,117 @@ async def delete_sku_branch_assignment(sku_id: str, branch: str):
     await db.sku_branch_assignments.delete_one({"sku_id": sku_id, "branch": branch})
     return {"message": "Assignment removed"}
 
+@api_router.post("/sku-branch-assignments/bulk-subscribe")
+async def bulk_subscribe_skus(
+    branch: str,
+    vertical: Optional[str] = None,
+    model: Optional[str] = None
+):
+    """Bulk subscribe all SKUs matching vertical and/or model to a branch"""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not vertical and not model:
+        raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
+    
+    # Build query for matching SKUs
+    query = {}
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    
+    # Find all matching SKUs
+    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
+    
+    if not matching_skus:
+        return {
+            "assigned": 0,
+            "skipped": 0,
+            "total_matching": 0,
+            "message": "No SKUs found matching the criteria"
+        }
+    
+    assigned_count = 0
+    skipped_count = 0
+    
+    for sku in matching_skus:
+        sku_id = sku['sku_id']
+        
+        # Check if already assigned
+        existing = await db.sku_branch_assignments.find_one(
+            {"sku_id": sku_id, "branch": branch},
+            {"_id": 0}
+        )
+        
+        if existing:
+            skipped_count += 1
+            continue
+        
+        # Create assignment
+        assignment = SKUBranchAssignment(sku_id=sku_id, branch=branch)
+        doc = assignment.model_dump()
+        doc['assigned_at'] = doc['assigned_at'].isoformat()
+        await db.sku_branch_assignments.insert_one(doc)
+        
+        # Also activate SKU in branch inventory
+        existing_inv = await db.branch_sku_inventory.find_one(
+            {"sku_id": sku_id, "branch": branch},
+            {"_id": 0}
+        )
+        if not existing_inv:
+            inv_obj = BranchSKUInventory(sku_id=sku_id, branch=branch)
+            inv_doc = inv_obj.model_dump()
+            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+            await db.branch_sku_inventory.insert_one(inv_doc)
+        
+        assigned_count += 1
+    
+    return {
+        "assigned": assigned_count,
+        "skipped": skipped_count,
+        "total_matching": len(matching_skus),
+        "message": f"Subscribed {assigned_count} SKUs to {branch}"
+    }
+
+@api_router.delete("/sku-branch-assignments/bulk-unsubscribe")
+async def bulk_unsubscribe_skus(
+    branch: str,
+    vertical: Optional[str] = None,
+    model: Optional[str] = None
+):
+    """Bulk unsubscribe all SKUs matching vertical and/or model from a branch"""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not vertical and not model:
+        raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
+    
+    # Build query for matching SKUs
+    query = {}
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    
+    # Find all matching SKUs
+    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
+    sku_ids = [s['sku_id'] for s in matching_skus]
+    
+    if not sku_ids:
+        return {"removed": 0, "message": "No matching SKUs found"}
+    
+    # Remove assignments
+    result = await db.sku_branch_assignments.delete_many({
+        "sku_id": {"$in": sku_ids},
+        "branch": branch
+    })
+    
+    return {
+        "removed": result.deleted_count,
+        "message": f"Removed {result.deleted_count} SKU assignments from {branch}"
+    }
+
 # ============ Enhanced RM Filtering ============
 
 @api_router.get("/raw-materials/filter-options")
