@@ -35,7 +35,25 @@ const RMInward = () => {
   useEffect(() => {
     fetchEntries();
     fetchAvailableRMs();
+    fetchBranchInventory();
   }, [selectedBranch]);
+
+  const fetchBranchInventory = async () => {
+    try {
+      const response = await axios.get(
+        `${API}/raw-materials?branch=${encodeURIComponent(selectedBranch)}`,
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      // Build a map of rm_id -> current_stock
+      const inventoryMap = {};
+      response.data.forEach(rm => {
+        inventoryMap[rm.rm_id] = rm.current_stock || 0;
+      });
+      setBranchInventory(inventoryMap);
+    } catch (error) {
+      console.error("Failed to fetch branch inventory");
+    }
+  };
 
   const fetchEntries = async () => {
     try {
