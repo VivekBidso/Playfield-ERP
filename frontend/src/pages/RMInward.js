@@ -48,8 +48,9 @@ const RMInward = () => {
 
   const fetchAvailableRMs = async () => {
     try {
+      // Fetch ALL global RMs (not just branch-specific) for inward entry
       const response = await axios.get(
-        `${API}/raw-materials?branch=${encodeURIComponent(selectedBranch)}`,
+        `${API}/raw-materials`,
         { headers: { Authorization: `Bearer ${token}` }}
       );
       setAvailableRMs(response.data);
