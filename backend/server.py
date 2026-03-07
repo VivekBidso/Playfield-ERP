@@ -243,6 +243,57 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+# ============ Vendor Models ============
+
+class Vendor(BaseModel):
+    """Vendor definition"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    gst: str = ""
+    address: str = ""
+    poc: str = ""  # Point of Contact
+    email: str = ""
+    phone: str = ""
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class VendorCreate(BaseModel):
+    name: str
+    gst: str = ""
+    address: str = ""
+    poc: str = ""
+    email: str = ""
+    phone: str = ""
+
+class VendorRMPrice(BaseModel):
+    """Vendor RM pricing"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    vendor_id: str
+    rm_id: str
+    price: float
+    currency: str = "INR"
+    notes: str = ""
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class VendorRMPriceCreate(BaseModel):
+    vendor_id: str
+    rm_id: str
+    price: float
+    currency: str = "INR"
+    notes: str = ""
+
+# ============ SKU Branch Assignment Model ============
+
+class SKUBranchAssignment(BaseModel):
+    """Track which SKUs are assigned to which branches"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku_id: str
+    branch: str
+    assigned_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # ============ Helper Functions ============
 
 def hash_password(password: str) -> str:
