@@ -1642,8 +1642,9 @@ async def get_available_plan_months(branch: str):
 
 @api_router.post("/vendors")
 async def create_vendor(input: VendorCreate):
-    """Create a new vendor"""
-    vendor_obj = Vendor(**input.model_dump())
+    """Create a new vendor with auto-generated vendor ID"""
+    vendor_id = await get_next_vendor_id()
+    vendor_obj = Vendor(**input.model_dump(), vendor_id=vendor_id)
     doc = vendor_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.vendors.insert_one(doc)
@@ -1657,15 +1658,20 @@ async def get_vendors(search: Optional[str] = None):
         query["$or"] = [
             {"name": {"$regex": search, "$options": "i"}},
             {"gst": {"$regex": search, "$options": "i"}},
-            {"poc": {"$regex": search, "$options": "i"}}
+            {"poc": {"$regex": search, "$options": "i"}},
+            {"vendor_id": {"$regex": search, "$options": "i"}}
         ]
-    vendors = await db.vendors.find(query, {"_id": 0}).sort("name", 1).to_list(1000)
+    vendors = await db.vendors.find(query, {"_id": 0}).sort("vendor_id", 1).to_list(1000)
     return [serialize_doc(v) for v in vendors]
 
 @api_router.get("/vendors/{vendor_id}")
 async def get_vendor(vendor_id: str):
     """Get vendor details with RM prices"""
-    vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+    # Try to find by internal id or vendor_id
+    vendor = await db.vendors.find_one(
+        {"$or": [{"id": vendor_id}, {"vendor_id": vendor_id}]}, 
+        {"_id": 0}
+    )
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
