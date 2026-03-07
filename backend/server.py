@@ -1764,6 +1764,47 @@ async def get_production_plans(branch: str, plan_month: Optional[str] = None):
     plans = await db.production_plans.find(query, {"_id": 0}).sort("date", 1).to_list(1000)
     return [serialize_doc(p) for p in plans]
 
+@api_router.post("/production-plans")
+async def create_production_plan(sku_id: str, branch: str, date: datetime, planned_quantity: float):
+    """Create a single production plan entry for a specific SKU and date"""
+    # Validate SKU exists
+    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    if not sku:
+        raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
+    
+    # Derive plan_month from date
+    plan_month = date.strftime("%Y-%m")
+    
+    # Check if a plan entry already exists for this SKU, branch, and date
+    existing = await db.production_plans.find_one({
+        "sku_id": sku_id,
+        "branch": branch,
+        "date": date
+    })
+    
+    if existing:
+        # Update existing plan
+        await db.production_plans.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"planned_quantity": planned_quantity, "updated_at": datetime.now(timezone.utc)}}
+        )
+        return {"message": "Production plan updated", "sku_id": sku_id, "date": date.isoformat(), "planned_quantity": planned_quantity}
+    
+    # Create new plan entry
+    plan_doc = {
+        "id": str(uuid.uuid4()),
+        "branch": branch,
+        "plan_month": plan_month,
+        "date": date,
+        "sku_id": sku_id,
+        "planned_quantity": planned_quantity,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.production_plans.insert_one(plan_doc)
+    
+    return {"message": "Production plan created", "sku_id": sku_id, "date": date.isoformat(), "planned_quantity": planned_quantity}
+
 @api_router.delete("/production-plans/{plan_month}")
 async def delete_production_plan(plan_month: str, branch: str):
     """Delete production plan for a specific month"""
