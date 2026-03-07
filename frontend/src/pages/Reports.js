@@ -185,6 +185,8 @@ const Reports = () => {
                         <thead className="bg-zinc-50 border-b border-zinc-200">
                           <tr>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
+                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Vertical</th>
+                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Brand</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
                           </tr>
@@ -193,6 +195,8 @@ const Reports = () => {
                           {inventoryReport.skus.filter(sku => sku.current_stock > 0).map((sku) => (
                             <tr key={sku.sku_id} className="border-b border-zinc-100">
                               <td className="p-4 align-middle font-mono text-zinc-700">{sku.sku_id}</td>
+                              <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.vertical || '-'}</td>
+                              <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.brand || '-'}</td>
                               <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock}</td>
                               <td className="p-4 align-middle">
                                 {sku.current_stock < sku.low_stock_threshold ? (
