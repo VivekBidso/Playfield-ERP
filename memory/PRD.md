@@ -102,12 +102,14 @@ Build a factory management tool with the following modules:
 - ~~Vendor Management with pricing~~ ✅
 
 ### P1 - High Priority
+- Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
+- Refactor server.py (2400+ lines) into modular structure
 - Create branch users and test branch-specific data visibility
-- Add bulk RM inward upload feature
 
 ### P2 - Medium Priority
-- Inter-branch stock transfer
+- ~~Inter-branch stock transfer~~ ✅ DONE
 - Dispatch tracking module enhancements
+- Add bulk RM inward upload feature
 
 ### P3 - Future
 - Barcode scanning capabilities
