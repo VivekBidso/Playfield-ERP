@@ -1713,6 +1713,87 @@ async def delete_vendor(vendor_id: str):
     await db.vendor_rm_prices.delete_many({"vendor_id": vendor_id})
     return {"message": "Vendor deleted"}
 
+@api_router.post("/vendors/bulk-upload")
+async def bulk_upload_vendors(file: UploadFile = File(...)):
+    """Bulk upload vendors from Excel file.
+    Expected columns: Name, GST, Address, POC, Email, Phone
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        # Get headers
+        headers = [str(cell.value).strip().lower() if cell.value else "" for cell in sheet[1]]
+        
+        # Map headers to fields
+        header_map = {
+            'name': 'name', 'vendor name': 'name',
+            'gst': 'gst', 'gstin': 'gst', 'gst number': 'gst',
+            'address': 'address',
+            'poc': 'poc', 'point of contact': 'poc', 'contact person': 'poc',
+            'email': 'email', 'email address': 'email',
+            'phone': 'phone', 'phone number': 'phone', 'mobile': 'phone'
+        }
+        
+        field_indices = {}
+        for i, h in enumerate(headers):
+            if h in header_map:
+                field_indices[header_map[h]] = i
+        
+        if 'name' not in field_indices:
+            raise HTTPException(status_code=400, detail="Name column is required")
+        
+        created_count = 0
+        skipped_count = 0
+        errors = []
+        
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            try:
+                name = row[field_indices['name']] if field_indices.get('name') is not None else None
+                if not name:
+                    continue
+                
+                name = str(name).strip()
+                
+                # Check for duplicate by name
+                existing = await db.vendors.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                # Build vendor data
+                vendor_data = {'name': name}
+                for field in ['gst', 'address', 'poc', 'email', 'phone']:
+                    if field in field_indices and row[field_indices[field]]:
+                        vendor_data[field] = str(row[field_indices[field]]).strip()
+                
+                # Generate vendor ID
+                vendor_id = await get_next_vendor_id()
+                
+                vendor_obj = Vendor(**vendor_data, vendor_id=vendor_id)
+                doc = vendor_obj.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.vendors.insert_one(doc)
+                created_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+        
+        return {
+            "created": created_count,
+            "skipped": skipped_count,
+            "errors": errors[:20],
+            "total_errors": len(errors)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
 # ============ Vendor RM Pricing Routes ============
 
 @api_router.post("/vendor-rm-prices")
