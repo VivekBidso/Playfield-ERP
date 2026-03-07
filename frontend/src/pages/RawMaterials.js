@@ -100,6 +100,7 @@ const RawMaterials = () => {
       const params = new URLSearchParams();
       params.append('page', currentPage);
       params.append('page_size', pageSize);
+      if (selectedBranch) params.append('branch', selectedBranch);
       if (filters.search) params.append('search', filters.search);
       if (filters.category) params.append('category', filters.category);
       if (filters.type) params.append('type_filter', filters.type);
