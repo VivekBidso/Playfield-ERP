@@ -1618,6 +1618,374 @@ async def get_available_plan_months(branch: str):
     months.sort(reverse=True)
     return {"months": months}
 
+# ============ Vendor Routes ============
+
+@api_router.post("/vendors")
+async def create_vendor(input: VendorCreate):
+    """Create a new vendor"""
+    vendor_obj = Vendor(**input.model_dump())
+    doc = vendor_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.vendors.insert_one(doc)
+    return vendor_obj
+
+@api_router.get("/vendors")
+async def get_vendors(search: Optional[str] = None):
+    """Get all vendors"""
+    query = {}
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"gst": {"$regex": search, "$options": "i"}},
+            {"poc": {"$regex": search, "$options": "i"}}
+        ]
+    vendors = await db.vendors.find(query, {"_id": 0}).sort("name", 1).to_list(1000)
+    return [serialize_doc(v) for v in vendors]
+
+@api_router.get("/vendors/{vendor_id}")
+async def get_vendor(vendor_id: str):
+    """Get vendor details with RM prices"""
+    vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    # Get all RM prices for this vendor
+    prices = await db.vendor_rm_prices.find({"vendor_id": vendor_id}, {"_id": 0}).to_list(1000)
+    
+    # Enrich with RM details
+    enriched_prices = []
+    for p in prices:
+        rm = await db.raw_materials.find_one({"rm_id": p['rm_id']}, {"_id": 0})
+        enriched_prices.append({
+            **serialize_doc(p),
+            "rm_category": rm['category'] if rm else "",
+            "rm_details": rm['category_data'] if rm else {}
+        })
+    
+    return {
+        "vendor": serialize_doc(vendor),
+        "rm_prices": enriched_prices
+    }
+
+@api_router.put("/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, input: VendorCreate):
+    """Update vendor details"""
+    existing = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    await db.vendors.update_one(
+        {"id": vendor_id},
+        {"$set": input.model_dump()}
+    )
+    return {"message": "Vendor updated successfully"}
+
+@api_router.delete("/vendors/{vendor_id}")
+async def delete_vendor(vendor_id: str):
+    """Delete vendor and associated prices"""
+    await db.vendors.delete_one({"id": vendor_id})
+    await db.vendor_rm_prices.delete_many({"vendor_id": vendor_id})
+    return {"message": "Vendor deleted"}
+
+# ============ Vendor RM Pricing Routes ============
+
+@api_router.post("/vendor-rm-prices")
+async def create_vendor_rm_price(input: VendorRMPriceCreate):
+    """Add or update RM price for a vendor"""
+    # Verify vendor exists
+    vendor = await db.vendors.find_one({"id": input.vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    # Verify RM exists
+    rm = await db.raw_materials.find_one({"rm_id": input.rm_id}, {"_id": 0})
+    if not rm:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    # Check if mapping already exists
+    existing = await db.vendor_rm_prices.find_one(
+        {"vendor_id": input.vendor_id, "rm_id": input.rm_id},
+        {"_id": 0}
+    )
+    
+    if existing:
+        # Update existing price
+        await db.vendor_rm_prices.update_one(
+            {"vendor_id": input.vendor_id, "rm_id": input.rm_id},
+            {"$set": {"price": input.price, "currency": input.currency, "notes": input.notes, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        return {"message": "Price updated", "action": "updated"}
+    else:
+        # Create new price entry
+        price_obj = VendorRMPrice(**input.model_dump())
+        doc = price_obj.model_dump()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        await db.vendor_rm_prices.insert_one(doc)
+        return {"message": "Price added", "action": "created"}
+
+@api_router.get("/vendor-rm-prices/by-rm/{rm_id}")
+async def get_vendors_for_rm(rm_id: str):
+    """Get all vendors and their prices for a specific RM"""
+    prices = await db.vendor_rm_prices.find({"rm_id": rm_id}, {"_id": 0}).to_list(1000)
+    
+    result = []
+    for p in prices:
+        vendor = await db.vendors.find_one({"id": p['vendor_id']}, {"_id": 0})
+        if vendor:
+            result.append({
+                **serialize_doc(p),
+                "vendor_name": vendor['name'],
+                "vendor_gst": vendor.get('gst', ''),
+                "vendor_phone": vendor.get('phone', '')
+            })
+    
+    # Sort by price (lowest first)
+    result.sort(key=lambda x: x['price'])
+    return result
+
+@api_router.get("/vendor-rm-prices/comparison")
+async def get_price_comparison_report():
+    """Get price comparison report - lowest price per RM across all vendors"""
+    # Get all prices
+    all_prices = await db.vendor_rm_prices.find({}, {"_id": 0}).to_list(10000)
+    
+    # Group by RM and find lowest price
+    rm_prices = {}
+    for p in all_prices:
+        rm_id = p['rm_id']
+        if rm_id not in rm_prices or p['price'] < rm_prices[rm_id]['lowest_price']:
+            rm_prices[rm_id] = {
+                'rm_id': rm_id,
+                'lowest_price': p['price'],
+                'lowest_vendor_id': p['vendor_id'],
+                'currency': p.get('currency', 'INR')
+            }
+    
+    # Enrich with vendor names and RM details
+    result = []
+    for rm_id, data in rm_prices.items():
+        vendor = await db.vendors.find_one({"id": data['lowest_vendor_id']}, {"_id": 0})
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        
+        # Get all vendors for this RM for comparison
+        all_vendors_for_rm = await db.vendor_rm_prices.find({"rm_id": rm_id}, {"_id": 0}).to_list(100)
+        
+        result.append({
+            'rm_id': rm_id,
+            'rm_category': rm['category'] if rm else '',
+            'lowest_price': data['lowest_price'],
+            'currency': data['currency'],
+            'lowest_vendor_name': vendor['name'] if vendor else '',
+            'lowest_vendor_id': data['lowest_vendor_id'],
+            'total_vendors': len(all_vendors_for_rm)
+        })
+    
+    # Sort by RM ID
+    result.sort(key=lambda x: x['rm_id'])
+    return result
+
+@api_router.delete("/vendor-rm-prices/{vendor_id}/{rm_id}")
+async def delete_vendor_rm_price(vendor_id: str, rm_id: str):
+    """Delete a vendor RM price mapping"""
+    await db.vendor_rm_prices.delete_one({"vendor_id": vendor_id, "rm_id": rm_id})
+    return {"message": "Price mapping deleted"}
+
+# ============ SKU Branch Assignment Routes ============
+
+@api_router.post("/sku-branch-assignments/upload")
+async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: str = ""):
+    """Upload SKU IDs to assign to a branch"""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        assigned_count = 0
+        skipped_count = 0
+        not_found = []
+        
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0]:
+                continue
+            
+            sku_id = str(row[0]).strip()
+            
+            # Check if SKU exists (by buyer_sku_id or sku_id)
+            sku = await db.skus.find_one(
+                {"$or": [{"buyer_sku_id": sku_id}, {"sku_id": sku_id}]},
+                {"_id": 0}
+            )
+            
+            if not sku:
+                not_found.append(sku_id)
+                continue
+            
+            actual_sku_id = sku['sku_id']
+            
+            # Check if already assigned
+            existing = await db.sku_branch_assignments.find_one(
+                {"sku_id": actual_sku_id, "branch": branch},
+                {"_id": 0}
+            )
+            
+            if existing:
+                skipped_count += 1
+                continue
+            
+            # Create assignment
+            assignment = SKUBranchAssignment(sku_id=actual_sku_id, branch=branch)
+            doc = assignment.model_dump()
+            doc['assigned_at'] = doc['assigned_at'].isoformat()
+            await db.sku_branch_assignments.insert_one(doc)
+            
+            # Also activate SKU in branch inventory
+            existing_inv = await db.branch_sku_inventory.find_one(
+                {"sku_id": actual_sku_id, "branch": branch},
+                {"_id": 0}
+            )
+            if not existing_inv:
+                inv_obj = BranchSKUInventory(sku_id=actual_sku_id, branch=branch)
+                inv_doc = inv_obj.model_dump()
+                inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+                await db.branch_sku_inventory.insert_one(inv_doc)
+            
+            assigned_count += 1
+        
+        return {
+            "assigned": assigned_count,
+            "skipped": skipped_count,
+            "not_found": not_found[:20],
+            "total_not_found": len(not_found)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+@api_router.get("/sku-branch-assignments")
+async def get_sku_branch_assignments(branch: Optional[str] = None):
+    """Get SKU assignments, optionally filtered by branch"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    
+    assignments = await db.sku_branch_assignments.find(query, {"_id": 0}).to_list(5000)
+    
+    # Enrich with SKU details
+    result = []
+    for a in assignments:
+        sku = await db.skus.find_one({"sku_id": a['sku_id']}, {"_id": 0})
+        if sku:
+            result.append({
+                **serialize_doc(a),
+                "buyer_sku_id": sku.get('buyer_sku_id', ''),
+                "bidso_sku": sku.get('bidso_sku', ''),
+                "description": sku.get('description', ''),
+                "brand": sku.get('brand', ''),
+                "model": sku.get('model', '')
+            })
+    
+    return result
+
+@api_router.delete("/sku-branch-assignments/{sku_id}/{branch}")
+async def delete_sku_branch_assignment(sku_id: str, branch: str):
+    """Remove SKU assignment from a branch"""
+    await db.sku_branch_assignments.delete_one({"sku_id": sku_id, "branch": branch})
+    return {"message": "Assignment removed"}
+
+# ============ Enhanced RM Filtering ============
+
+@api_router.get("/raw-materials/filter-options")
+async def get_rm_filter_options():
+    """Get unique values for RM filters"""
+    # Get all categories
+    categories = list(RM_CATEGORIES.keys())
+    
+    # Get sample of unique values for common fields
+    all_rms = await db.raw_materials.find({}, {"_id": 0}).to_list(5000)
+    
+    # Extract unique values
+    types = set()
+    models = set()
+    colours = set()
+    brands = set()
+    
+    for rm in all_rms:
+        data = rm.get('category_data', {})
+        if data.get('type'): types.add(data['type'])
+        if data.get('model'): models.add(data['model'])
+        if data.get('model_name'): models.add(data['model_name'])
+        if data.get('colour'): colours.add(data['colour'])
+        if data.get('brand'): brands.add(data['brand'])
+    
+    return {
+        "categories": categories,
+        "types": sorted(list(types))[:100],
+        "models": sorted(list(models))[:100],
+        "colours": sorted(list(colours))[:100],
+        "brands": sorted(list(brands))[:50]
+    }
+
+@api_router.get("/raw-materials/filtered")
+async def get_filtered_raw_materials(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    colour_filter: Optional[str] = None,
+    brand_filter: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 100
+):
+    """Get RMs with advanced filtering and pagination"""
+    query = {}
+    
+    if category:
+        query["category"] = category
+    
+    if search:
+        query["rm_id"] = {"$regex": search, "$options": "i"}
+    
+    # Build category_data filters
+    if type_filter:
+        query["$or"] = query.get("$or", [])
+        query["$or"].extend([
+            {"category_data.type": {"$regex": type_filter, "$options": "i"}}
+        ])
+    
+    if model_filter:
+        if "$or" not in query:
+            query["$or"] = []
+        query["$or"].extend([
+            {"category_data.model": {"$regex": model_filter, "$options": "i"}},
+            {"category_data.model_name": {"$regex": model_filter, "$options": "i"}}
+        ])
+    
+    if colour_filter:
+        query["category_data.colour"] = {"$regex": colour_filter, "$options": "i"}
+    
+    if brand_filter:
+        query["category_data.brand"] = {"$regex": brand_filter, "$options": "i"}
+    
+    # Count total
+    total = await db.raw_materials.count_documents(query)
+    
+    # Paginate
+    skip = (page - 1) * page_size
+    materials = await db.raw_materials.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
+    
+    return {
+        "items": [serialize_doc(m) for m in materials],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size
+    }
+
 app.include_router(api_router)
 
 app.add_middleware(
