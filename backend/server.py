@@ -2474,7 +2474,7 @@ async def bulk_subscribe_skus(
     vertical: Optional[str] = None,
     model: Optional[str] = None
 ):
-    """Bulk subscribe all SKUs matching vertical and/or model to a branch"""
+    """Bulk subscribe all SKUs matching vertical and/or model to a branch. Also activates corresponding RMs."""
     if not branch:
         raise HTTPException(status_code=400, detail="Branch is required")
     
@@ -2496,11 +2496,13 @@ async def bulk_subscribe_skus(
             "assigned": 0,
             "skipped": 0,
             "total_matching": 0,
+            "rms_activated": 0,
             "message": "No SKUs found matching the criteria"
         }
     
     assigned_count = 0
     skipped_count = 0
+    total_rms_activated = 0
     
     for sku in matching_skus:
         sku_id = sku['sku_id']
@@ -2532,13 +2534,18 @@ async def bulk_subscribe_skus(
             inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
             await db.branch_sku_inventory.insert_one(inv_doc)
         
+        # Activate corresponding RMs for this SKU
+        rms_activated = await activate_rms_for_sku(sku_id, branch)
+        total_rms_activated += rms_activated
+        
         assigned_count += 1
     
     return {
         "assigned": assigned_count,
         "skipped": skipped_count,
         "total_matching": len(matching_skus),
-        "message": f"Subscribed {assigned_count} SKUs to {branch}"
+        "rms_activated": total_rms_activated,
+        "message": f"Subscribed {assigned_count} SKUs to {branch}, activated {total_rms_activated} RMs"
     }
 
 @api_router.delete("/sku-branch-assignments/bulk-unsubscribe")
