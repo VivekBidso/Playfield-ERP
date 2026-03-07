@@ -286,7 +286,7 @@ const RMInward = () => {
             Active RMs in Branch
           </div>
           <div className="text-3xl font-black font-mono text-primary">
-            {availableRMs.length}
+            {Object.keys(branchInventory).length}
           </div>
         </div>
         <div className="bg-white p-6">
