@@ -8,31 +8,38 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import useBranchStore from "@/store/branchStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Reports = () => {
+  const { selectedBranch } = useBranchStore();
   const [inventoryReport, setInventoryReport] = useState(null);
   const [lowStockReport, setLowStockReport] = useState(null);
   const [productionSummary, setProductionSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [selectedBranch]);
 
   const fetchReports = async () => {
+    setLoading(true);
     try {
       const [inventoryRes, lowStockRes, productionRes] = await Promise.all([
-        axios.get(`${API}/reports/inventory`),
-        axios.get(`${API}/reports/low-stock`),
-        axios.get(`${API}/reports/production-summary?days=7`)
+        axios.get(`${API}/reports/inventory?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/reports/low-stock?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/reports/production-summary?days=7&branch=${encodeURIComponent(selectedBranch)}`)
       ]);
       setInventoryReport(inventoryRes.data);
       setLowStockReport(lowStockRes.data);
       setProductionSummary(productionRes.data);
     } catch (error) {
+      console.error("Failed to fetch reports", error);
       toast.error("Failed to fetch reports");
+    } finally {
+      setLoading(false);
     }
   };
 
