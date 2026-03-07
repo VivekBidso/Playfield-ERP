@@ -126,10 +126,11 @@ const SKUs = () => {
     if (selectedVertical || selectedModel || selectedBrand || searchQuery) {
       try {
         let url = `${API}/skus/filtered?`;
-        if (selectedVertical) url += `&vertical=${encodeURIComponent(selectedVertical)}`;
-        if (selectedModel) url += `&model=${encodeURIComponent(selectedModel)}`;
-        if (selectedBrand) url += `&brand=${encodeURIComponent(selectedBrand)}`;
-        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        if (selectedBranch) url += `branch=${encodeURIComponent(selectedBranch)}&`;
+        if (selectedVertical) url += `vertical=${encodeURIComponent(selectedVertical)}&`;
+        if (selectedModel) url += `model=${encodeURIComponent(selectedModel)}&`;
+        if (selectedBrand) url += `brand=${encodeURIComponent(selectedBrand)}&`;
+        if (searchQuery) url += `search=${encodeURIComponent(searchQuery)}&`;
         
         const response = await axios.get(url);
         setFilteredSkus(response.data);
