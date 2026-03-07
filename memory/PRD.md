@@ -145,4 +145,4 @@ Build a factory management tool with the following modules:
 - Password: `admin123`
 
 ---
-*Last updated: March 7, 2026*
+*Last updated: December 2025*
