@@ -1867,8 +1867,11 @@ async def get_vendor(vendor_id: str):
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
+    # Use the actual vendor_id field to query prices
+    actual_vendor_id = vendor.get('vendor_id', vendor_id)
+    
     # Get all RM prices for this vendor
-    prices = await db.vendor_rm_prices.find({"vendor_id": vendor_id}, {"_id": 0}).to_list(1000)
+    prices = await db.vendor_rm_prices.find({"vendor_id": actual_vendor_id}, {"_id": 0}).to_list(1000)
     
     # Enrich with RM details
     enriched_prices = []
@@ -1877,7 +1880,7 @@ async def get_vendor(vendor_id: str):
         enriched_prices.append({
             **serialize_doc(p),
             "rm_category": rm['category'] if rm else "",
-            "rm_details": rm['category_data'] if rm else {}
+            "rm_details": rm.get('category_data', {}) if rm else {}
         })
     
     return {
