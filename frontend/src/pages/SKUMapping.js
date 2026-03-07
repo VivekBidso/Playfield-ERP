@@ -198,9 +198,18 @@ const SKUMapping = () => {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">RM-SKU Mapping</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">Define bill of materials</p>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">Define bill of materials • {mappings.length} SKUs mapped</p>
         </div>
         <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            onClick={exportUnmappedSKUs}
+            data-testid="export-unmapped-btn"
+            className="uppercase text-xs tracking-wide text-orange-600 border-orange-300 hover:bg-orange-50"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            Export Unmapped
+          </Button>
           <Button 
             variant="secondary" 
             onClick={exportMappings}
