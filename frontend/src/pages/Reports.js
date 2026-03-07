@@ -142,9 +142,14 @@ const Reports = () => {
     <div className="p-6 md:p-8" data-testid="reports-page">
       <div className="mb-8">
         <h1 className="text-4xl font-black tracking-tight uppercase">Reports</h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono">Analytics & insights</p>
+        <p className="text-sm text-muted-foreground mt-1 font-mono">Analytics & insights for {selectedBranch}</p>
       </div>
 
+      {loading ? (
+        <div className="p-12 text-center text-muted-foreground font-mono text-sm">
+          Loading reports...
+        </div>
+      ) : (
       <Tabs defaultValue="inventory" className="w-full">
         <TabsList className="mb-6">
           <TabsTrigger value="inventory" data-testid="inventory-tab">Inventory</TabsTrigger>
