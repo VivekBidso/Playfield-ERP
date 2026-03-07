@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useBranchStore from "@/store/branchStore";
-import { Upload, Download, AlertTriangle, CheckCircle, Calendar, Trash2 } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, Calendar, Trash2, Plus, Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
@@ -18,6 +21,27 @@ const ProductionPlanning = () => {
   const [shortageAnalysis, setShortageAnalysis] = useState(null);
   const [plans, setPlans] = useState([]);
   const fileInputRef = useRef(null);
+  
+  // Add Plan Dialog state
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [skus, setSkus] = useState([]);
+  const [filteredSkus, setFilteredSkus] = useState([]);
+  
+  // SKU Filter states
+  const [verticals, setVerticals] = useState([]);
+  const [models, setModels] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [selectedVertical, setSelectedVertical] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Plan form data
+  const [planData, setPlanData] = useState({
+    sku_id: "",
+    date: new Date().toISOString().split('T')[0],
+    planned_quantity: 0
+  });
 
   useEffect(() => {
     fetchAvailableMonths();
@@ -29,6 +53,31 @@ const ProductionPlanning = () => {
       fetchPlans();
     }
   }, [selectedMonth]);
+
+  // Fetch models when vertical changes
+  useEffect(() => {
+    if (selectedVertical) {
+      fetchModelsByVertical(selectedVertical);
+    } else {
+      setModels([]);
+      setSelectedModel("");
+    }
+  }, [selectedVertical]);
+
+  // Fetch brands when model changes
+  useEffect(() => {
+    if (selectedVertical) {
+      fetchBrandsByVerticalModel(selectedVertical, selectedModel);
+    } else {
+      setBrands([]);
+      setSelectedBrand("");
+    }
+  }, [selectedVertical, selectedModel]);
+
+  // Apply filters
+  useEffect(() => {
+    applyFilters();
+  }, [selectedVertical, selectedModel, selectedBrand, searchQuery, skus]);
 
   const fetchAvailableMonths = async () => {
     try {
@@ -62,6 +111,124 @@ const ProductionPlanning = () => {
     } catch (error) {
       console.error('Error fetching shortage analysis:', error);
       setShortageAnalysis(null);
+    }
+  };
+
+  const fetchSKUsForPlan = async () => {
+    try {
+      const [skusRes, filterRes] = await Promise.all([
+        axios.get(`${API}/skus?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/skus/filter-options`)
+      ]);
+      setSkus(skusRes.data);
+      setFilteredSkus(skusRes.data);
+      setVerticals(filterRes.data.verticals);
+    } catch (error) {
+      console.error("Failed to fetch SKUs", error);
+    }
+  };
+
+  const fetchModelsByVertical = async (vertical) => {
+    try {
+      const response = await axios.get(`${API}/skus/models-by-vertical?vertical=${encodeURIComponent(vertical)}`);
+      setModels(response.data.models);
+      setSelectedModel("");
+    } catch (error) {
+      console.error("Failed to fetch models", error);
+    }
+  };
+
+  const fetchBrandsByVerticalModel = async (vertical, model) => {
+    try {
+      let url = `${API}/skus/brands-by-vertical-model?vertical=${encodeURIComponent(vertical)}`;
+      if (model) {
+        url += `&model=${encodeURIComponent(model)}`;
+      }
+      const response = await axios.get(url);
+      setBrands(response.data.brands);
+      setSelectedBrand("");
+    } catch (error) {
+      console.error("Failed to fetch brands", error);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = skus;
+    
+    if (selectedVertical) {
+      filtered = filtered.filter(s => s.vertical === selectedVertical);
+    }
+    if (selectedModel) {
+      filtered = filtered.filter(s => s.model === selectedModel);
+    }
+    if (selectedBrand) {
+      filtered = filtered.filter(s => s.brand === selectedBrand);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(s => 
+        s.sku_id?.toLowerCase().includes(q) ||
+        s.buyer_sku_id?.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q)
+      );
+    }
+    
+    setFilteredSkus(filtered);
+  };
+
+  const clearFilters = () => {
+    setSelectedVertical("");
+    setSelectedModel("");
+    setSelectedBrand("");
+    setSearchQuery("");
+    setFilteredSkus(skus);
+  };
+
+  const handleOpenAddDialog = () => {
+    fetchSKUsForPlan();
+    setPlanData({
+      sku_id: "",
+      date: new Date().toISOString().split('T')[0],
+      planned_quantity: 0
+    });
+    setSelectedVertical("");
+    setSelectedModel("");
+    setSelectedBrand("");
+    setSearchQuery("");
+    setShowAddDialog(true);
+  };
+
+  const handleAddPlan = async () => {
+    if (!planData.sku_id) {
+      toast.error("Please select a SKU");
+      return;
+    }
+    if (!planData.date) {
+      toast.error("Please select a date");
+      return;
+    }
+    if (planData.planned_quantity <= 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/production-plans`, {
+        sku_id: planData.sku_id,
+        branch: selectedBranch,
+        date: new Date(planData.date).toISOString(),
+        planned_quantity: planData.planned_quantity
+      });
+      
+      toast.success("Production plan added");
+      setShowAddDialog(false);
+      fetchAvailableMonths();
+      
+      // Set selected month to the month of the added plan
+      const planMonth = planData.date.substring(0, 7);
+      setSelectedMonth(planMonth);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to add plan");
     }
   };
 
@@ -140,6 +307,8 @@ const ProductionPlanning = () => {
     toast.success("Shortage report exported");
   };
 
+  const hasActiveFilters = selectedVertical || selectedModel || selectedBrand || searchQuery;
+
   return (
     <div className="p-6 md:p-8" data-testid="production-planning-page">
       <div className="mb-8 flex items-center justify-between">
@@ -174,6 +343,163 @@ const ProductionPlanning = () => {
             <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Upload Plan
           </Button>
+          
+          {/* Add Plan Dialog */}
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogTrigger asChild>
+              <Button 
+                onClick={handleOpenAddDialog}
+                data-testid="add-plan-btn"
+                className="uppercase text-xs tracking-wide"
+              >
+                <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                Add Plan
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="font-bold uppercase">Add Production Plan</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-6">
+                {/* Date Selection */}
+                <div>
+                  <Label>Date *</Label>
+                  <Input 
+                    type="date" 
+                    value={planData.date}
+                    onChange={(e) => setPlanData({...planData, date: e.target.value})}
+                    className="font-mono"
+                    data-testid="plan-date-input"
+                  />
+                </div>
+                
+                {/* SKU Filters */}
+                <div className="bg-zinc-50 p-4 rounded-sm border border-zinc-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
+                    <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+                      Filter SKUs
+                    </span>
+                    {hasActiveFilters && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={clearFilters}
+                        className="ml-auto text-xs"
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Vertical Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Vertical</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono"
+                        value={selectedVertical}
+                        onChange={(e) => setSelectedVertical(e.target.value)}
+                        data-testid="plan-vertical-filter"
+                      >
+                        <option value="">All Verticals</option>
+                        {verticals.map(v => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Model Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Model</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50"
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        disabled={!selectedVertical}
+                        data-testid="plan-model-filter"
+                      >
+                        <option value="">All Models</option>
+                        {models.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Brand Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Brand</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50"
+                        value={selectedBrand}
+                        onChange={(e) => setSelectedBrand(e.target.value)}
+                        disabled={!selectedVertical}
+                        data-testid="plan-brand-filter"
+                      >
+                        <option value="">All Brands</option>
+                        {brands.map(b => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {/* Search */}
+                  <div className="mt-3">
+                    <Input 
+                      placeholder="Search SKU ID, description..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="font-mono text-sm"
+                      data-testid="plan-sku-search"
+                    />
+                  </div>
+                  
+                  <div className="mt-2 text-xs text-zinc-500 font-mono">
+                    {filteredSkus.length} SKUs available
+                  </div>
+                </div>
+                
+                {/* SKU Selection */}
+                <div>
+                  <Label>SKU *</Label>
+                  <select 
+                    className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
+                    value={planData.sku_id}
+                    onChange={(e) => setPlanData({...planData, sku_id: e.target.value})}
+                    data-testid="plan-sku-select"
+                  >
+                    <option value="">Select SKU ({filteredSkus.length} available)</option>
+                    {filteredSkus.map(s => (
+                      <option key={s.sku_id} value={s.sku_id}>{s.sku_id}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Quantity */}
+                <div>
+                  <Label>Planned Quantity *</Label>
+                  <Input 
+                    type="number" 
+                    value={planData.planned_quantity}
+                    onChange={(e) => setPlanData({...planData, planned_quantity: parseFloat(e.target.value) || 0})}
+                    className="font-mono"
+                    data-testid="plan-quantity-input"
+                  />
+                </div>
+                
+                <Button 
+                  onClick={handleAddPlan} 
+                  className="w-full uppercase text-xs tracking-wide"
+                  data-testid="submit-plan-btn"
+                >
+                  <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                  Add Plan
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -206,7 +532,7 @@ const ProductionPlanning = () => {
       {!selectedMonth && (
         <div className="border border-border bg-white rounded-sm p-12 text-center">
           <div className="text-muted-foreground font-mono text-sm">
-            Upload a production plan or select an existing month to view shortage analysis
+            Upload a production plan, add individual plans, or select an existing month to view shortage analysis
           </div>
         </div>
       )}
