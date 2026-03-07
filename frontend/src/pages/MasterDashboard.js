@@ -142,11 +142,12 @@ const MasterDashboard = () => {
       const response = await axios.get(`${API}/vendor-rm-prices/comparison`);
       const data = response.data.map(item => ({
         'RM ID': item.rm_id,
-        'Category': item.category || '',
-        'Vendor Count': item.vendor_count,
+        'Category': item.rm_category || '',
         'Lowest Price': item.lowest_price,
-        'Lowest Price Vendor': item.lowest_price_vendor,
-        'All Vendors': item.vendors?.map(v => `${v.vendor_id}:₹${v.price}`).join(', ') || ''
+        'Currency': item.currency || 'INR',
+        'Lowest Price Vendor ID': item.lowest_vendor_id || '',
+        'Lowest Price Vendor Name': item.lowest_vendor_name || '',
+        'Total Vendors': item.total_vendors || 0
       }));
       
       const ws = XLSX.utils.json_to_sheet(data);
