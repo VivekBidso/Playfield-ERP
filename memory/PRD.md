@@ -17,7 +17,7 @@ Build a factory management tool with the following modules:
 
 ## Multi-Branch System
 7 Branches supported:
-- Unit 1 Vedica, Unit 2 Trikes, Unit 3 TM, Unit 4 Goa, Unit 5 Emox, Unit 6 Baabus, BHDG WH
+- Unit 1 Vedica, Unit 2 Trikes, Unit 3 TM, Unit 4 Goa, Unit 5 Baabus, Unit 6 Emox, BHDG WH
 
 ## User Roles
 - **Master Admin**: Global view, can manage users
