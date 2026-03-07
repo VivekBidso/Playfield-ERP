@@ -75,7 +75,11 @@ const SKUs = () => {
 
   const fetchSKUs = async () => {
     try {
-      const response = await axios.get(`${API}/skus`);
+      let url = `${API}/skus`;
+      if (selectedBranch) {
+        url += `?branch=${encodeURIComponent(selectedBranch)}`;
+      }
+      const response = await axios.get(url);
       setSkus(response.data);
       setFilteredSkus(response.data);
     } catch (error) {
