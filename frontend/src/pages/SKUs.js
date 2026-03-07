@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Plus, Search, Trash2, Download, Edit } from "lucide-react";
+import { Plus, Search, Trash2, Download, Edit, Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -21,28 +21,55 @@ const SKUs = () => {
   const [editMode, setEditMode] = useState(false);
   const [selectedSKU, setSelectedSKU] = useState(null);
 
+  // Filter states
+  const [verticals, setVerticals] = useState([]);
+  const [models, setModels] = useState([]);
+  const [brands, setBrands] = useState([]);
+  
+  const [selectedVertical, setSelectedVertical] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+
   const [formData, setFormData] = useState({
     sku_id: "",
-    name: "",
+    bidso_sku: "",
+    buyer_sku_id: "",
     description: "",
+    brand: "",
+    vertical: "",
+    model: "",
     low_stock_threshold: 5
   });
 
   useEffect(() => {
     fetchSKUs();
+    fetchFilterOptions();
   }, []);
 
+  // Fetch models when vertical changes
   useEffect(() => {
-    if (searchQuery) {
-      const filtered = skus.filter(s => 
-        s.sku_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredSkus(filtered);
+    if (selectedVertical) {
+      fetchModelsByVertical(selectedVertical);
     } else {
-      setFilteredSkus(skus);
+      setModels([]);
+      setSelectedModel("");
     }
-  }, [searchQuery, skus]);
+  }, [selectedVertical]);
+
+  // Fetch brands when model changes
+  useEffect(() => {
+    if (selectedVertical) {
+      fetchBrandsByVerticalModel(selectedVertical, selectedModel);
+    } else {
+      setBrands([]);
+      setSelectedBrand("");
+    }
+  }, [selectedVertical, selectedModel]);
+
+  // Apply filters when any filter changes
+  useEffect(() => {
+    applyFilters();
+  }, [selectedVertical, selectedModel, selectedBrand, searchQuery, skus]);
 
   const fetchSKUs = async () => {
     try {
@@ -52,6 +79,68 @@ const SKUs = () => {
     } catch (error) {
       toast.error("Failed to fetch SKUs");
     }
+  };
+
+  const fetchFilterOptions = async () => {
+    try {
+      const response = await axios.get(`${API}/skus/filter-options`);
+      setVerticals(response.data.verticals);
+    } catch (error) {
+      console.error("Failed to fetch filter options", error);
+    }
+  };
+
+  const fetchModelsByVertical = async (vertical) => {
+    try {
+      const response = await axios.get(`${API}/skus/models-by-vertical?vertical=${encodeURIComponent(vertical)}`);
+      setModels(response.data.models);
+      setSelectedModel("");
+      setSelectedBrand("");
+    } catch (error) {
+      console.error("Failed to fetch models", error);
+    }
+  };
+
+  const fetchBrandsByVerticalModel = async (vertical, model) => {
+    try {
+      let url = `${API}/skus/brands-by-vertical-model?vertical=${encodeURIComponent(vertical)}`;
+      if (model) {
+        url += `&model=${encodeURIComponent(model)}`;
+      }
+      const response = await axios.get(url);
+      setBrands(response.data.brands);
+      setSelectedBrand("");
+    } catch (error) {
+      console.error("Failed to fetch brands", error);
+    }
+  };
+
+  const applyFilters = async () => {
+    // If any filter is active, fetch filtered SKUs from API
+    if (selectedVertical || selectedModel || selectedBrand || searchQuery) {
+      try {
+        let url = `${API}/skus/filtered?`;
+        if (selectedVertical) url += `&vertical=${encodeURIComponent(selectedVertical)}`;
+        if (selectedModel) url += `&model=${encodeURIComponent(selectedModel)}`;
+        if (selectedBrand) url += `&brand=${encodeURIComponent(selectedBrand)}`;
+        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        
+        const response = await axios.get(url);
+        setFilteredSkus(response.data);
+      } catch (error) {
+        console.error("Failed to apply filters", error);
+      }
+    } else {
+      setFilteredSkus(skus);
+    }
+  };
+
+  const clearFilters = () => {
+    setSelectedVertical("");
+    setSelectedModel("");
+    setSelectedBrand("");
+    setSearchQuery("");
+    setFilteredSkus(skus);
   };
 
   const handleSubmit = async () => {
@@ -75,8 +164,12 @@ const SKUs = () => {
     setSelectedSKU(sku);
     setFormData({
       sku_id: sku.sku_id,
-      name: sku.name,
+      bidso_sku: sku.bidso_sku || "",
+      buyer_sku_id: sku.buyer_sku_id || "",
       description: sku.description || "",
+      brand: sku.brand || "",
+      vertical: sku.vertical || "",
+      model: sku.model || "",
       low_stock_threshold: sku.low_stock_threshold
     });
     setEditMode(true);
@@ -95,17 +188,30 @@ const SKUs = () => {
   };
 
   const resetForm = () => {
-    setFormData({ sku_id: "", name: "", description: "", low_stock_threshold: 5 });
+    setFormData({ 
+      sku_id: "", 
+      bidso_sku: "",
+      buyer_sku_id: "",
+      description: "", 
+      brand: "",
+      vertical: "",
+      model: "",
+      low_stock_threshold: 5 
+    });
     setEditMode(false);
     setSelectedSKU(null);
   };
 
   const handleExport = () => {
-    const ws = XLSX.utils.json_to_sheet(skus.map(s => ({
+    const ws = XLSX.utils.json_to_sheet(filteredSkus.map(s => ({
       'SKU ID': s.sku_id,
-      'Name': s.name,
+      'Buyer SKU ID': s.buyer_sku_id,
+      'Bidso SKU': s.bidso_sku,
       'Description': s.description,
-      'Current Stock': s.current_stock,
+      'Brand': s.brand,
+      'Vertical': s.vertical,
+      'Model': s.model,
+      'Current Stock': s.current_stock || 0,
       'Low Stock Threshold': s.low_stock_threshold
     })));
     const wb = XLSX.utils.book_new();
@@ -115,12 +221,16 @@ const SKUs = () => {
     toast.success("Exported to Excel");
   };
 
+  const hasActiveFilters = selectedVertical || selectedModel || selectedBrand || searchQuery;
+
   return (
     <div className="p-6 md:p-8" data-testid="skus-page">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">SKUs</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">Finished goods management</p>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">
+            {filteredSkus.length} of {skus.length} finished goods
+          </p>
         </div>
         <div className="flex gap-3">
           <Button 
@@ -142,29 +252,41 @@ const SKUs = () => {
                 Add SKU
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle className="font-bold uppercase">
                   {editMode ? "Edit SKU" : "Add SKU"}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div>
-                  <Label>SKU ID *</Label>
-                  <Input 
-                    value={formData.sku_id} 
-                    onChange={(e) => setFormData({...formData, sku_id: e.target.value})}
-                    data-testid="sku-id-input"
-                    className="font-mono"
-                    disabled={editMode}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>SKU ID *</Label>
+                    <Input 
+                      value={formData.sku_id} 
+                      onChange={(e) => setFormData({...formData, sku_id: e.target.value})}
+                      data-testid="sku-id-input"
+                      className="font-mono"
+                      disabled={editMode}
+                    />
+                  </div>
+                  <div>
+                    <Label>Buyer SKU ID</Label>
+                    <Input 
+                      value={formData.buyer_sku_id} 
+                      onChange={(e) => setFormData({...formData, buyer_sku_id: e.target.value})}
+                      data-testid="buyer-sku-input"
+                      className="font-mono"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <Label>Name *</Label>
+                  <Label>Bidso SKU</Label>
                   <Input 
-                    value={formData.name} 
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    data-testid="sku-name-input"
+                    value={formData.bidso_sku} 
+                    onChange={(e) => setFormData({...formData, bidso_sku: e.target.value})}
+                    data-testid="bidso-sku-input"
+                    className="font-mono"
                   />
                 </div>
                 <div>
@@ -173,8 +295,34 @@ const SKUs = () => {
                     value={formData.description} 
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
                     data-testid="sku-description-input"
-                    rows={3}
+                    rows={2}
                   />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>Vertical</Label>
+                    <Input 
+                      value={formData.vertical} 
+                      onChange={(e) => setFormData({...formData, vertical: e.target.value})}
+                      data-testid="sku-vertical-input"
+                    />
+                  </div>
+                  <div>
+                    <Label>Model</Label>
+                    <Input 
+                      value={formData.model} 
+                      onChange={(e) => setFormData({...formData, model: e.target.value})}
+                      data-testid="sku-model-input"
+                    />
+                  </div>
+                  <div>
+                    <Label>Brand</Label>
+                    <Input 
+                      value={formData.brand} 
+                      onChange={(e) => setFormData({...formData, brand: e.target.value})}
+                      data-testid="sku-brand-input"
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label>Low Stock Threshold</Label>
@@ -194,12 +342,12 @@ const SKUs = () => {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="mb-6">
+      {/* Search Bar */}
+      <div className="mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={1.5} />
           <Input 
-            placeholder="Search by SKU ID or Name..." 
+            placeholder="Search by SKU ID, description, buyer SKU..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             data-testid="search-sku-input"
@@ -208,14 +356,138 @@ const SKUs = () => {
         </div>
       </div>
 
+      {/* Filter Buttons */}
+      <div className="mb-6 bg-white border border-border p-4 rounded-sm">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
+            <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+              Vertical
+            </span>
+          </div>
+          
+          {/* Vertical Filter Buttons */}
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant={!selectedVertical ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setSelectedVertical("");
+                setSelectedModel("");
+                setSelectedBrand("");
+              }}
+              className="text-xs"
+              data-testid="filter-all-btn"
+            >
+              All ({skus.length})
+            </Button>
+            {verticals.map(v => {
+              const count = skus.filter(s => s.vertical === v).length;
+              return (
+                <Button
+                  key={v}
+                  variant={selectedVertical === v ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedVertical(v)}
+                  className="text-xs"
+                  data-testid={`filter-vertical-${v}`}
+                >
+                  {v} ({count})
+                </Button>
+              );
+            })}
+          </div>
+          
+          {hasActiveFilters && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={clearFilters}
+              className="text-xs text-zinc-500 ml-auto"
+            >
+              <X className="w-3 h-3 mr-1" />
+              Clear All
+            </Button>
+          )}
+        </div>
+        
+        {/* Model Filter (shows when vertical selected) */}
+        {selectedVertical && models.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-zinc-200">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+                Model
+              </span>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant={!selectedModel ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedModel("")}
+                  className="text-xs"
+                  data-testid="filter-model-all"
+                >
+                  All Models
+                </Button>
+                {models.map(m => (
+                  <Button
+                    key={m}
+                    variant={selectedModel === m ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedModel(m)}
+                    className="text-xs"
+                    data-testid={`filter-model-${m}`}
+                  >
+                    {m}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Brand Filter (shows when vertical selected) */}
+        {selectedVertical && brands.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-zinc-200">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+                Brand
+              </span>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant={!selectedBrand ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedBrand("")}
+                  className="text-xs"
+                  data-testid="filter-brand-all"
+                >
+                  All Brands
+                </Button>
+                {brands.map(b => (
+                  <Button
+                    key={b}
+                    variant={selectedBrand === b ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedBrand(b)}
+                    className="text-xs"
+                    data-testid={`filter-brand-${b}`}
+                  >
+                    {b}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       <div className="border border-border bg-white rounded-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full" data-testid="sku-table">
             <thead className="bg-zinc-50 border-b border-zinc-200">
               <tr>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Buyer SKU ID</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Bidso SKU</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Buyer SKU</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Description</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Brand</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Vertical</th>
@@ -229,11 +501,15 @@ const SKUs = () => {
               {filteredSkus.map((sku) => (
                 <tr key={sku.id} className="border-b border-zinc-100 hover:bg-zinc-50/50" data-testid={`sku-row-${sku.sku_id}`}>
                   <td className="p-4 align-middle font-mono text-sm font-bold text-zinc-700">{sku.sku_id}</td>
-                  <td className="p-4 align-middle font-mono text-sm text-zinc-700">{sku.bidso_sku}</td>
+                  <td className="p-4 align-middle font-mono text-sm text-zinc-600">{sku.buyer_sku_id || '-'}</td>
                   <td className="p-4 align-middle text-sm text-zinc-600 max-w-xs truncate">{sku.description || '-'}</td>
-                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.brand}</td>
-                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.vertical}</td>
-                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.model}</td>
+                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.brand || '-'}</td>
+                  <td className="p-4 align-middle">
+                    <span className="font-mono text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded">
+                      {sku.vertical || '-'}
+                    </span>
+                  </td>
+                  <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.model || '-'}</td>
                   <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock || 0}</td>
                   <td className="p-4 align-middle">
                     {(sku.current_stock || 0) < sku.low_stock_threshold ? (
@@ -272,7 +548,7 @@ const SKUs = () => {
           </table>
           {filteredSkus.length === 0 && (
             <div className="p-12 text-center text-muted-foreground font-mono text-sm">
-              No SKUs found. Add your finished goods.
+              No SKUs found. {hasActiveFilters ? "Try clearing filters." : "Add your finished goods."}
             </div>
           )}
         </div>
