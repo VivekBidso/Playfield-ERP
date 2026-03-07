@@ -2177,7 +2177,7 @@ async def bulk_upload_vendor_rm_prices(file: UploadFile = File(...)):
                 # Insert
                 price_obj = VendorRMPrice(vendor_id=vendor_id, rm_id=rm_id, price=price_val)
                 doc = price_obj.model_dump()
-                doc['created_at'] = doc['created_at'].isoformat()
+                doc['updated_at'] = doc['updated_at'].isoformat()
                 await db.vendor_rm_prices.insert_one(doc)
                 added_count += 1
         
