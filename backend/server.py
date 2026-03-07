@@ -988,31 +988,40 @@ async def create_sku(input: SKUCreate):
 
 @api_router.get("/skus")
 async def get_skus(branch: Optional[str] = None, search: Optional[str] = None, include_inactive: bool = False):
-    """Get SKUs - if branch specified, return only active SKUs in that branch"""
+    """Get SKUs - if branch specified, return only SKUs subscribed to that branch"""
     if branch:
-        inventory_query = {"branch": branch}
-        if not include_inactive:
-            inventory_query["is_active"] = True
+        # Get SKUs subscribed to this branch via sku_branch_assignments
+        assignments = await db.sku_branch_assignments.find({"branch": branch}, {"_id": 0}).to_list(10000)
+        subscribed_sku_ids = [a['sku_id'] for a in assignments]
         
-        branch_inventories = await db.branch_sku_inventory.find(inventory_query, {"_id": 0}).to_list(1000)
-        active_sku_ids = [inv['sku_id'] for inv in branch_inventories]
+        if not subscribed_sku_ids:
+            return []
         
-        query = {"sku_id": {"$in": active_sku_ids}}
+        query = {"sku_id": {"$in": subscribed_sku_ids}}
         if search:
-            query["$and"] = [
-                {"sku_id": {"$in": active_sku_ids}},
-                {"$or": [
-                    {"sku_id": {"$regex": search, "$options": "i"}},
-                    {"bidso_sku": {"$regex": search, "$options": "i"}},
-                    {"buyer_sku_id": {"$regex": search, "$options": "i"}}
-                ]}
-            ]
+            query = {
+                "$and": [
+                    {"sku_id": {"$in": subscribed_sku_ids}},
+                    {"$or": [
+                        {"sku_id": {"$regex": search, "$options": "i"}},
+                        {"bidso_sku": {"$regex": search, "$options": "i"}},
+                        {"buyer_sku_id": {"$regex": search, "$options": "i"}}
+                    ]}
+                ]
+            }
         
-        skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
+        skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
+        
+        # Get inventory data for stock levels
+        branch_inventories = await db.branch_sku_inventory.find(
+            {"branch": branch, "sku_id": {"$in": subscribed_sku_ids}}, 
+            {"_id": 0}
+        ).to_list(10000)
+        inv_map = {inv['sku_id']: inv for inv in branch_inventories}
         
         result = []
         for sku in skus:
-            inv = next((i for i in branch_inventories if i['sku_id'] == sku['sku_id']), None)
+            inv = inv_map.get(sku['sku_id'])
             sku['current_stock'] = inv['current_stock'] if inv else 0
             sku['branch'] = branch
             result.append(serialize_doc(sku))
@@ -1025,7 +1034,7 @@ async def get_skus(branch: Optional[str] = None, search: Optional[str] = None, i
                 {"bidso_sku": {"$regex": search, "$options": "i"}},
                 {"buyer_sku_id": {"$regex": search, "$options": "i"}}
             ]
-        skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
+        skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
         return [serialize_doc(s) for s in skus]
 
 @api_router.get("/skus/unmapped")
