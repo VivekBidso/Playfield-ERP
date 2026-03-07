@@ -110,7 +110,7 @@ const Dispatch = () => {
                   >
                     <option value="">Select SKU</option>
                     {skus.map(s => (
-                      <option key={s.sku_id} value={s.sku_id}>{s.sku_id} - {s.name} (Stock: {s.current_stock})</option>
+                      <option key={s.sku_id} value={s.sku_id}>{s.sku_id} (Stock: {s.current_stock})</option>
                     ))}
                   </select>
                 </div>

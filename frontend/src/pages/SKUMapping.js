@@ -268,7 +268,7 @@ const SKUMapping = () => {
                 >
                   <option value="">Select SKU</option>
                   {skus.map(s => (
-                    <option key={s.sku_id} value={s.sku_id}>{s.sku_id} - {s.name}</option>
+                    <option key={s.sku_id} value={s.sku_id}>{s.sku_id}</option>
                   ))}
                 </select>
               </div>

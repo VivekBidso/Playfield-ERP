@@ -337,7 +337,7 @@ const Dashboard = () => {
                     <option value="">Select SKU ({filteredSkus.length} available)</option>
                     {filteredSkus.map(s => (
                       <option key={s.sku_id} value={s.sku_id}>
-                        {s.sku_id} - {s.description || s.buyer_sku_id} (Stock: {s.current_stock || 0})
+                        {s.sku_id} (Stock: {s.current_stock || 0})
                       </option>
                     ))}
                   </select>

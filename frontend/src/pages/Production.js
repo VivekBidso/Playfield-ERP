@@ -317,7 +317,7 @@ const Production = () => {
                     <option value="">Select SKU ({filteredSkus.length} available)</option>
                     {filteredSkus.map(s => (
                       <option key={s.sku_id} value={s.sku_id}>
-                        {s.sku_id} - {s.description || s.buyer_sku_id}
+                        {s.sku_id}
                       </option>
                     ))}
                   </select>
