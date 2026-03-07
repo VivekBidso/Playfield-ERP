@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Package, Box, AlertTriangle, TrendingUp, Filter } from "lucide-react";
+import { Package, Box, AlertTriangle, TrendingUp, Filter, Download } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -9,6 +13,7 @@ const API = `${BACKEND_URL}/api`;
 const MasterDashboard = () => {
   const [masterData, setMasterData] = useState(null);
   const [selectedBranchFilter, setSelectedBranchFilter] = useState("all");
+  const [downloading, setDownloading] = useState(null);
 
   useEffect(() => {
     fetchMasterData();
@@ -20,6 +25,140 @@ const MasterDashboard = () => {
       setMasterData(response.data);
     } catch (error) {
       console.error('Error fetching master dashboard data:', error);
+    }
+  };
+
+  // Bulk Download Functions
+  const downloadAllRMs = async () => {
+    setDownloading('rm');
+    try {
+      const response = await axios.get(`${API}/raw-materials`);
+      const data = response.data.map(rm => ({
+        'RM ID': rm.rm_id,
+        'Category': rm.category,
+        'Type': rm.category_data?.type || '',
+        'Model': rm.category_data?.model || rm.category_data?.model_name || '',
+        'Part Name': rm.category_data?.part_name || '',
+        'Colour': rm.category_data?.colour || '',
+        'Brand': rm.category_data?.brand || '',
+        'Specs': rm.category_data?.specs || '',
+        'Unit': rm.category_data?.unit || '',
+        'Per Unit Weight': rm.category_data?.per_unit_weight || '',
+        'Safety Stock': rm.low_stock_threshold || 10
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Raw Materials');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'all_raw_materials.xlsx');
+      toast.success(`Exported ${data.length} raw materials`);
+    } catch (error) {
+      toast.error("Failed to download raw materials");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const downloadAllSKUs = async () => {
+    setDownloading('sku');
+    try {
+      const response = await axios.get(`${API}/skus`);
+      const data = response.data.map(sku => ({
+        'SKU ID': sku.sku_id,
+        'Buyer SKU ID': sku.buyer_sku_id || '',
+        'BIDSO SKU': sku.bidso_sku || '',
+        'Description': sku.description || '',
+        'Vertical': sku.vertical || '',
+        'Model': sku.model || '',
+        'Brand': sku.brand || '',
+        'Low Stock Threshold': sku.low_stock_threshold || 5
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'SKUs');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'all_skus.xlsx');
+      toast.success(`Exported ${data.length} SKUs`);
+    } catch (error) {
+      toast.error("Failed to download SKUs");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const downloadBranchInventory = async () => {
+    setDownloading('inventory');
+    try {
+      const branches = Object.keys(masterData.by_branch);
+      const wb = XLSX.utils.book_new();
+      
+      for (const branch of branches) {
+        // Get RM inventory for branch
+        const rmResponse = await axios.get(`${API}/raw-materials?branch=${encodeURIComponent(branch)}`);
+        const rmData = rmResponse.data.map(rm => ({
+          'RM ID': rm.rm_id,
+          'Category': rm.category,
+          'Current Stock': rm.current_stock || 0,
+          'Safety Stock': rm.low_stock_threshold || 10
+        }));
+        
+        // Get SKU inventory for branch
+        const skuResponse = await axios.get(`${API}/skus?branch=${encodeURIComponent(branch)}`);
+        const skuData = skuResponse.data.map(sku => ({
+          'SKU ID': sku.sku_id,
+          'Vertical': sku.vertical || '',
+          'Model': sku.model || '',
+          'Brand': sku.brand || '',
+          'Current Stock': sku.current_stock || 0
+        }));
+        
+        // Create sheets for this branch (max 31 char sheet name)
+        const branchShortName = branch.substring(0, 15);
+        if (rmData.length > 0) {
+          const rmWs = XLSX.utils.json_to_sheet(rmData);
+          XLSX.utils.book_append_sheet(wb, rmWs, `${branchShortName} RM`);
+        }
+        if (skuData.length > 0) {
+          const skuWs = XLSX.utils.json_to_sheet(skuData);
+          XLSX.utils.book_append_sheet(wb, skuWs, `${branchShortName} SKU`);
+        }
+      }
+      
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'branch_inventory.xlsx');
+      toast.success(`Exported inventory for ${branches.length} branches`);
+    } catch (error) {
+      toast.error("Failed to download branch inventory");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const downloadVendorRMPricing = async () => {
+    setDownloading('vendor');
+    try {
+      const response = await axios.get(`${API}/vendor-rm-prices/comparison`);
+      const data = response.data.map(item => ({
+        'RM ID': item.rm_id,
+        'Category': item.category || '',
+        'Vendor Count': item.vendor_count,
+        'Lowest Price': item.lowest_price,
+        'Lowest Price Vendor': item.lowest_price_vendor,
+        'All Vendors': item.vendors?.map(v => `${v.vendor_id}:₹${v.price}`).join(', ') || ''
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Vendor RM Pricing');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'vendor_rm_pricing.xlsx');
+      toast.success(`Exported ${data.length} RM price comparisons`);
+    } catch (error) {
+      toast.error("Failed to download vendor pricing");
+    } finally {
+      setDownloading(null);
     }
   };
 
