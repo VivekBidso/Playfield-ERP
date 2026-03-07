@@ -1849,18 +1849,32 @@ async def get_shortage_analysis(branch: str, plan_month: str):
         if sku_id in sku_details:
             sku_details[sku_id]["total_planned"] += planned_qty
         
-        # Get BOM mapping
-        mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
-        if mapping:
-            for rm_mapping in mapping['rm_mappings']:
+        # Get BOM mapping - check both collections for compatibility
+        # First try sku_rm_mapping (flat structure: sku_id, rm_id, quantity)
+        rm_mappings = await db.sku_rm_mapping.find({"sku_id": sku_id}, {"_id": 0}).to_list(1000)
+        if rm_mappings:
+            for rm_mapping in rm_mappings:
                 rm_id = rm_mapping['rm_id']
-                qty_per_unit = rm_mapping['quantity_required']
+                qty_per_unit = rm_mapping.get('quantity', 0)
                 total_required = qty_per_unit * planned_qty
                 
                 if rm_id in rm_requirements:
                     rm_requirements[rm_id] += total_required
                 else:
                     rm_requirements[rm_id] = total_required
+        else:
+            # Fallback to sku_mappings (nested structure with rm_mappings array)
+            mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
+            if mapping and mapping.get('rm_mappings'):
+                for rm_mapping in mapping['rm_mappings']:
+                    rm_id = rm_mapping['rm_id']
+                    qty_per_unit = rm_mapping.get('quantity_required', rm_mapping.get('quantity', 0))
+                    total_required = qty_per_unit * planned_qty
+                    
+                    if rm_id in rm_requirements:
+                        rm_requirements[rm_id] += total_required
+                    else:
+                        rm_requirements[rm_id] = total_required
     
     # Get current inventory levels
     shortage_report = []
