@@ -46,7 +46,7 @@ const SKUs = () => {
   useEffect(() => {
     fetchSKUs();
     fetchFilterOptions();
-  }, []);
+  }, [selectedBranch]);
 
   // Fetch models when vertical changes
   useEffect(() => {
