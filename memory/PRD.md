@@ -64,6 +64,7 @@ Build a factory management tool with the following modules:
 - [x] **Bulk SKU Subscription** - Subscribe entire Vertical or Model to a branch
 - [x] **Inter-Branch SKU Transfer** - Physical inventory movement without RM consumption (March 7, 2026)
 - [x] **Vendor Management & RM Filters Tested** - 100% test pass rate (23/23 backend, all UI flows)
+- [x] **Production Planning Enhancement** - Add individual plans with date picker and cascading SKU filters - 100% test pass rate (December 2025)
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
