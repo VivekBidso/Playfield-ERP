@@ -16,8 +16,8 @@ const BRANCHES = [
   "Unit 2 Trikes",
   "Unit 3 TM",
   "Unit 4 Goa",
-  "Unit 5 Emox",
-  "Unit 6 Baabus",
+  "Unit 5 Baabus",
+  "Unit 6 Emox",
   "BHDG WH"
 ];
 
