@@ -808,11 +808,14 @@ const ProductionPlanning = () => {
                           <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">
                             Planned Qty
                           </th>
+                          <th className="h-10 px-4 text-right align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {plans.map((plan, idx) => (
-                          <tr key={idx} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                          <tr key={plan.id || idx} className="border-b border-zinc-100 hover:bg-zinc-50/50">
                             <td className="p-4 align-middle font-mono text-zinc-700">
                               {new Date(plan.date).toLocaleDateString()}
                             </td>
@@ -821,6 +824,28 @@ const ProductionPlanning = () => {
                             </td>
                             <td className="p-4 align-middle font-mono text-primary font-bold">
                               {plan.planned_quantity}
+                            </td>
+                            <td className="p-4 align-middle text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditPlan(plan)}
+                                  data-testid={`edit-plan-${idx}`}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Pencil className="w-4 h-4 text-zinc-500 hover:text-primary" strokeWidth={1.5} />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteSinglePlan(plan)}
+                                  data-testid={`delete-plan-${idx}`}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Trash2 className="w-4 h-4 text-zinc-500 hover:text-red-600" strokeWidth={1.5} />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
