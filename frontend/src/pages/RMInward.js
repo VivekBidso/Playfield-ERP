@@ -20,6 +20,7 @@ const RMInward = () => {
   const { token } = useAuthStore();
   const [entries, setEntries] = useState([]);
   const [availableRMs, setAvailableRMs] = useState([]);
+  const [branchInventory, setBranchInventory] = useState({}); // {rm_id: current_stock}
   const [filteredRMs, setFilteredRMs] = useState([]);
   const [rmSearch, setRmSearch] = useState("");
   const [showDialog, setShowDialog] = useState(false);
