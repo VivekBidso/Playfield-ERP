@@ -2032,7 +2032,8 @@ async def get_vendors_for_rm(rm_id: str):
     
     result = []
     for p in prices:
-        vendor = await db.vendors.find_one({"id": p['vendor_id']}, {"_id": 0})
+        # vendor_id in vendor_rm_prices is the VND_XXX format, not UUID
+        vendor = await db.vendors.find_one({"vendor_id": p['vendor_id']}, {"_id": 0})
         if vendor:
             result.append({
                 **serialize_doc(p),
