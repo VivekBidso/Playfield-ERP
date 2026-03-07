@@ -465,35 +465,45 @@ const RawMaterials = () => {
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Type</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Model</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Colour</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Threshold</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Branch Inventory</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Safety Stock</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {materials.map((material) => (
-                <tr key={material.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
-                  <td className="p-4 align-middle font-mono text-sm font-bold text-zinc-700">{material.rm_id}</td>
-                  <td className="p-4 align-middle">
-                    <div className="text-xs font-mono text-primary font-bold">{material.category}</div>
-                    <div className="text-xs text-muted-foreground">{RM_CATEGORIES[material.category]?.name}</div>
-                  </td>
-                  <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                    {material.category_data?.type || '-'}
-                  </td>
-                  <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                    {material.category_data?.model || material.category_data?.model_name || '-'}
-                  </td>
-                  <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                    {material.category_data?.colour || '-'}
-                  </td>
-                  <td className="p-4 align-middle font-mono text-zinc-700">{material.low_stock_threshold}</td>
-                  <td className="p-4 align-middle">
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(material.rm_id)}>
-                      <Trash2 className="w-4 h-4 text-red-600" strokeWidth={1.5} />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {materials.map((material) => {
+                const currentStock = branchInventory[material.rm_id] || 0;
+                const isBelowSafety = currentStock < material.low_stock_threshold;
+                return (
+                  <tr key={material.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                    <td className={`p-4 align-middle font-mono text-sm font-bold ${isBelowSafety ? 'text-red-600' : 'text-zinc-700'}`}>
+                      {material.rm_id}
+                    </td>
+                    <td className="p-4 align-middle">
+                      <div className="text-xs font-mono text-primary font-bold">{material.category}</div>
+                      <div className="text-xs text-muted-foreground">{RM_CATEGORIES[material.category]?.name}</div>
+                    </td>
+                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
+                      {material.category_data?.type || '-'}
+                    </td>
+                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
+                      {material.category_data?.model || material.category_data?.model_name || '-'}
+                    </td>
+                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
+                      {material.category_data?.colour || '-'}
+                    </td>
+                    <td className={`p-4 align-middle font-mono ${isBelowSafety ? 'text-red-600 font-bold' : 'text-zinc-700'}`}>
+                      {currentStock}
+                    </td>
+                    <td className="p-4 align-middle font-mono text-zinc-700">{material.low_stock_threshold}</td>
+                    <td className="p-4 align-middle">
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(material.rm_id)}>
+                        <Trash2 className="w-4 h-4 text-red-600" strokeWidth={1.5} />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {loading && (
