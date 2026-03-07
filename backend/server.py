@@ -1339,7 +1339,7 @@ async def create_production_entry(input: ProductionEntryCreate):
     await db.production_entries.insert_one(doc)
     
     # Deduct RM stock
-    for rm_mapping in mapping['rm_mappings']:
+    for rm_mapping in rm_mappings:
         required_qty = rm_mapping['quantity_required'] * input.quantity
         await db.branch_rm_inventory.update_one(
             {"rm_id": rm_mapping['rm_id'], "branch": input.branch},
