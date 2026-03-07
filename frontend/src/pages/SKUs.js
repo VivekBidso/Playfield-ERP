@@ -15,6 +15,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const SKUs = () => {
+  const { selectedBranch } = useBranchStore();
   const [skus, setSkus] = useState([]);
   const [filteredSkus, setFilteredSkus] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
