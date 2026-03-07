@@ -1358,6 +1358,118 @@ async def get_dispatch_entries(branch: Optional[str] = None, sku_id: Optional[st
     entries = await db.dispatch_entries.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return [serialize_doc(e) for e in entries]
 
+# ============ Inter-Branch SKU Transfer ============
+
+class SKUTransferCreate(BaseModel):
+    sku_id: str
+    from_branch: str
+    to_branch: str
+    quantity: float
+    notes: Optional[str] = ""
+
+class SKUTransfer(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku_id: str
+    from_branch: str
+    to_branch: str
+    quantity: float
+    notes: Optional[str] = ""
+    transferred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+@api_router.post("/sku-transfers")
+async def create_sku_transfer(input: SKUTransferCreate):
+    """
+    Transfer SKU inventory between branches.
+    This is for physical inventory movement only - no RM consumption.
+    """
+    if input.from_branch == input.to_branch:
+        raise HTTPException(status_code=400, detail="Source and destination branches must be different")
+    
+    if input.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+    
+    # Check if SKU exists in source branch and has sufficient stock
+    source_inv = await db.branch_sku_inventory.find_one(
+        {"sku_id": input.sku_id, "branch": input.from_branch, "is_active": True},
+        {"_id": 0}
+    )
+    
+    if not source_inv:
+        raise HTTPException(status_code=400, detail=f"SKU {input.sku_id} not active in {input.from_branch}")
+    
+    if source_inv['current_stock'] < input.quantity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock. Available: {source_inv['current_stock']}, Requested: {input.quantity}"
+        )
+    
+    # Check if SKU is activated in destination branch, if not activate it
+    dest_inv = await db.branch_sku_inventory.find_one(
+        {"sku_id": input.sku_id, "branch": input.to_branch},
+        {"_id": 0}
+    )
+    
+    if not dest_inv:
+        # Activate SKU in destination branch
+        inv_obj = BranchSKUInventory(sku_id=input.sku_id, branch=input.to_branch)
+        inv_doc = inv_obj.model_dump()
+        inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+        await db.branch_sku_inventory.insert_one(inv_doc)
+    elif not dest_inv.get('is_active', False):
+        # Reactivate if inactive
+        await db.branch_sku_inventory.update_one(
+            {"sku_id": input.sku_id, "branch": input.to_branch},
+            {"$set": {"is_active": True}}
+        )
+    
+    # Create transfer record
+    transfer_obj = SKUTransfer(**input.model_dump())
+    doc = transfer_obj.model_dump()
+    doc['transferred_at'] = doc['transferred_at'].isoformat()
+    await db.sku_transfers.insert_one(doc)
+    
+    # Deduct from source branch (no RM consumption)
+    await db.branch_sku_inventory.update_one(
+        {"sku_id": input.sku_id, "branch": input.from_branch},
+        {"$inc": {"current_stock": -input.quantity}}
+    )
+    
+    # Add to destination branch (no RM consumption)
+    await db.branch_sku_inventory.update_one(
+        {"sku_id": input.sku_id, "branch": input.to_branch},
+        {"$inc": {"current_stock": input.quantity}}
+    )
+    
+    return {
+        "message": f"Transferred {input.quantity} units of {input.sku_id} from {input.from_branch} to {input.to_branch}",
+        "transfer": serialize_doc(doc)
+    }
+
+@api_router.get("/sku-transfers")
+async def get_sku_transfers(branch: Optional[str] = None, sku_id: Optional[str] = None):
+    """Get transfer history, optionally filtered by branch (as source or destination) or SKU"""
+    query = {}
+    if branch:
+        query["$or"] = [{"from_branch": branch}, {"to_branch": branch}]
+    if sku_id:
+        query["sku_id"] = sku_id
+    
+    transfers = await db.sku_transfers.find(query, {"_id": 0}).sort("transferred_at", -1).to_list(1000)
+    return [serialize_doc(t) for t in transfers]
+
+@api_router.get("/sku-transfers/summary")
+async def get_transfer_summary(branch: str):
+    """Get transfer summary for a branch - incoming vs outgoing"""
+    incoming = await db.sku_transfers.find({"to_branch": branch}, {"_id": 0}).to_list(1000)
+    outgoing = await db.sku_transfers.find({"from_branch": branch}, {"_id": 0}).to_list(1000)
+    
+    return {
+        "incoming_count": len(incoming),
+        "outgoing_count": len(outgoing),
+        "incoming_total": sum(t['quantity'] for t in incoming),
+        "outgoing_total": sum(t['quantity'] for t in outgoing)
+    }
+
 # ============ Dashboard & Reports Routes ============
 
 @api_router.get("/dashboard/stats")
