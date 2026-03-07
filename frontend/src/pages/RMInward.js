@@ -165,23 +165,35 @@ const RMInward = () => {
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label>Raw Material ID *</Label>
+                  <Label>Search Raw Material</Label>
+                  <Input
+                    type="text"
+                    value={rmSearch}
+                    onChange={(e) => setRmSearch(e.target.value)}
+                    placeholder="Type to search RM ID, category..."
+                    className="font-mono mb-2"
+                    data-testid="rm-search-input"
+                  />
+                  <Label>Select Raw Material *</Label>
                   <select 
                     className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
                     value={formData.rm_id}
                     onChange={(e) => setFormData({...formData, rm_id: e.target.value})}
                     data-testid="inward-rm-select"
                   >
-                    <option value="">Select RM</option>
-                    {availableRMs.map(rm => (
+                    <option value="">Select RM ({filteredRMs.length} shown)</option>
+                    {filteredRMs.map(rm => (
                       <option key={rm.rm_id} value={rm.rm_id}>
-                        {rm.rm_id} - {rm.category} (Stock: {rm.current_stock})
+                        {rm.rm_id} - {rm.category}
                       </option>
                     ))}
                   </select>
+                  {rmSearch.length > 0 && rmSearch.length < 2 && (
+                    <p className="text-xs text-yellow-600 mt-1">Type at least 2 characters to search</p>
+                  )}
                   {formData.rm_id && (
                     <p className="text-xs text-muted-foreground mt-2 font-mono">
-                      Current Stock: {getCurrentStock(formData.rm_id)} units
+                      Selected: {formData.rm_id} | Current Stock in {selectedBranch}: {getCurrentStock(formData.rm_id)} units
                     </p>
                   )}
                 </div>
