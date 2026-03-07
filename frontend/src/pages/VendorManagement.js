@@ -491,6 +491,7 @@ const VendorManagement = () => {
                 <>
                   <div className="p-4 border-b border-border flex items-center justify-between">
                     <div>
+                      <div className="text-xs font-mono text-primary font-bold mb-1">{selectedVendor.vendor_id || 'N/A'}</div>
                       <h2 className="font-bold text-lg">{selectedVendor.name}</h2>
                       <div className="text-xs text-zinc-500 font-mono">
                         {selectedVendor.gst && `GST: ${selectedVendor.gst}`}
