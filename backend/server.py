@@ -2164,6 +2164,90 @@ async def get_filtered_raw_materials(
         "total_pages": (total + page_size - 1) // page_size
     }
 
+# ============ SKU Cascading Filter Endpoints ============
+
+@api_router.get("/skus/filter-options")
+async def get_sku_filter_options():
+    """Get all distinct verticals, models, and brands for filters"""
+    all_skus = await db.skus.find({}, {"_id": 0, "vertical": 1, "model": 1, "brand": 1}).to_list(10000)
+    
+    verticals = sorted(list(set(s.get('vertical', '') for s in all_skus if s.get('vertical'))))
+    models = sorted(list(set(s.get('model', '') for s in all_skus if s.get('model'))))
+    brands = sorted(list(set(s.get('brand', '') for s in all_skus if s.get('brand'))))
+    
+    return {
+        "verticals": verticals,
+        "models": models,
+        "brands": brands
+    }
+
+@api_router.get("/skus/models-by-vertical")
+async def get_models_by_vertical(vertical: str):
+    """Get distinct models for a specific vertical"""
+    skus = await db.skus.find({"vertical": vertical}, {"_id": 0, "model": 1}).to_list(10000)
+    models = sorted(list(set(s.get('model', '') for s in skus if s.get('model'))))
+    return {"models": models}
+
+@api_router.get("/skus/brands-by-vertical-model")
+async def get_brands_by_vertical_model(vertical: str, model: Optional[str] = None):
+    """Get distinct brands for a specific vertical and optionally model"""
+    query = {"vertical": vertical}
+    if model:
+        query["model"] = model
+    skus = await db.skus.find(query, {"_id": 0, "brand": 1}).to_list(10000)
+    brands = sorted(list(set(s.get('brand', '') for s in skus if s.get('brand'))))
+    return {"brands": brands}
+
+@api_router.get("/skus/filtered")
+async def get_filtered_skus(
+    vertical: Optional[str] = None,
+    model: Optional[str] = None,
+    brand: Optional[str] = None,
+    search: Optional[str] = None,
+    branch: Optional[str] = None
+):
+    """Get SKUs filtered by vertical, model, brand, and optionally branch"""
+    query = {}
+    
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    if brand:
+        query["brand"] = brand
+    if search:
+        query["$or"] = [
+            {"sku_id": {"$regex": search, "$options": "i"}},
+            {"bidso_sku": {"$regex": search, "$options": "i"}},
+            {"buyer_sku_id": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}}
+        ]
+    
+    # If branch is specified, only return SKUs active in that branch
+    if branch:
+        inventory_query = {"branch": branch, "is_active": True}
+        branch_inventories = await db.branch_sku_inventory.find(inventory_query, {"_id": 0}).to_list(10000)
+        active_sku_ids = [inv['sku_id'] for inv in branch_inventories]
+        
+        if query:
+            query = {"$and": [query, {"sku_id": {"$in": active_sku_ids}}]}
+        else:
+            query = {"sku_id": {"$in": active_sku_ids}}
+        
+        skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
+        
+        # Merge with inventory data
+        result = []
+        for sku in skus:
+            inv = next((i for i in branch_inventories if i['sku_id'] == sku['sku_id']), None)
+            sku['current_stock'] = inv['current_stock'] if inv else 0
+            sku['branch'] = branch
+            result.append(serialize_doc(sku))
+        return result
+    else:
+        skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
+        return [serialize_doc(s) for s in skus]
+
 app.include_router(api_router)
 
 app.add_middleware(
