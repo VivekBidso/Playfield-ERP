@@ -56,10 +56,25 @@ const RMInward = () => {
         { headers: { Authorization: `Bearer ${token}` }}
       );
       setAvailableRMs(response.data);
+      setFilteredRMs(response.data.slice(0, 100)); // Show first 100 by default
     } catch (error) {
       toast.error("Failed to fetch available RMs");
     }
   };
+
+  // Filter RMs based on search
+  useEffect(() => {
+    if (rmSearch.length >= 2) {
+      const filtered = availableRMs.filter(rm => 
+        rm.rm_id.toLowerCase().includes(rmSearch.toLowerCase()) ||
+        rm.category.toLowerCase().includes(rmSearch.toLowerCase()) ||
+        JSON.stringify(rm.category_data).toLowerCase().includes(rmSearch.toLowerCase())
+      );
+      setFilteredRMs(filtered.slice(0, 100));
+    } else if (rmSearch.length === 0) {
+      setFilteredRMs(availableRMs.slice(0, 100));
+    }
+  }, [rmSearch, availableRMs]);
 
   const handleSubmit = async () => {
     if (!formData.rm_id || formData.quantity <= 0) {
