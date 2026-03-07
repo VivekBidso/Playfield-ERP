@@ -980,6 +980,28 @@ async def get_skus(branch: Optional[str] = None, search: Optional[str] = None, i
         skus = await db.skus.find(query, {"_id": 0}).to_list(1000)
         return [serialize_doc(s) for s in skus]
 
+@api_router.get("/skus/unmapped")
+async def get_skus_without_rm_mapping():
+    """Get all SKUs that don't have any RM mapping (BOM not defined)"""
+    # Get all SKU IDs
+    all_skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    all_sku_ids = set(s['sku_id'] for s in all_skus)
+    
+    # Get all SKU IDs that have mappings
+    mappings = await db.sku_rm_mapping.find({}, {"_id": 0, "sku_id": 1}).to_list(50000)
+    mapped_sku_ids = set(m['sku_id'] for m in mappings)
+    
+    # Find unmapped SKUs
+    unmapped_sku_ids = all_sku_ids - mapped_sku_ids
+    
+    # Get full details of unmapped SKUs
+    unmapped_skus = [s for s in all_skus if s['sku_id'] in unmapped_sku_ids]
+    
+    return {
+        "count": len(unmapped_skus),
+        "skus": [serialize_doc(s) for s in unmapped_skus]
+    }
+
 @api_router.post("/skus/activate")
 async def activate_sku_in_branch(request: ActivateItemRequest):
     """Activate SKU in branch and auto-activate its BOM RMs"""
