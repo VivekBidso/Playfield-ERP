@@ -1440,9 +1440,18 @@ async def create_sku_transfer(input: SKUTransferCreate):
         {"$inc": {"current_stock": input.quantity}}
     )
     
+    # Return clean response without ObjectId
     return {
         "message": f"Transferred {input.quantity} units of {input.sku_id} from {input.from_branch} to {input.to_branch}",
-        "transfer": serialize_doc(doc)
+        "transfer": {
+            "id": doc['id'],
+            "sku_id": doc['sku_id'],
+            "from_branch": doc['from_branch'],
+            "to_branch": doc['to_branch'],
+            "quantity": doc['quantity'],
+            "notes": doc['notes'],
+            "transferred_at": doc['transferred_at']
+        }
     }
 
 @api_router.get("/sku-transfers")
