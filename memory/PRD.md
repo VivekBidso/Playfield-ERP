@@ -91,6 +91,11 @@ Build a factory management tool with the following modules:
 - `GET /api/sku-transfers` - Get transfer history
 - `GET /api/sku-transfers/summary` - Get incoming/outgoing transfer summary
 
+### Production Planning Enhancement (December 2025)
+- `POST /api/production-plans` - Create single production plan with date picker (sku_id, branch, date, planned_quantity)
+- Automatically derives plan_month from date
+- Updates existing plan if same SKU/branch/date combination
+
 ---
 
 ## Prioritized Backlog
