@@ -316,6 +316,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+async def get_next_vendor_id() -> str:
+    """Generate next sequential vendor ID like VND_001, VND_002, etc."""
+    import re
+    all_vendors = await db.vendors.find({}, {"_id": 0, "vendor_id": 1}).to_list(10000)
+    
+    max_seq = 0
+    pattern = re.compile(r'^VND_(\d+)$')
+    
+    for v in all_vendors:
+        vendor_id = v.get('vendor_id', '')
+        if vendor_id:
+            match = pattern.match(vendor_id)
+            if match:
+                seq = int(match.group(1))
+                max_seq = max(max_seq, seq)
+    
+    next_seq = max_seq + 1
+    return f"VND_{next_seq:03d}"
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
     """Get current authenticated user from JWT token"""
     try:
