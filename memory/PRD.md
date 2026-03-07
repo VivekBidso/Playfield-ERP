@@ -72,6 +72,12 @@ Build a factory management tool with the following modules:
 - `POST /api/sku-branch-assignments/upload` - Upload SKUs to assign to branch
 - `GET /api/sku-branch-assignments` - Get assignments by branch
 
+### SKU Cascading Filter Endpoints (March 7, 2026)
+- `GET /api/skus/filter-options` - Get all distinct verticals, models, brands
+- `GET /api/skus/models-by-vertical` - Get models for a specific vertical
+- `GET /api/skus/brands-by-vertical-model` - Get brands for vertical+model
+- `GET /api/skus/filtered` - Filter SKUs by vertical, model, brand, search, branch
+
 ---
 
 ## Prioritized Backlog
