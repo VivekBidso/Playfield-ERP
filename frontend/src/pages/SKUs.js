@@ -356,128 +356,82 @@ const SKUs = () => {
         </div>
       </div>
 
-      {/* Filter Buttons */}
+      {/* Dropdown Filters */}
       <div className="mb-6 bg-white border border-border p-4 rounded-sm">
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
-            <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
-              Vertical
-            </span>
-          </div>
-          
-          {/* Vertical Filter Buttons */}
-          <div className="flex gap-2 flex-wrap">
-            <Button
-              variant={!selectedVertical ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setSelectedVertical("");
-                setSelectedModel("");
-                setSelectedBrand("");
-              }}
-              className="text-xs"
-              data-testid="filter-all-btn"
-            >
-              All ({skus.length})
-            </Button>
-            {verticals.map(v => {
-              const count = skus.filter(s => s.vertical === v).length;
-              return (
-                <Button
-                  key={v}
-                  variant={selectedVertical === v ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedVertical(v)}
-                  className="text-xs"
-                  data-testid={`filter-vertical-${v}`}
-                >
-                  {v} ({count})
-                </Button>
-              );
-            })}
-          </div>
-          
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
+          <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+            Filter SKUs
+          </span>
           {hasActiveFilters && (
             <Button 
               variant="ghost" 
               size="sm" 
               onClick={clearFilters}
-              className="text-xs text-zinc-500 ml-auto"
+              className="ml-auto text-xs"
+              data-testid="clear-filters-btn"
             >
               <X className="w-3 h-3 mr-1" />
-              Clear All
+              Clear
             </Button>
           )}
         </div>
         
-        {/* Model Filter (shows when vertical selected) */}
-        {selectedVertical && models.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-zinc-200">
-            <div className="flex items-center gap-4 flex-wrap">
-              <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
-                Model
-              </span>
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  variant={!selectedModel ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedModel("")}
-                  className="text-xs"
-                  data-testid="filter-model-all"
-                >
-                  All Models
-                </Button>
-                {models.map(m => (
-                  <Button
-                    key={m}
-                    variant={selectedModel === m ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedModel(m)}
-                    className="text-xs"
-                    data-testid={`filter-model-${m}`}
-                  >
-                    {m}
-                  </Button>
-                ))}
-              </div>
-            </div>
+        <div className="grid grid-cols-3 gap-4">
+          {/* Vertical Filter */}
+          <div>
+            <Label className="text-xs text-zinc-500">Vertical</Label>
+            <select 
+              className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              value={selectedVertical}
+              onChange={(e) => setSelectedVertical(e.target.value)}
+              data-testid="vertical-filter"
+            >
+              <option value="">All Verticals</option>
+              {verticals.map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
           </div>
-        )}
+          
+          {/* Model Filter */}
+          <div>
+            <Label className="text-xs text-zinc-500">Model</Label>
+            <select 
+              className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-primary"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              disabled={!selectedVertical}
+              data-testid="model-filter"
+            >
+              <option value="">All Models</option>
+              {models.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Brand Filter */}
+          <div>
+            <Label className="text-xs text-zinc-500">Brand</Label>
+            <select 
+              className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-primary"
+              value={selectedBrand}
+              onChange={(e) => setSelectedBrand(e.target.value)}
+              disabled={!selectedVertical}
+              data-testid="brand-filter"
+            >
+              <option value="">All Brands</option>
+              {brands.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         
-        {/* Brand Filter (shows when vertical selected) */}
-        {selectedVertical && brands.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-zinc-200">
-            <div className="flex items-center gap-4 flex-wrap">
-              <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
-                Brand
-              </span>
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  variant={!selectedBrand ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedBrand("")}
-                  className="text-xs"
-                  data-testid="filter-brand-all"
-                >
-                  All Brands
-                </Button>
-                {brands.map(b => (
-                  <Button
-                    key={b}
-                    variant={selectedBrand === b ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedBrand(b)}
-                    className="text-xs"
-                    data-testid={`filter-brand-${b}`}
-                  >
-                    {b}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        <div className="mt-2 text-xs text-zinc-500 font-mono">
+          {filteredSkus.length} SKUs found
+        </div>
       </div>
 
       {/* Table */}
