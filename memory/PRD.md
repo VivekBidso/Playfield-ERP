@@ -59,6 +59,8 @@ Build a factory management tool with the following modules:
 - [x] **Vendor Management Module** - Add vendors with details (Name, GST, Address, POC, Email, Phone)
 - [x] **Vendor RM Pricing** - Map RM IDs to vendors with prices
 - [x] **Price Comparison Report** - Shows lowest vendor price per RM for procurement decisions
+- [x] **SKU Cascading Filters** - Vertical → Model → Brand filter buttons on SKUs page
+- [x] **Production Entry Filters** - Filter SKUs by Vertical/Model/Brand when adding production
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
