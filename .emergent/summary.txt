@@ -1,103 +1,92 @@
 <analysis>**original_problem_statement:**
-The user wants to build a factory management tool with the following modules:
-1.  **Raw Material (RM) Management**: Bulk upload RM IDs, enter daily purchase quantities, and track inventory.
-2.  **SKU Management**: Create and manage finished goods SKU IDs.
-3.  **BOM Mapping**: Map RM IDs to SKU IDs, specifying the quantity of each RM required per SKU.
-4.  **Production Entry**: Record production counts against SKU IDs.
-5.  **Inventory Consumption**: Automatically deduct RM inventory based on production entries.
-6.  **Dispatch Tracking**: Mark outgoing SKUs as dispatched.
-7.  **Reporting**: Provide a net-off tracking of RM and SKU inventory.
+The user wants to build a comprehensive factory management tool. The initial scope included modules for Raw Material (RM) Management, SKU Management, Bill of Materials (BOM) Mapping, Production Entry, Inventory Consumption, Dispatch Tracking, and Reporting.
 
 **PRODUCT REQUIREMENTS (Based on subsequent requests):**
-- **Multi-Branch Architecture**: The system must support 7 specific branches. Users select a branch after logging in.
-- **Role-Based Access Control**:
-    - **Master Admin**: Global view across all branches, can manage users.
-    - **Branch User**: View and edit data only for their assigned branch.
-- **Global IDs**: SKUs and RMs are created globally with sequential IDs and then activated for use in specific branches.
-- **Detailed SKU/RM Fields**: SKUs and RMs have specific, detailed fields. RM IDs are auto-generated based on their category.
-- **Bulk Operations**: The system must support bulk uploading of SKUs from an Excel file and SKU-RM mappings.
-- **Production Planning**: A module to upload a monthly production plan and get a shortage analysis for raw materials at the branch level.
-- **RM Inward**: A dedicated entry point to record the receipt of raw materials at a branch.
+*   **Multi-Branch Architecture**: Support for 7 specific branches with data isolation.
+*   **Role-Based Access Control**: Master Admin (global view) and Branch User (branch-specific view).
+*   **Global IDs**: SKUs and RMs are created globally and then activated/assigned to branches.
+*   **Detailed Data Models**: Specific fields for SKUs, RMs, and Vendors. Auto-generated, sequential IDs for RMs and Vendors.
+*   **Bulk Operations**: Support for bulk uploading SKUs, RMs, Vendors, and SKU-RM mappings from Excel files.
+*   **Production Planning**: A module for uploading monthly production plans and analyzing RM shortages.
+*   **RM Inward**: A dedicated entry point for recording received raw materials.
+*   **Vendor Management**: A module to manage vendors, map RMs to vendors with pricing, and provide a price comparison report.
+*   **SKU Subscription**: A module to assign SKUs to specific branches via bulk upload.
+*   **Advanced Filtering**: The Raw Materials page must have filters for each data column.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack application with a FastAPI backend and React frontend. The application features a multi-branch architecture where users can select a branch to manage inventory. It includes modules for a Master Dashboard (admin view), branch-specific Dashboard, Raw Materials, SKUs, SKU-RM Mapping, Production Planning, and Reports. A role-based authentication system (Admin/Branch User) has been partially implemented with backend routes and frontend pages for Login and User Management. Data for 709 SKUs has been successfully uploaded from a user-provided Excel file.
+A full-stack application with a FastAPI backend and React frontend. It supports a multi-branch architecture, role-based access, and has functional modules for Raw Materials, SKUs, SKU-RM Mapping, RM Inward Entry, Production Planning, SKU Subscription, and Vendor Management. The system has been populated with significant user data: 2,402 RMs, 709 SKUs, 504 vendors, and 20,155 SKU-RM mappings have been imported from user-provided Excel files. The authentication system, previously broken, appears to be functional now. Three new modules (Vendor Management, SKU Subscription, and enhanced RM filtering) have just been scaffolded and implemented.
 
 **Last working item**:
-- **Last item agent was working**: The agent was creating a dedicated **RM Inward Entry** module. The user requested a clear process for recording raw materials purchased and received at a branch. The agent created the frontend page () and added a link to the main navigation ().
-- **Status**: IN PROGRESS
-- **Agent Testing Done**: N
-- **Which testing method agent to use?**: Frontend testing agent (after the routing is completed) to test the new page and form submission.
+- **Last item agent was working**: The agent was working on a multi-part user request:
+    1.  Updating weights for 'INP' category Raw Materials from a new file.
+    2.  Bulk uploading 20,000+ SKU-RM mappings.
+    3.  Creating a feature to export SKUs that do not have any RM mappings.
+    The agent discovered that the bulk-uploaded mappings were stored in a different database collection () than the one the UI was reading from (). A fix was implemented in the backend API to read from both collections and merge the data, resolving the discrepancy.
+- **Status**: USER VERIFICATION PENDING
+- **Agent Testing Done**: Y (Agent verified the fix by checking API responses and taking a screenshot of the UI, which showed the correct count of mapped SKUs and the new EXPORT UNMAPPED button).
+- **Which testing method agent to use?**: both. Use the testing agent to perform a full regression test, paying special attention to the SKU-RM Mapping module to ensure data integrity from both collections, and verify the Export Unmapped functionality.
 - **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1**: Complete and test the authentication and authorization module (P0)
--   **Issue 2**: Complete the RM Inward module (P1)
+-   **Issue 1**: Authentication and Authorization requires full verification (P0)
+-   **Issue 2**: The new modules (Vendor Management, SKU Subscription, RM Filters) need thorough testing (P1)
 
 **Issues Detail**:
--   **Issue 1**: **Complete and test the authentication and authorization module**
-    -   **Attempted fixes**: The agent implemented backend JWT logic and frontend pages (, ) with an auth store. However, a screenshot test showed that navigating to the  page redirected back to login, indicating the auth state is not being correctly managed or checked by the routing protection.
+-   **Issue 1**: **Authentication and Authorization requires full verification**
+    -   **Attempted fixes**: The previous handoff reported this as completely broken. The current agent tested the login and navigation to an admin-only page () and found it to be working. The testing agent also ran a full suite and reported 100% success. However, given the criticality, a final user verification is needed.
     -   **Next debug checklist**:
-        1.  In , inspect the  component to ensure it correctly checks for a valid token and user role from the .
-        2.  Verify the login flow: On successful login, confirm the token and user data are correctly saved to  and the Zustand .
-        3.  Implement and test role-based redirection. A branch user should be redirected if they attempt to access admin-only routes like  or .
-        4.  Review the  dependency in  to ensure tokens are being validated correctly on API requests.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is a critical security feature requested by the user. Fixing it will enable a secure, multi-user system with proper access control.
-    -   **Status**: IN PROGRESS
-    -   **Is recurring issue?**: N
+        1.  Confirm that a Branch User (once created) is correctly restricted from accessing admin pages (, ).
+        2.  Verify that API endpoints are properly protected by the  dependency and correctly enforce role permissions.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is a core security requirement for the multi-user, multi-branch system.
+    -   **Status**: USER VERIFICATION PENDING
+    -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: both
-    -   **Blocked on other issue**: None
+    -   **Blocked on other issue**: None.
 
--   **Issue 2**: **Complete the RM Inward module**
-    -   **Attempted fixes**: N/A. The task is unfinished.
+-   **Issue 2**: **The new modules need thorough testing**
+    -   **Attempted fixes**: The agent created the backend and frontend for Vendor Management, SKU Subscription, and advanced RM filters. Basic functionality was verified via screenshots (pages load, buttons appear).
     -   **Next debug checklist**:
-        1.  Add the route for the  page to . This will make the page accessible.
-        2.  Connect the form on the  page to the existing backend endpoint for adding RM purchase quantities.
-        3.  Test the full flow: log in, select a branch, navigate to the RM Inward page, submit a purchase entry, and verify that the RM inventory is correctly updated on the Raw Materials page.
-    -   **Why fix this issue and what will be achieved with the fix?**: To fulfill a direct user request for a clear and dedicated workflow for logging incoming raw materials.
-    -   **Status**: IN PROGRESS
+        1.  **Vendor Management**: Test the full CRUD flow (Create, Read, Update, Delete) for vendors. Test adding RM prices to a vendor. Test the price comparison report.
+        2.  **SKU Subscription**: Test uploading an Excel file to assign SKUs to a branch and verify the data is correctly stored and displayed.
+        3.  **RM Filters**: Test each filter on the Raw Materials page individually and in combination to ensure they correctly filter the 2,402 RMs.
+    -   **Why fix this issue and what will be achieved with the fix?**: To complete the implementation of three major user-requested features.
+    -   **Status**: TESTING PENDING
     -   **Is recurring issue?**: N
     -   **Should Test frontend/backend/both after fix?**: both
-    -   **Blocked on other issue**: None
+    -   **Blocked on other issue**: None.
 
 **In progress Task List**:
--   **Task 1**: **Finalize Authentication and Role-Based Access Control**
-    -   **Where to resume**: Debug the  and  in the frontend to fix the incorrect redirection after login.
-    -   **What will be achieved with this?**: A secure application where users can log in and are restricted to data and pages based on their assigned role (Master Admin or Branch User).
-    -   **Status**: IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?**: both
-    -   **Blocked on something**: No.
-
--   **Task 2**: **Complete RM Inward Module**
-    -   **Where to resume**: Add the new page's route to the main router in .
-    -   **What will be achieved with this?**: A functional, dedicated page for users to record new raw material stock arriving at their branch.
-    -   **Status**: IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?**: both
-    -   **Blocked on something**: No.
+N/A
 
 **Upcoming and Future Tasks**
 - **Upcoming Tasks**:
-    - **P0**: Test the User Management module for creating new users and assigning branch access.
-    - **P1**: Verify that data visibility is correctly restricted at the branch level for all modules (Raw Materials, SKUs, Production, etc.).
+    - **P0**: Thoroughly test the three newly implemented modules: Vendor Management, SKU Subscription, and the enhanced Raw Materials page filters.
+    - **P1**: Consolidate the  and  database collections into a single, unified data model to remove technical debt.
+    - **P2**: Refactor  into a modular structure (e.g., , , ).
 - **Future Tasks**:
-    - **P2**: Implement inter-branch stock transfer functionality.
-    - **P3**: Add barcode scanning capabilities for faster data entry.
-    - **P4**: Enhance the production planning module with a multi-month view and integration of planned purchase orders.
-    - **P5**: Add a validation preview step for all bulk upload features.
+    - **P3**: Implement inter-branch stock transfer functionality.
+    - **P4**: Add a feature to bulk import RM purchase entries from Excel on the RM Inward page.
+    - **P5**: Add barcode scanning capabilities for faster data entry.
+    - **P6**: Enhance the production planning module with a multi-month view and integration of planned purchase orders.
+    - **P7**: Add a validation preview step for all bulk upload features.
 
 **Completed work in this session**
-- **Multi-Branch Architecture**: Implemented a branch selector and a Master Dashboard for a global overview, making all modules branch-aware.
-- **Global ID System**: Refactored the backend so SKUs and RMs are created globally and then activated within branches.
-- **Production Planning Module**: Created a frontend page and backend endpoints for uploading production plans and analyzing RM shortages.
-- **Bulk SKU-RM Mapping**: Implemented a feature to upload mappings from an XLSX file.
-- **Automated RM ID Generation**: Reworked the Raw Materials module to auto-generate IDs based on category and provide category-specific upload templates.
-- **Bulk SKU Data Upload**: Successfully uploaded 709 SKUs from a user's Excel file, correcting a critical error where the wrong column was used as the primary ID.
-- **UI Tab Visibility Fix**: Corrected the styling of tab components across the application to ensure non-selected tabs are visible.
-- **Authentication Scaffolding**: Partially implemented a JWT-based authentication system with Admin/Branch roles, including backend models/routes and frontend pages/state management.
+- **RM Data Import**: Imported a total of 2,402 Raw Materials from 7 separate Excel files (, , , , , , ).
+- **RM ID Sequencing Fix**: Corrected the  function in  to use natural sorting, fixing a bug where  was considered smaller than .
+- **Authentication System Fix**: Resolved the critical issue where users were redirected to the login page after a successful login. The auth flow and protected routes now appear to be functional.
+- **RM Inward Module Completion**: The RM Inward page was fully implemented, including adding a search feature for all global RMs and updating the backend to auto-activate an RM for a branch upon its first inward entry.
+- **Vendor Management Module**: Implemented a complete module to add/edit/view vendors, with auto-generated unique Vendor IDs (e.g., ). Also implemented bulk upload and imported 504 vendors from an Excel file.
+- **SKU Subscription Module**: Implemented a page allowing users to assign SKUs to a branch via bulk Excel upload.
+- **Enhanced RM Module**: Overhauled the Raw Materials page to include advanced column-based filters.
+- **Bulk SKU-RM Mapping**: Imported 20,155 SKU-to-RM mappings from an Excel file.
+- **Data Model Hotfix**: Patched the API to read from two separate SKU mapping collections ( and ) to fix a data visibility issue.
+- **Unmapped SKU Export**: Added a feature and corresponding API endpoint () to export a list of all SKUs that do not have any RM mappings.
+- **INP RM Weight Update**: Updated the  for 955  category RMs from a provided file.
 
 **Earlier issues found/mentioned but not fixed**
-- None. The agent has addressed all specific issues raised by the user during the session.
+- None.
 
 **Known issue recurrence from previous fork**
 - N/A
@@ -108,80 +97,80 @@ A full-stack application with a FastAPI backend and React frontend. The applicat
 **Key Technical Concepts**
 -   **Backend**: FastAPI, MongoDB (), Pydantic, JWT Authentication.
 -   **Frontend**: React, Zustand (for state management), TailwindCSS, Shadcn/UI.
--   **Architecture**: Full-stack application with a multi-branch data model and role-based access control.
+-   **Architecture**: Full-stack, multi-branch, role-based application.
 
 **key DB schema**
 -   ****: 
 -   ****: 
 -   ****: 
+-   **** (New Bulk Import Collection): 
+-   **** (Old Collection): 
 -   ****: 
 -   ****: 
 
 **changes in tech stack**
--   **Backend**: Added , , , .
--   **Frontend**: Added .
+-   None in this session.
 
 **All files of reference**
--   : Contains all backend logic, models, and API endpoints. Has been extensively modified.
--   : The main React router, updated to include new pages and protected routes.
--   : The main UI layout, updated with the branch selector, new navigation links, and user info/logout button.
--   : Zustand store for managing user authentication state.
--   : Updated to display the corrected data and additional columns from the user's Excel file.
--   : Re-written to support category-specific fields and automatic ID generation.
--   : Styling was modified to fix a visibility issue.
+-   : All backend logic resides here. Grew from ~1400 to ~2100 lines. Major changes include new vendor/SKU subscription endpoints, RM import logic, and fixes for auth and data retrieval.
+-   : New file for the vendor management module.
+-   : New file for assigning SKUs to branches.
+-   : Rewritten to use a more advanced table and filtering component.
+-   : Updated with a global RM search feature.
+-   : Updated to include the Export Unmapped feature.
+-   : Updated with routes for the new pages.
+-   : Updated with navigation links for the new pages.
 
 **Areas that need refactoring**:
--   The  file has grown very large. It should be broken down into a more modular structure (e.g., separate files for routes, models, and services) to improve maintainability.
--   The one-off Python scripts for bulk data uploads are prone to timeouts. A more robust solution, like a background job queue, should be considered for handling large file imports.
+-   **CRITICAL**: The  file is now over 2100 lines long and extremely difficult to maintain. It must be broken down into a modular structure (e.g., separate directories for routes, models, and services/crud functions).
+-   **CRITICAL**: The application has two different database collections for SKU-RM mappings ( and ) with different schemas. The API currently reads from both and merges the data at runtime, which is inefficient and a major source of technical debt. These should be migrated into a single, consistent collection.
 
 **key api endpoints**
--    (POST): User login.
--    (GET, POST): Manage users.
--    (POST): Bulk upload for RMs.
--    (POST): Bulk upload for SKUs.
--    (POST): Bulk upload for BOM mappings.
--    (POST): Analyze RM shortages.
+-    (GET, POST): Manage vendors.
+-    (POST): Bulk upload vendors.
+-    (GET, POST): Manage RM prices for a vendor.
+-    (POST): Bulk assign SKUs to a branch.
+-    (GET): Export SKUs with no RM mapping.
+-    (POST): Import RMs with pre-existing IDs.
 
 **Critical Info for New Agent**
--   **Authentication is broken**: The most critical task is to fix the authentication and authorization flow. The frontend is not correctly handling the auth state after login.
--   **Primary SKU ID**: The primary identifier for SKUs is , not . This is crucial for all operations involving SKUs.
--   **Data Model**: The application uses a multi-branch architecture. Data like inventory is branch-specific, while entities like SKUs and RMs are global. All new features must adhere to this model.
--   **In-Progress Task**: The last action was to create a new page for RM Inward. You need to add the route for this page in  to complete the initial setup.
+-   **Monolithic Backend**: The  file is dangerously large. Prioritize refactoring it into smaller, manageable modules.
+-   **Dual Data Model for Mappings**: Be aware that SKU-RM mappings exist in two separate collections ( and ). Any logic related to BOMs must account for this until the data is consolidated.
+-   **New Modules Need Testing**: The three newest features (Vendor Management, SKU Subscription, and RM Filters) have been implemented but not thoroughly tested. This is the highest priority upcoming task.
 
 **documents and test reports created in this job**
--   /app/design_guidelines.json
--   /app/SYSTEM_ENHANCEMENTS.md
--   /app/GLOBAL_BRANCH_ARCHITECTURE.md
--   /app/PRODUCTION_PLANNING_GUIDE.md
--   /app/SKU_MAPPING_BULK_UPLOAD_GUIDE.md
--   /app/RM_AUTO_ID_GUIDE.md
+-   /app/memory/PRD.md
+-   /app/test_reports/iteration_1.json
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **Request**: Create SKUs from the provided Excel file. (Status: **Completed**)
-2.  **Correction**:  is the primary ID, not . Update the SKU page to show all columns. (Status: **Completed**)
-3.  **Bug Report**: The non-selected tabs in the UI are not visible. (Status: **Completed**)
-4.  **Request**: Implement role-based login (Master Admin/Branch User) and a user management module. (Status: **In Progress**)
-5.  **Request**: Create a module for RM Inward to log incoming raw material purchases. (Status: **In Progress**)
-6.  **Pending Human Message**: . The agent has started this task but has not finished it.
+1.  **Request**: Add two new RM files (Spares, Stickers). (Status: **Completed**)
+2.  **Confirmation**: User confirms to proceed with fixing the authentication system. (Status: **Completed**)
+3.  **Request**: Add three new modules: Enhanced RM filters, SKU subscription, and Vendor Management. (Status: **Completed**)
+4.  **Request**: Add auto-generated unique Vendor IDs. (Status: **Completed**)
+5.  **Request**: Bulk upload vendor information from an Excel file and allow editing of missing details. (Status: **Completed**)
+6.  **Request**: Update INP RM weights and bulk upload SKU-RM mappings from two new files. (Status: **Completed**)
+7.  **Request**: Add a feature to export SKUs that have no RM mappings. (Status: **Completed**)
+8.  **Pending Human Message**: None. The agent has addressed all user requests.
 
 **Project Health Check:**
--   **Broken**: The entire authentication and role-based access control system is not functional. Users cannot log in and access pages correctly.
+-   **Broken**: No features are completely broken.
 -   **Mocked**: N/A
+-   **Technical Debt**: The monolithic  file and the dual-collection model for SKU-RM mappings are significant risks to future development and maintainability.
 
 **3rd Party Integrations**
-- None.
+-   None.
 
 **Testing status**
--   **Testing agent used after significant changes**: NO (Agent used it early on, but not after major changes like Auth or the SKU data correction).
+-   **Testing agent used after significant changes**: YES. The agent ran the testing agent after fixing the authentication and RM Inward modules. All tests passed. However, three major features were added *after* this test run.
 -   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: None.
--   **Known regressions**: The application is currently not usable by multiple users due to the broken authentication system.
+-   **Known regressions**: None.
 
 **Credentials to test flow:**
--   A default admin user should be created automatically by the backend if no users exist.
+-   **Role**: Master Admin
 -   **Email**: 
 -   **Password**: 
 
 **What agent forgot to execute**
--   The agent failed to complete the implementation and debugging of the authentication module. It prematurely marked the task as complete in a summary message despite evidence (a failed screenshot test) that it was not working.
--   The agent stopped mid-task while implementing the RM Inward module, just before adding the necessary route in .</analysis>
+-   The agent did not consolidate the two different SKU mapping collections ( and ) into a single source of truth. It implemented a temporary fix at the API layer, which introduces technical debt. This should be addressed by a proper data migration.
+-   The agent did not refactor the massive  file, which has become unmanageable.</analysis>
