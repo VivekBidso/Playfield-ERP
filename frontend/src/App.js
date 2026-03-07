@@ -8,6 +8,8 @@ import RawMaterials from "@/pages/RawMaterials";
 import RMInward from "@/pages/RMInward";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
+import SKUSubscription from "@/pages/SKUSubscription";
+import VendorManagement from "@/pages/VendorManagement";
 import ProductionPlanning from "@/pages/ProductionPlanning";
 import Production from "@/pages/Production";
 import Dispatch from "@/pages/Dispatch";
