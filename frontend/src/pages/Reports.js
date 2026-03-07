@@ -175,25 +175,25 @@ const Reports = () => {
             <div className="p-6">
               {inventoryReport && (
                 <div className="space-y-8">
-                  {/* Raw Materials */}
+                  {/* Raw Materials - Only show items with stock > 0 */}
                   <div>
-                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">Raw Materials</h3>
+                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
+                      Raw Materials ({inventoryReport.raw_materials.filter(rm => rm.current_stock > 0).length} items with stock)
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-zinc-50 border-b border-zinc-200">
                           <tr>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">RM ID</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Name</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Unit</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {inventoryReport.raw_materials.map((rm) => (
+                          {inventoryReport.raw_materials.filter(rm => rm.current_stock > 0).map((rm) => (
                             <tr key={rm.rm_id} className="border-b border-zinc-100">
                               <td className="p-4 align-middle font-mono text-zinc-700">{rm.rm_id}</td>
-                              <td className="p-4 align-middle font-mono text-zinc-700">{rm.name}</td>
                               <td className="p-4 align-middle font-mono text-zinc-700">{rm.current_stock}</td>
                               <td className="p-4 align-middle font-mono text-zinc-700">{rm.unit}</td>
                               <td className="p-4 align-middle">
@@ -211,27 +211,32 @@ const Reports = () => {
                           ))}
                         </tbody>
                       </table>
+                      {inventoryReport.raw_materials.filter(rm => rm.current_stock > 0).length === 0 && (
+                        <div className="p-8 text-center text-muted-foreground font-mono text-sm">
+                          No raw materials with stock in this branch.
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* SKUs */}
+                  {/* SKUs - Only show items with stock > 0 */}
                   <div>
-                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">SKUs</h3>
+                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
+                      SKUs ({inventoryReport.skus.filter(sku => sku.current_stock > 0).length} items with stock)
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-zinc-50 border-b border-zinc-200">
                           <tr>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Name</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
                             <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {inventoryReport.skus.map((sku) => (
+                          {inventoryReport.skus.filter(sku => sku.current_stock > 0).map((sku) => (
                             <tr key={sku.sku_id} className="border-b border-zinc-100">
                               <td className="p-4 align-middle font-mono text-zinc-700">{sku.sku_id}</td>
-                              <td className="p-4 align-middle font-mono text-zinc-700">{sku.name}</td>
                               <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock}</td>
                               <td className="p-4 align-middle">
                                 {sku.current_stock < sku.low_stock_threshold ? (
@@ -248,6 +253,11 @@ const Reports = () => {
                           ))}
                         </tbody>
                       </table>
+                      {inventoryReport.skus.filter(sku => sku.current_stock > 0).length === 0 && (
+                        <div className="p-8 text-center text-muted-foreground font-mono text-sm">
+                          No SKUs with stock in this branch.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
