@@ -1817,6 +1817,14 @@ async def delete_production_plan(plan_month: str, branch: str):
     result = await db.production_plans.delete_many({"branch": branch, "plan_month": plan_month})
     return {"message": f"Deleted {result.deleted_count} plan entries"}
 
+@api_router.delete("/production-plans/entry/{plan_id}")
+async def delete_single_plan_entry(plan_id: str):
+    """Delete a single production plan entry by its ID"""
+    result = await db.production_plans.delete_one({"id": plan_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Plan entry not found")
+    return {"message": "Plan entry deleted"}
+
 @api_router.get("/production-plans/shortage-analysis")
 async def get_shortage_analysis(branch: str, plan_month: str):
     """Calculate RM shortages based on production plan"""
