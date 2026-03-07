@@ -255,6 +255,8 @@ const Reports = () => {
                           <thead className="bg-red-50 border-b border-red-200">
                             <tr>
                               <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">SKU ID</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Vertical</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Brand</th>
                               <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Current Stock</th>
                               <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Min Threshold</th>
                               <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Shortage</th>
@@ -264,6 +266,8 @@ const Reports = () => {
                             {lowStockReport.skus.map((sku) => (
                               <tr key={sku.sku_id} className="border-b border-red-100 bg-red-50/50" data-testid={`low-stock-sku-${sku.sku_id}`}>
                                 <td className="p-4 align-middle font-mono text-sm font-bold text-red-900">{sku.sku_id}</td>
+                                <td className="p-4 align-middle font-mono text-xs text-red-700">{sku.vertical || '-'}</td>
+                                <td className="p-4 align-middle font-mono text-xs text-red-700">{sku.brand || '-'}</td>
                                 <td className="p-4 align-middle font-mono text-red-700">{sku.current_stock}</td>
                                 <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold}</td>
                                 <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold - sku.current_stock}</td>
