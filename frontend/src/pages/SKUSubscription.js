@@ -437,16 +437,21 @@ const SKUSubscription = () => {
       {(uploadResult || bulkResult) && (
         <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-sm">
           <h3 className="font-bold text-sm mb-2">Last Operation Result</h3>
-          <div className="grid grid-cols-3 gap-4 text-sm font-mono">
+          <div className="grid grid-cols-4 gap-4 text-sm font-mono">
             <div>
               <span className="text-green-600 font-bold">
                 {uploadResult?.assigned || bulkResult?.assigned || 0}
-              </span> assigned
+              </span> SKUs assigned
             </div>
             <div>
               <span className="text-yellow-600 font-bold">
                 {uploadResult?.skipped || bulkResult?.skipped || 0}
-              </span> skipped (already assigned)
+              </span> skipped
+            </div>
+            <div>
+              <span className="text-blue-600 font-bold">
+                {uploadResult?.rms_activated || bulkResult?.rms_activated || 0}
+              </span> RMs activated
             </div>
             {uploadResult && (
               <div>
@@ -455,7 +460,7 @@ const SKUSubscription = () => {
             )}
             {bulkResult && (
               <div>
-                <span className="text-blue-600 font-bold">{bulkResult.total_matching}</span> total matching
+                <span className="text-zinc-600 font-bold">{bulkResult.total_matching}</span> total matching
               </div>
             )}
           </div>
