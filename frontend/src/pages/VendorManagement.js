@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, Search, Trash2, Edit, Building2, Package, TrendingDown, ChevronRight, X, Download } from "lucide-react";
+import { Plus, Search, Trash2, Edit, Building2, Package, TrendingDown, ChevronRight, X, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -26,6 +26,8 @@ const VendorManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [rmSearchQuery, setRmSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const fileInputRef = useRef(null);
   
   const [showAddVendorDialog, setShowAddVendorDialog] = useState(false);
   const [showAddPriceDialog, setShowAddPriceDialog] = useState(false);
