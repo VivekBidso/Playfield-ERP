@@ -809,12 +809,24 @@ async def create_purchase_entry(input: PurchaseEntryCreate):
     if not rm:
         raise HTTPException(status_code=404, detail="Raw material not found")
     
+    # Check if RM is active in branch, auto-activate if not
     inventory = await db.branch_rm_inventory.find_one(
-        {"rm_id": input.rm_id, "branch": input.branch, "is_active": True},
+        {"rm_id": input.rm_id, "branch": input.branch},
         {"_id": 0}
     )
+    
     if not inventory:
-        raise HTTPException(status_code=400, detail=f"RM not active in {input.branch}. Please activate it first.")
+        # Auto-activate RM in this branch
+        inv_obj = BranchRMInventory(rm_id=input.rm_id, branch=input.branch)
+        doc = inv_obj.model_dump()
+        doc['activated_at'] = doc['activated_at'].isoformat()
+        await db.branch_rm_inventory.insert_one(doc)
+    elif not inventory.get('is_active', True):
+        # Reactivate if deactivated
+        await db.branch_rm_inventory.update_one(
+            {"rm_id": input.rm_id, "branch": input.branch},
+            {"$set": {"is_active": True, "activated_at": datetime.now(timezone.utc).isoformat()}}
+        )
     
     entry_obj = PurchaseEntry(**input.model_dump())
     doc = entry_obj.model_dump()
