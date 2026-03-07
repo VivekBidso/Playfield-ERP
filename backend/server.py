@@ -1254,12 +1254,23 @@ async def create_production_entry(input: ProductionEntryCreate):
     if not sku_inv:
         raise HTTPException(status_code=400, detail=f"SKU not active in {input.branch}")
     
+    # Get mapping from either collection
     mapping = await db.sku_mappings.find_one({"sku_id": input.sku_id}, {"_id": 0})
-    if not mapping:
+    rm_mappings = []
+    
+    if mapping:
+        rm_mappings = mapping['rm_mappings']
+    else:
+        # Check new sku_rm_mapping collection
+        new_mappings = await db.sku_rm_mapping.find({"sku_id": input.sku_id}, {"_id": 0}).to_list(100)
+        if new_mappings:
+            rm_mappings = [{"rm_id": m['rm_id'], "quantity_required": m.get('quantity', 1)} for m in new_mappings]
+    
+    if not rm_mappings:
         raise HTTPException(status_code=400, detail="SKU mapping not found. Please map raw materials first.")
     
     # Check RM stock
-    for rm_mapping in mapping['rm_mappings']:
+    for rm_mapping in rm_mappings:
         required_qty = rm_mapping['quantity_required'] * input.quantity
         rm_inv = await db.branch_rm_inventory.find_one(
             {"rm_id": rm_mapping['rm_id'], "branch": input.branch, "is_active": True},
