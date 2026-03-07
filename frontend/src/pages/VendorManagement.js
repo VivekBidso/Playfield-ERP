@@ -242,8 +242,69 @@ const VendorManagement = () => {
 
   const filteredVendors = vendors.filter(v => 
     v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    v.gst?.toLowerCase().includes(searchQuery.toLowerCase())
+    v.gst?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    v.vendor_id?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setLoading(true);
+    try {
+      const response = await axios.post(`${API}/vendors/bulk-upload`, formData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setUploadResult(response.data);
+      
+      if (response.data.created > 0) {
+        toast.success(`Created ${response.data.created} vendors`);
+      }
+      if (response.data.skipped > 0) {
+        toast.info(`${response.data.skipped} vendors skipped (already exist)`);
+      }
+      
+      fetchVendors();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Upload failed");
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const downloadVendorTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Name', 'GST', 'Address', 'POC', 'Email', 'Phone'],
+      ['Sample Vendor', 'GSTIN123456', '123 Main St, City', 'John Doe', 'vendor@example.com', '9876543210']
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'vendor_upload_template.xlsx');
+    toast.success("Template downloaded");
+  };
+
+  const exportVendors = () => {
+    const ws = XLSX.utils.json_to_sheet(vendors.map(v => ({
+      'Vendor ID': v.vendor_id,
+      'Name': v.name,
+      'GST': v.gst || '',
+      'Address': v.address || '',
+      'POC': v.poc || '',
+      'Email': v.email || '',
+      'Phone': v.phone || ''
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'vendors_export.xlsx');
+    toast.success("Exported to Excel");
+  };
 
   const filteredComparison = comparisonReport.filter(r =>
     r.rm_id.toLowerCase().includes(rmSearchQuery.toLowerCase()) ||
