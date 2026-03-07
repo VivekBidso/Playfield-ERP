@@ -376,6 +376,7 @@ const Reports = () => {
           </div>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 };
