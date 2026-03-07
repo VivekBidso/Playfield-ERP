@@ -182,13 +182,13 @@ const MasterDashboard = () => {
 
   return (
     <div className="p-6 md:p-8" data-testid="master-dashboard-page">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Master Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">Admin overview across all branches</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Filter className="w-5 h-5 text-muted-foreground" strokeWidth={1.5} />
+        <div className="flex flex-wrap items-center gap-3">
+          <Filter className="w-5 h-5 text-muted-foreground hidden lg:block" strokeWidth={1.5} />
           <select
             value={selectedBranchFilter}
             onChange={(e) => setSelectedBranchFilter(e.target.value)}
