@@ -551,6 +551,64 @@ const ProductionPlanning = () => {
               </div>
             </DialogContent>
           </Dialog>
+          
+          {/* Edit Plan Dialog */}
+          <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="font-bold uppercase">Edit Production Plan</DialogTitle>
+              </DialogHeader>
+              {editingPlan && (
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-xs text-zinc-500">SKU ID</Label>
+                    <div className="font-mono text-sm font-bold text-zinc-700 mt-1">
+                      {editingPlan.sku_id}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label>Date</Label>
+                    <Input 
+                      type="date" 
+                      value={editingPlan.date}
+                      onChange={(e) => setEditingPlan({...editingPlan, date: e.target.value})}
+                      className="font-mono"
+                      data-testid="edit-plan-date-input"
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label>Planned Quantity</Label>
+                    <Input 
+                      type="number" 
+                      value={editingPlan.planned_quantity}
+                      onChange={(e) => setEditingPlan({...editingPlan, planned_quantity: parseFloat(e.target.value) || 0})}
+                      className="font-mono"
+                      data-testid="edit-plan-quantity-input"
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <Button 
+                      variant="secondary"
+                      onClick={() => {setShowEditDialog(false); setEditingPlan(null);}} 
+                      className="flex-1 uppercase text-xs tracking-wide"
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleUpdatePlan} 
+                      className="flex-1 uppercase text-xs tracking-wide"
+                      data-testid="update-plan-btn"
+                    >
+                      Update Plan
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
