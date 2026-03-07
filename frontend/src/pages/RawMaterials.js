@@ -65,7 +65,7 @@ const RawMaterials = () => {
 
   useEffect(() => {
     fetchMaterials();
-  }, [currentPage, filters]);
+  }, [currentPage, filters, selectedBranch]);
 
   useEffect(() => {
     fetchBranchInventory();
