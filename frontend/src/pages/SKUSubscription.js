@@ -178,7 +178,7 @@ const SKUSubscription = () => {
       setUploadResult(null);
       
       if (response.data.assigned > 0) {
-        toast.success(`Subscribed ${response.data.assigned} SKUs to ${selectedBranch}`);
+        toast.success(`Subscribed ${response.data.assigned} SKUs to ${selectedBranch}. ${response.data.rms_activated || 0} RMs activated.`);
       } else if (response.data.skipped > 0) {
         toast.info(`All ${response.data.skipped} matching SKUs already assigned`);
       }
