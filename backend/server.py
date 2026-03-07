@@ -249,6 +249,7 @@ class Vendor(BaseModel):
     """Vendor definition"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    vendor_id: str = ""  # Auto-generated unique ID like VND_001
     name: str
     gst: str = ""
     address: str = ""
