@@ -67,12 +67,30 @@ const RawMaterials = () => {
     fetchMaterials();
   }, [currentPage, filters]);
 
+  useEffect(() => {
+    fetchBranchInventory();
+  }, [selectedBranch, materials]);
+
   const fetchFilterOptions = async () => {
     try {
       const response = await axios.get(`${API}/raw-materials/filter-options`);
       setFilterOptions(response.data);
     } catch (error) {
       console.error("Failed to fetch filter options");
+    }
+  };
+
+  const fetchBranchInventory = async () => {
+    if (!selectedBranch || materials.length === 0) return;
+    try {
+      const response = await axios.get(`${API}/raw-materials?branch=${encodeURIComponent(selectedBranch)}`);
+      const inventoryMap = {};
+      response.data.forEach(rm => {
+        inventoryMap[rm.rm_id] = rm.current_stock || 0;
+      });
+      setBranchInventory(inventoryMap);
+    } catch (error) {
+      console.error("Failed to fetch branch inventory");
     }
   };
 
