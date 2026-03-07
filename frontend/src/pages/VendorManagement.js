@@ -472,6 +472,7 @@ const VendorManagement = () => {
                     onClick={() => fetchVendorDetails(vendor.id)}
                   >
                     <div>
+                      <div className="text-xs font-mono text-primary font-bold">{vendor.vendor_id || 'N/A'}</div>
                       <div className="font-bold text-sm">{vendor.name}</div>
                       <div className="text-xs text-zinc-500 font-mono">{vendor.gst || 'No GST'}</div>
                     </div>
