@@ -61,6 +61,9 @@ Build a factory management tool with the following modules:
 - [x] **Price Comparison Report** - Shows lowest vendor price per RM for procurement decisions
 - [x] **SKU Cascading Filters** - Vertical → Model → Brand filter buttons on SKUs page
 - [x] **Production Entry Filters** - Filter SKUs by Vertical/Model/Brand when adding production
+- [x] **Bulk SKU Subscription** - Subscribe entire Vertical or Model to a branch
+- [x] **Inter-Branch SKU Transfer** - Physical inventory movement without RM consumption (March 7, 2026)
+- [x] **Vendor Management & RM Filters Tested** - 100% test pass rate (23/23 backend, all UI flows)
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
@@ -73,12 +76,19 @@ Build a factory management tool with the following modules:
 - `GET /api/vendor-rm-prices/comparison` - Price comparison report
 - `POST /api/sku-branch-assignments/upload` - Upload SKUs to assign to branch
 - `GET /api/sku-branch-assignments` - Get assignments by branch
+- `POST /api/sku-branch-assignments/bulk-subscribe` - Bulk subscribe SKUs by Vertical/Model
+- `DELETE /api/sku-branch-assignments/bulk-unsubscribe` - Bulk unsubscribe SKUs
 
 ### SKU Cascading Filter Endpoints (March 7, 2026)
 - `GET /api/skus/filter-options` - Get all distinct verticals, models, brands
 - `GET /api/skus/models-by-vertical` - Get models for a specific vertical
 - `GET /api/skus/brands-by-vertical-model` - Get brands for vertical+model
 - `GET /api/skus/filtered` - Filter SKUs by vertical, model, brand, search, branch
+
+### Inter-Branch Transfer Endpoints (March 7, 2026)
+- `POST /api/sku-transfers` - Transfer SKU inventory between branches
+- `GET /api/sku-transfers` - Get transfer history
+- `GET /api/sku-transfers/summary` - Get incoming/outgoing transfer summary
 
 ---
 
