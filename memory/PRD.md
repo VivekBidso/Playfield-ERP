@@ -124,11 +124,14 @@ Build a factory management tool with the following modules:
 - `branch_rm_inventory` - Branch-specific RM stock
 - `skus` - Global SKU definitions (709 records)
 - `branch_sku_inventory` - Branch-specific SKU stock
-- `sku_rm_mapping` - BOM mappings
+- `sku_rm_mapping` - BOM mappings (bulk upload)
+- `sku_mappings` - BOM mappings (legacy)
 - `sku_branch_assignments` - SKU to branch assignments
-- `production` - Production entries
+- `production_entries` - Production entries
 - `purchase_entries` - RM inward entries
-- `vendors` - Vendor information
+- `dispatch_entries` - SKU dispatch entries
+- `sku_transfers` - Inter-branch transfer records
+- `vendors` - Vendor information (504 records)
 - `vendor_rm_prices` - Vendor RM pricing
 
 ## Default Credentials
