@@ -117,8 +117,9 @@ const RMInward = () => {
       toast.success(`Added ${formData.quantity} units of ${formData.rm_id} to ${selectedBranch} inventory`);
       setShowDialog(false);
       setFormData({ rm_id: "", quantity: 0, date: new Date().toISOString().split('T')[0], notes: "" });
+      setRmSearch("");
       fetchEntries();
-      fetchAvailableRMs();
+      fetchBranchInventory();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to add inward entry");
     }
