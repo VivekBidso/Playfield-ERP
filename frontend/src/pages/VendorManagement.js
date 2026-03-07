@@ -317,12 +317,48 @@ const VendorManagement = () => {
 
   return (
     <div className="p-6 md:p-8" data-testid="vendor-management-page">
-      <div className="mb-8">
-        <h1 className="text-4xl font-black tracking-tight uppercase">Vendor Management</h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono">
-          Manage vendors and RM pricing
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-4xl font-black tracking-tight uppercase">Vendor Management</h1>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">
+            Manage vendors and RM pricing • {vendors.length} vendors
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={downloadVendorTemplate} className="uppercase text-xs">
+            <Download className="w-4 h-4 mr-2" /> Template
+          </Button>
+          <Button variant="secondary" onClick={exportVendors} className="uppercase text-xs">
+            <Download className="w-4 h-4 mr-2" /> Export
+          </Button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleBulkUpload} 
+            accept=".xlsx,.xls"
+            className="hidden"
+          />
+          <Button 
+            onClick={() => fileInputRef.current.click()}
+            disabled={loading}
+            className="uppercase text-xs"
+          >
+            <Upload className="w-4 h-4 mr-2" /> Bulk Upload
+          </Button>
+        </div>
       </div>
+
+      {/* Upload Result */}
+      {uploadResult && (
+        <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-sm">
+          <h3 className="font-bold text-sm mb-2">Last Upload Result</h3>
+          <div className="grid grid-cols-3 gap-4 text-sm font-mono">
+            <div><span className="text-green-600 font-bold">{uploadResult.created}</span> created</div>
+            <div><span className="text-yellow-600 font-bold">{uploadResult.skipped}</span> skipped</div>
+            <div><span className="text-red-600 font-bold">{uploadResult.total_errors}</span> errors</div>
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="vendors" className="w-full">
         <TabsList className="mb-6">
