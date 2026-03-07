@@ -236,6 +236,53 @@ const ProductionPlanning = () => {
     }
   };
 
+  const handleEditPlan = (plan) => {
+    setEditingPlan({
+      ...plan,
+      date: new Date(plan.date).toISOString().split('T')[0],
+      original_date: plan.date
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleUpdatePlan = async () => {
+    if (!editingPlan.planned_quantity || editingPlan.planned_quantity <= 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/production-plans`, {
+        sku_id: editingPlan.sku_id,
+        branch: selectedBranch,
+        date: new Date(editingPlan.date).toISOString(),
+        planned_quantity: editingPlan.planned_quantity
+      });
+      
+      toast.success("Production plan updated");
+      setShowEditDialog(false);
+      setEditingPlan(null);
+      fetchPlans();
+      fetchShortageAnalysis();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update plan");
+    }
+  };
+
+  const handleDeleteSinglePlan = async (plan) => {
+    if (!window.confirm(`Delete plan for ${plan.sku_id} on ${new Date(plan.date).toLocaleDateString()}?`)) return;
+    
+    try {
+      await axios.delete(`${API}/production-plans/entry/${plan.id}`);
+      toast.success("Plan entry deleted");
+      fetchPlans();
+      fetchShortageAnalysis();
+      fetchAvailableMonths();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete plan entry");
+    }
+  };
+
   const handleBulkUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
