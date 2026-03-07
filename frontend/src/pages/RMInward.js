@@ -20,6 +20,8 @@ const RMInward = () => {
   const { token } = useAuthStore();
   const [entries, setEntries] = useState([]);
   const [availableRMs, setAvailableRMs] = useState([]);
+  const [filteredRMs, setFilteredRMs] = useState([]);
+  const [rmSearch, setRmSearch] = useState("");
   const [showDialog, setShowDialog] = useState(false);
 
   const [formData, setFormData] = useState({
