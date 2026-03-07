@@ -42,6 +42,10 @@ const ProductionPlanning = () => {
     date: new Date().toISOString().split('T')[0],
     planned_quantity: 0
   });
+  
+  // Edit Plan Dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
 
   useEffect(() => {
     fetchAvailableMonths();
