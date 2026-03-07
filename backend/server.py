@@ -2064,6 +2064,7 @@ async def get_sku_branch_assignments(branch: Optional[str] = None):
                 "bidso_sku": sku.get('bidso_sku', ''),
                 "description": sku.get('description', ''),
                 "brand": sku.get('brand', ''),
+                "vertical": sku.get('vertical', ''),
                 "model": sku.get('model', '')
             })
     
