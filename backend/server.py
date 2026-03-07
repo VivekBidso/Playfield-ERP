@@ -1194,15 +1194,53 @@ async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
 
 @api_router.get("/sku-mappings/{sku_id}", response_model=SKUMapping)
 async def get_sku_mapping(sku_id: str):
+    # First check old sku_mappings collection
     mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
-    if not mapping:
+    if mapping:
+        return serialize_doc(mapping)
+    
+    # Check new sku_rm_mapping collection
+    mappings = await db.sku_rm_mapping.find({"sku_id": sku_id}, {"_id": 0}).to_list(100)
+    if not mappings:
         raise HTTPException(status_code=404, detail="Mapping not found")
-    return serialize_doc(mapping)
+    
+    # Convert to expected format
+    return {
+        "id": mappings[0].get('id', ''),
+        "sku_id": sku_id,
+        "rm_mappings": [{"rm_id": m['rm_id'], "quantity_required": m.get('quantity', 1)} for m in mappings]
+    }
 
 @api_router.get("/sku-mappings", response_model=List[SKUMapping])
 async def get_all_sku_mappings():
-    mappings = await db.sku_mappings.find({}, {"_id": 0}).to_list(1000)
-    return [serialize_doc(m) for m in mappings]
+    # Get from old sku_mappings collection
+    old_mappings = await db.sku_mappings.find({}, {"_id": 0}).to_list(1000)
+    
+    # Get from new sku_rm_mapping collection and group by sku_id
+    new_mappings = await db.sku_rm_mapping.find({}, {"_id": 0}).to_list(50000)
+    
+    # Group new mappings by sku_id
+    grouped = {}
+    for m in new_mappings:
+        sku_id = m['sku_id']
+        if sku_id not in grouped:
+            grouped[sku_id] = {
+                "id": m.get('id', ''),
+                "sku_id": sku_id,
+                "rm_mappings": []
+            }
+        grouped[sku_id]['rm_mappings'].append({
+            "rm_id": m['rm_id'],
+            "quantity_required": m.get('quantity', 1)
+        })
+    
+    # Combine both sources (avoid duplicates by sku_id)
+    result_dict = {m['sku_id']: serialize_doc(m) for m in old_mappings}
+    for sku_id, mapping in grouped.items():
+        if sku_id not in result_dict:
+            result_dict[sku_id] = mapping
+    
+    return list(result_dict.values())
 
 # ============ Production Entry Routes ============
 
