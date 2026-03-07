@@ -335,6 +335,54 @@ async def get_next_vendor_id() -> str:
     next_seq = max_seq + 1
     return f"VND_{next_seq:03d}"
 
+async def activate_rms_for_sku(sku_id: str, branch: str) -> int:
+    """
+    Activate all RMs in the BOM for a given SKU in a branch.
+    Returns the number of RMs activated.
+    """
+    activated_count = 0
+    
+    # Get RM mappings from sku_rm_mapping collection (bulk uploaded)
+    rm_mappings = await db.sku_rm_mapping.find({"sku_id": sku_id}, {"_id": 0, "rm_id": 1}).to_list(1000)
+    
+    # Also check legacy sku_mappings collection
+    legacy_mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
+    if legacy_mapping and legacy_mapping.get('rm_mappings'):
+        for rm in legacy_mapping['rm_mappings']:
+            rm_mappings.append({"rm_id": rm['rm_id']})
+    
+    # Activate each RM in the branch
+    for mapping in rm_mappings:
+        rm_id = mapping['rm_id']
+        
+        # Check if RM exists in the system
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        if not rm:
+            continue
+        
+        # Check if already activated in branch
+        existing_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": rm_id, "branch": branch},
+            {"_id": 0}
+        )
+        
+        if not existing_inv:
+            # Activate RM in branch inventory
+            inv_obj = BranchRMInventory(rm_id=rm_id, branch=branch)
+            inv_doc = inv_obj.model_dump()
+            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+            await db.branch_rm_inventory.insert_one(inv_doc)
+            activated_count += 1
+        elif not existing_inv.get('is_active', False):
+            # Re-activate if inactive
+            await db.branch_rm_inventory.update_one(
+                {"rm_id": rm_id, "branch": branch},
+                {"$set": {"is_active": True}}
+            )
+            activated_count += 1
+    
+    return activated_count
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
     """Get current authenticated user from JWT token"""
     try:
