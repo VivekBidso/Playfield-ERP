@@ -2089,6 +2089,219 @@ async def delete_vendor_rm_price(vendor_id: str, rm_id: str):
     await db.vendor_rm_prices.delete_one({"vendor_id": vendor_id, "rm_id": rm_id})
     return {"message": "Price mapping deleted"}
 
+@api_router.post("/vendor-rm-prices/bulk-upload")
+async def bulk_upload_vendor_rm_prices(file: UploadFile = File(...)):
+    """Bulk upload Vendor RM pricing from Excel file.
+    Expected columns: Vendor ID, RM ID, Price
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        added_count = 0
+        updated_count = 0
+        errors = []
+        
+        # Find the header row (look for "Vendor ID" in first few rows)
+        header_row = 1
+        for row_num in range(1, 5):
+            row_values = [cell.value for cell in sheet[row_num]]
+            if 'Vendor ID' in row_values or 'vendor_id' in [str(v).lower() if v else '' for v in row_values]:
+                header_row = row_num
+                break
+        
+        # Find column indices
+        headers = [cell.value for cell in sheet[header_row]]
+        vendor_col = None
+        rm_col = None
+        price_col = None
+        
+        for idx, h in enumerate(headers):
+            if h and 'vendor' in str(h).lower():
+                vendor_col = idx
+            elif h and 'rm' in str(h).lower():
+                rm_col = idx
+            elif h and 'price' in str(h).lower():
+                price_col = idx
+        
+        if vendor_col is None or rm_col is None or price_col is None:
+            raise HTTPException(status_code=400, detail="Could not find required columns: Vendor ID, RM ID, Price")
+        
+        for row in sheet.iter_rows(min_row=header_row + 1, values_only=True):
+            vendor_id = row[vendor_col] if vendor_col < len(row) else None
+            rm_id = row[rm_col] if rm_col < len(row) else None
+            price = row[price_col] if price_col < len(row) else None
+            
+            if not vendor_id or not rm_id:
+                continue
+            
+            vendor_id = str(vendor_id).strip()
+            rm_id = str(rm_id).strip()
+            
+            try:
+                price_val = float(price) if price else 0
+            except (ValueError, TypeError):
+                errors.append(f"Invalid price for {vendor_id}/{rm_id}: {price}")
+                continue
+            
+            # Verify vendor exists
+            vendor = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
+            if not vendor:
+                errors.append(f"Vendor not found: {vendor_id}")
+                continue
+            
+            # Verify RM exists
+            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+            if not rm:
+                errors.append(f"RM not found: {rm_id}")
+                continue
+            
+            # Check if mapping exists
+            existing = await db.vendor_rm_prices.find_one(
+                {"vendor_id": vendor_id, "rm_id": rm_id},
+                {"_id": 0}
+            )
+            
+            if existing:
+                # Update
+                await db.vendor_rm_prices.update_one(
+                    {"vendor_id": vendor_id, "rm_id": rm_id},
+                    {"$set": {"price": price_val, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                )
+                updated_count += 1
+            else:
+                # Insert
+                price_obj = VendorRMPrice(vendor_id=vendor_id, rm_id=rm_id, price=price_val)
+                doc = price_obj.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.vendor_rm_prices.insert_one(doc)
+                added_count += 1
+        
+        return {
+            "added": added_count,
+            "updated": updated_count,
+            "errors": errors[:20],
+            "total_errors": len(errors)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/branch-sku-inventory/bulk-upload")
+async def bulk_upload_branch_inventory(file: UploadFile = File(...)):
+    """Bulk upload branch-level SKU inventory from Excel file.
+    Expected columns: SKU_ID, Quantity, Branch
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        updated_count = 0
+        created_count = 0
+        errors = []
+        branch_stats = {}
+        
+        # Find the header row (look for "SKU_ID" in first few rows)
+        header_row = 1
+        for row_num in range(1, 5):
+            row_values = [cell.value for cell in sheet[row_num]]
+            if 'SKU_ID' in row_values or 'sku_id' in [str(v).lower() if v else '' for v in row_values]:
+                header_row = row_num
+                break
+        
+        # Find column indices
+        headers = [cell.value for cell in sheet[header_row]]
+        sku_col = None
+        qty_col = None
+        branch_col = None
+        
+        for idx, h in enumerate(headers):
+            h_lower = str(h).lower() if h else ''
+            if 'sku' in h_lower and 'id' in h_lower:
+                sku_col = idx
+            elif 'quantity' in h_lower or 'qty' in h_lower:
+                qty_col = idx
+            elif 'branch' in h_lower:
+                branch_col = idx
+        
+        if sku_col is None or qty_col is None or branch_col is None:
+            raise HTTPException(status_code=400, detail="Could not find required columns: SKU_ID, Quantity, Branch")
+        
+        for row in sheet.iter_rows(min_row=header_row + 1, values_only=True):
+            sku_id = row[sku_col] if sku_col < len(row) else None
+            quantity = row[qty_col] if qty_col < len(row) else None
+            branch = row[branch_col] if branch_col < len(row) else None
+            
+            if not sku_id or not branch:
+                continue
+            
+            sku_id = str(sku_id).strip()
+            branch = str(branch).strip()
+            
+            try:
+                qty_val = float(quantity) if quantity else 0
+            except (ValueError, TypeError):
+                errors.append(f"Invalid quantity for {sku_id}: {quantity}")
+                continue
+            
+            # Verify SKU exists
+            sku = await db.skus.find_one(
+                {"$or": [{"sku_id": sku_id}, {"buyer_sku_id": sku_id}]},
+                {"_id": 0, "sku_id": 1}
+            )
+            if not sku:
+                errors.append(f"SKU not found: {sku_id}")
+                continue
+            
+            actual_sku_id = sku['sku_id']
+            
+            # Check if inventory exists
+            existing = await db.branch_sku_inventory.find_one(
+                {"sku_id": actual_sku_id, "branch": branch},
+                {"_id": 0}
+            )
+            
+            if existing:
+                # Update stock
+                await db.branch_sku_inventory.update_one(
+                    {"sku_id": actual_sku_id, "branch": branch},
+                    {"$set": {"current_stock": qty_val, "is_active": True}}
+                )
+                updated_count += 1
+            else:
+                # Create inventory record
+                inv_obj = BranchSKUInventory(sku_id=actual_sku_id, branch=branch, current_stock=qty_val)
+                inv_doc = inv_obj.model_dump()
+                inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+                await db.branch_sku_inventory.insert_one(inv_doc)
+                created_count += 1
+            
+            # Track branch stats
+            if branch not in branch_stats:
+                branch_stats[branch] = {"count": 0, "total_qty": 0}
+            branch_stats[branch]["count"] += 1
+            branch_stats[branch]["total_qty"] += qty_val
+        
+        return {
+            "created": created_count,
+            "updated": updated_count,
+            "total_processed": created_count + updated_count,
+            "branch_stats": branch_stats,
+            "errors": errors[:20],
+            "total_errors": len(errors)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============ SKU Branch Assignment Routes ============
 
 @api_router.post("/sku-branch-assignments/upload")
