@@ -24,7 +24,9 @@ const RM_CATEGORIES = {
 };
 
 const RawMaterials = () => {
+  const { selectedBranch } = useBranchStore();
   const [materials, setMaterials] = useState([]);
+  const [branchInventory, setBranchInventory] = useState({});
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
