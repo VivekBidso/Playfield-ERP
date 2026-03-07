@@ -284,46 +284,66 @@ const Reports = () => {
             <div className="p-6">
               {lowStockReport && (
                 <div className="space-y-8">
-                  {/* Low Stock RM */}
+                  {/* Low Stock RM - Table Format */}
                   <div>
                     <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
                       Raw Materials ({lowStockReport.raw_materials.length} items)
                     </h3>
                     {lowStockReport.raw_materials.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {lowStockReport.raw_materials.map((rm) => (
-                          <div key={rm.rm_id} className="border border-red-200 bg-red-50 rounded-sm p-4" data-testid={`low-stock-rm-${rm.rm_id}`}>
-                            <div className="font-mono text-sm font-bold text-red-900">{rm.rm_id}</div>
-                            <div className="text-sm text-red-700 mt-1">{rm.name}</div>
-                            <div className="mt-3 flex justify-between items-center">
-                              <span className="text-xs text-red-600 uppercase tracking-wider">Current: {rm.current_stock}</span>
-                              <span className="text-xs text-red-600 uppercase tracking-wider">Min: {rm.low_stock_threshold}</span>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-red-50 border-b border-red-200">
+                            <tr>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">RM ID</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Current Stock</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Min Threshold</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Shortage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lowStockReport.raw_materials.map((rm) => (
+                              <tr key={rm.rm_id} className="border-b border-red-100 bg-red-50/50" data-testid={`low-stock-rm-${rm.rm_id}`}>
+                                <td className="p-4 align-middle font-mono text-sm font-bold text-red-900">{rm.rm_id}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{rm.current_stock}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{rm.low_stock_threshold}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{rm.low_stock_threshold - rm.current_stock}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     ) : (
                       <div className="text-sm text-muted-foreground font-mono">All raw materials are adequately stocked</div>
                     )}
                   </div>
 
-                  {/* Low Stock SKU */}
+                  {/* Low Stock SKU - Table Format */}
                   <div>
                     <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
                       SKUs ({lowStockReport.skus.length} items)
                     </h3>
                     {lowStockReport.skus.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {lowStockReport.skus.map((sku) => (
-                          <div key={sku.sku_id} className="border border-red-200 bg-red-50 rounded-sm p-4" data-testid={`low-stock-sku-${sku.sku_id}`}>
-                            <div className="font-mono text-sm font-bold text-red-900">{sku.sku_id}</div>
-                            <div className="text-sm text-red-700 mt-1">{sku.name}</div>
-                            <div className="mt-3 flex justify-between items-center">
-                              <span className="text-xs text-red-600 uppercase tracking-wider">Current: {sku.current_stock}</span>
-                              <span className="text-xs text-red-600 uppercase tracking-wider">Min: {sku.low_stock_threshold}</span>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-red-50 border-b border-red-200">
+                            <tr>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">SKU ID</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Current Stock</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Min Threshold</th>
+                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Shortage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lowStockReport.skus.map((sku) => (
+                              <tr key={sku.sku_id} className="border-b border-red-100 bg-red-50/50" data-testid={`low-stock-sku-${sku.sku_id}`}>
+                                <td className="p-4 align-middle font-mono text-sm font-bold text-red-900">{sku.sku_id}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{sku.current_stock}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold}</td>
+                                <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold - sku.current_stock}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     ) : (
                       <div className="text-sm text-muted-foreground font-mono">All SKUs are adequately stocked</div>
