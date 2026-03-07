@@ -2705,17 +2705,43 @@ async def get_filtered_raw_materials(
     model_filter: Optional[str] = None,
     colour_filter: Optional[str] = None,
     brand_filter: Optional[str] = None,
+    branch: Optional[str] = None,
     page: int = 1,
     page_size: int = 100
 ):
-    """Get RMs with advanced filtering and pagination"""
+    """Get RMs with advanced filtering and pagination - filters by branch if specified"""
     query = {}
+    
+    # If branch specified, only show active RMs in that branch
+    active_rm_ids = None
+    branch_inv_map = {}
+    if branch:
+        branch_inventories = await db.branch_rm_inventory.find(
+            {"branch": branch, "is_active": True}, 
+            {"_id": 0}
+        ).to_list(10000)
+        active_rm_ids = [inv['rm_id'] for inv in branch_inventories]
+        branch_inv_map = {inv['rm_id']: inv for inv in branch_inventories}
+        
+        if not active_rm_ids:
+            return {
+                "items": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": 0
+            }
+        query["rm_id"] = {"$in": active_rm_ids}
     
     if category:
         query["category"] = category
     
     if search:
-        query["rm_id"] = {"$regex": search, "$options": "i"}
+        if active_rm_ids:
+            query["$and"] = query.get("$and", [])
+            query["$and"].append({"rm_id": {"$regex": search, "$options": "i"}})
+        else:
+            query["rm_id"] = {"$regex": search, "$options": "i"}
     
     # Build category_data filters
     if type_filter:
@@ -2745,8 +2771,16 @@ async def get_filtered_raw_materials(
     skip = (page - 1) * page_size
     materials = await db.raw_materials.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
+    # Add branch inventory data if branch filter is active
+    result_items = []
+    for mat in materials:
+        if branch and mat['rm_id'] in branch_inv_map:
+            mat['current_stock'] = branch_inv_map[mat['rm_id']].get('current_stock', 0)
+            mat['branch'] = branch
+        result_items.append(serialize_doc(mat))
+    
     return {
-        "items": [serialize_doc(m) for m in materials],
+        "items": result_items,
         "total": total,
         "page": page,
         "page_size": page_size,
