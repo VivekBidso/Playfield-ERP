@@ -163,6 +163,36 @@ const SKUMapping = () => {
     toast.success("Mappings exported");
   };
 
+  const exportUnmappedSKUs = async () => {
+    try {
+      const response = await axios.get(`${API}/skus/unmapped`);
+      const unmappedSKUs = response.data.skus;
+      
+      if (unmappedSKUs.length === 0) {
+        toast.info("All SKUs have RM mappings!");
+        return;
+      }
+      
+      const data = unmappedSKUs.map(s => ({
+        'SKU ID': s.sku_id,
+        'Buyer SKU ID': s.buyer_sku_id || '',
+        'Bidso SKU': s.bidso_sku || '',
+        'Description': s.description || '',
+        'Brand': s.brand || '',
+        'Model': s.model || ''
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Unmapped SKUs');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'skus_without_rm_mapping.xlsx');
+      toast.success(`Exported ${unmappedSKUs.length} SKUs without RM mapping`);
+    } catch (error) {
+      toast.error("Failed to export unmapped SKUs");
+    }
+  };
+
   return (
     <div className="p-6 md:p-8" data-testid="sku-mapping-page">
       <div className="mb-8 flex items-center justify-between">
