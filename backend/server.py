@@ -309,19 +309,23 @@ def serialize_doc(doc):
     return doc
 
 async def get_next_rm_sequence(category: str) -> int:
-    """Get next global sequence number for RM category"""
-    last_rm = await db.raw_materials.find_one(
+    """Get next global sequence number for RM category by finding the highest numeric suffix"""
+    import re
+    all_rms = await db.raw_materials.find(
         {"category": category},
-        {"_id": 0},
-        sort=[("rm_id", -1)]
-    )
-    if last_rm:
-        try:
-            seq = int(last_rm['rm_id'].split('_')[1])
-            return seq + 1
-        except:
-            return 1
-    return 1
+        {"_id": 0, "rm_id": 1}
+    ).to_list(10000)
+    
+    max_seq = 0
+    pattern = re.compile(rf'^{category}_(\d+)$')
+    
+    for rm in all_rms:
+        match = pattern.match(rm['rm_id'])
+        if match:
+            seq = int(match.group(1))
+            max_seq = max(max_seq, seq)
+    
+    return max_seq + 1
 
 # ============ Authentication Routes ============
 
