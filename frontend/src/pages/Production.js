@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Plus, Download } from "lucide-react";
+import useBranchStore from "@/store/branchStore";
+import { Plus, Download, Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,9 +14,21 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Production = () => {
+  const { selectedBranch } = useBranchStore();
   const [entries, setEntries] = useState([]);
   const [skus, setSkus] = useState([]);
+  const [filteredSkus, setFilteredSkus] = useState([]);
   const [showDialog, setShowDialog] = useState(false);
+
+  // Filter states
+  const [verticals, setVerticals] = useState([]);
+  const [models, setModels] = useState([]);
+  const [brands, setBrands] = useState([]);
+  
+  const [selectedVertical, setSelectedVertical] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [formData, setFormData] = useState({
     sku_id: "",
@@ -26,25 +39,124 @@ const Production = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+    fetchFilterOptions();
+  }, [selectedBranch]);
+
+  // Fetch models when vertical changes
+  useEffect(() => {
+    if (selectedVertical) {
+      fetchModelsByVertical(selectedVertical);
+    } else {
+      setModels([]);
+      setSelectedModel("");
+    }
+  }, [selectedVertical]);
+
+  // Fetch brands when model changes
+  useEffect(() => {
+    if (selectedVertical) {
+      fetchBrandsByVerticalModel(selectedVertical, selectedModel);
+    } else {
+      setBrands([]);
+      setSelectedBrand("");
+    }
+  }, [selectedVertical, selectedModel]);
+
+  // Apply filters
+  useEffect(() => {
+    applyFilters();
+  }, [selectedVertical, selectedModel, selectedBrand, searchQuery, skus]);
 
   const fetchData = async () => {
     try {
       const [entriesRes, skusRes] = await Promise.all([
-        axios.get(`${API}/production-entries`),
-        axios.get(`${API}/skus`)
+        axios.get(`${API}/production-entries?branch=${encodeURIComponent(selectedBranch)}`),
+        axios.get(`${API}/skus?branch=${encodeURIComponent(selectedBranch)}`)
       ]);
       setEntries(entriesRes.data);
       setSkus(skusRes.data);
+      setFilteredSkus(skusRes.data);
     } catch (error) {
       toast.error("Failed to fetch data");
     }
   };
 
+  const fetchFilterOptions = async () => {
+    try {
+      const response = await axios.get(`${API}/skus/filter-options`);
+      setVerticals(response.data.verticals);
+    } catch (error) {
+      console.error("Failed to fetch filter options", error);
+    }
+  };
+
+  const fetchModelsByVertical = async (vertical) => {
+    try {
+      const response = await axios.get(`${API}/skus/models-by-vertical?vertical=${encodeURIComponent(vertical)}`);
+      setModels(response.data.models);
+      setSelectedModel("");
+      setSelectedBrand("");
+    } catch (error) {
+      console.error("Failed to fetch models", error);
+    }
+  };
+
+  const fetchBrandsByVerticalModel = async (vertical, model) => {
+    try {
+      let url = `${API}/skus/brands-by-vertical-model?vertical=${encodeURIComponent(vertical)}`;
+      if (model) {
+        url += `&model=${encodeURIComponent(model)}`;
+      }
+      const response = await axios.get(url);
+      setBrands(response.data.brands);
+      setSelectedBrand("");
+    } catch (error) {
+      console.error("Failed to fetch brands", error);
+    }
+  };
+
+  const applyFilters = async () => {
+    // If any filter is active, fetch filtered SKUs from API
+    if (selectedVertical || selectedModel || selectedBrand || searchQuery) {
+      try {
+        let url = `${API}/skus/filtered?branch=${encodeURIComponent(selectedBranch)}`;
+        if (selectedVertical) url += `&vertical=${encodeURIComponent(selectedVertical)}`;
+        if (selectedModel) url += `&model=${encodeURIComponent(selectedModel)}`;
+        if (selectedBrand) url += `&brand=${encodeURIComponent(selectedBrand)}`;
+        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        
+        const response = await axios.get(url);
+        setFilteredSkus(response.data);
+      } catch (error) {
+        console.error("Failed to apply filters", error);
+      }
+    } else {
+      setFilteredSkus(skus);
+    }
+  };
+
+  const clearFilters = () => {
+    setSelectedVertical("");
+    setSelectedModel("");
+    setSelectedBrand("");
+    setSearchQuery("");
+    setFilteredSkus(skus);
+  };
+
   const handleSubmit = async () => {
+    if (!formData.sku_id) {
+      toast.error("Please select a SKU");
+      return;
+    }
+    if (formData.quantity <= 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+    
     try {
       const payload = {
         ...formData,
+        branch: selectedBranch,
         date: new Date(formData.date).toISOString()
       };
       await axios.post(`${API}/production-entries`, payload);
@@ -71,12 +183,16 @@ const Production = () => {
     toast.success("Exported to Excel");
   };
 
+  const hasActiveFilters = selectedVertical || selectedModel || selectedBrand || searchQuery;
+
   return (
     <div className="p-6 md:p-8" data-testid="production-page">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Production</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">Record production & auto-consume materials</p>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">
+            Record production & auto-consume materials • {selectedBranch}
+          </p>
         </div>
         <div className="flex gap-3">
           <Button 
@@ -95,11 +211,101 @@ const Production = () => {
                 Add Production
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle className="font-bold uppercase">Add Production Entry</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-6">
+                {/* Cascading Filters */}
+                <div className="bg-zinc-50 p-4 rounded-sm border border-zinc-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
+                    <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+                      Filter SKUs
+                    </span>
+                    {hasActiveFilters && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={clearFilters}
+                        className="ml-auto text-xs"
+                        data-testid="clear-filters-btn"
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Vertical Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Vertical</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono"
+                        value={selectedVertical}
+                        onChange={(e) => setSelectedVertical(e.target.value)}
+                        data-testid="vertical-filter"
+                      >
+                        <option value="">All Verticals</option>
+                        {verticals.map(v => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Model Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Model</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50"
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        disabled={!selectedVertical}
+                        data-testid="model-filter"
+                      >
+                        <option value="">All Models</option>
+                        {models.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Brand Filter */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">Brand</Label>
+                      <select 
+                        className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50"
+                        value={selectedBrand}
+                        onChange={(e) => setSelectedBrand(e.target.value)}
+                        disabled={!selectedVertical}
+                        data-testid="brand-filter"
+                      >
+                        <option value="">All Brands</option>
+                        {brands.map(b => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {/* Search */}
+                  <div className="mt-3">
+                    <Input 
+                      placeholder="Search SKU ID, description..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="font-mono text-sm"
+                      data-testid="sku-search-input"
+                    />
+                  </div>
+                  
+                  <div className="mt-2 text-xs text-zinc-500 font-mono">
+                    {filteredSkus.length} SKUs available
+                  </div>
+                </div>
+
+                {/* SKU Selection */}
                 <div>
                   <Label>SKU *</Label>
                   <select 
@@ -108,31 +314,37 @@ const Production = () => {
                     onChange={(e) => setFormData({...formData, sku_id: e.target.value})}
                     data-testid="production-sku-select"
                   >
-                    <option value="">Select SKU</option>
-                    {skus.map(s => (
-                      <option key={s.sku_id} value={s.sku_id}>{s.sku_id} - {s.name}</option>
+                    <option value="">Select SKU ({filteredSkus.length} available)</option>
+                    {filteredSkus.map(s => (
+                      <option key={s.sku_id} value={s.sku_id}>
+                        {s.sku_id} - {s.description || s.buyer_sku_id}
+                      </option>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <Label>Quantity *</Label>
-                  <Input 
-                    type="number" 
-                    value={formData.quantity} 
-                    onChange={(e) => setFormData({...formData, quantity: parseFloat(e.target.value)})}
-                    data-testid="production-quantity-input"
-                    className="font-mono"
-                  />
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Quantity *</Label>
+                    <Input 
+                      type="number" 
+                      value={formData.quantity} 
+                      onChange={(e) => setFormData({...formData, quantity: parseFloat(e.target.value) || 0})}
+                      data-testid="production-quantity-input"
+                      className="font-mono"
+                    />
+                  </div>
+                  <div>
+                    <Label>Date *</Label>
+                    <Input 
+                      type="date" 
+                      value={formData.date} 
+                      onChange={(e) => setFormData({...formData, date: e.target.value})}
+                      data-testid="production-date-input"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label>Date *</Label>
-                  <Input 
-                    type="date" 
-                    value={formData.date} 
-                    onChange={(e) => setFormData({...formData, date: e.target.value})}
-                    data-testid="production-date-input"
-                  />
-                </div>
+                
                 <div>
                   <Label>Notes</Label>
                   <Input 
@@ -141,12 +353,102 @@ const Production = () => {
                     data-testid="production-notes-input"
                   />
                 </div>
+                
                 <Button onClick={handleSubmit} data-testid="submit-production-btn" className="w-full uppercase text-xs tracking-wide">
                   Add Production
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
+        </div>
+      </div>
+
+      {/* Page-level Filters */}
+      <div className="mb-6 bg-white border border-border p-4 rounded-sm">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
+            <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
+              Quick Filters
+            </span>
+          </div>
+          
+          {/* Vertical Filter Buttons */}
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant={!selectedVertical ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setSelectedVertical("");
+                setSelectedModel("");
+                setSelectedBrand("");
+              }}
+              className="text-xs"
+              data-testid="filter-all-btn"
+            >
+              All
+            </Button>
+            {verticals.slice(0, 6).map(v => (
+              <Button
+                key={v}
+                variant={selectedVertical === v ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedVertical(v)}
+                className="text-xs"
+                data-testid={`filter-vertical-${v}`}
+              >
+                {v}
+              </Button>
+            ))}
+          </div>
+          
+          {/* Model Filter (shows when vertical selected) */}
+          {selectedVertical && models.length > 0 && (
+            <div className="flex items-center gap-2 border-l border-zinc-300 pl-4">
+              <span className="text-xs text-zinc-500">Model:</span>
+              <select 
+                className="h-8 rounded-sm border border-input bg-white px-2 text-xs font-mono"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                data-testid="page-model-filter"
+              >
+                <option value="">All</option>
+                {models.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          {/* Brand Filter (shows when vertical selected) */}
+          {selectedVertical && brands.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500">Brand:</span>
+              <select 
+                className="h-8 rounded-sm border border-input bg-white px-2 text-xs font-mono"
+                value={selectedBrand}
+                onChange={(e) => setSelectedBrand(e.target.value)}
+                data-testid="page-brand-filter"
+              >
+                <option value="">All</option>
+                {brands.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          {hasActiveFilters && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={clearFilters}
+              className="text-xs text-zinc-500"
+            >
+              <X className="w-3 h-3 mr-1" />
+              Clear
+            </Button>
+          )}
         </div>
       </div>
 
