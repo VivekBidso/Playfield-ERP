@@ -2358,7 +2358,7 @@ async def bulk_upload_branch_inventory(file: UploadFile = File(...)):
 
 @api_router.post("/sku-branch-assignments/upload")
 async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: str = ""):
-    """Upload SKU IDs to assign to a branch"""
+    """Upload SKU IDs to assign to a branch. Also activates corresponding RMs."""
     if not branch:
         raise HTTPException(status_code=400, detail="Branch is required")
     
@@ -2373,6 +2373,7 @@ async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: st
         assigned_count = 0
         skipped_count = 0
         not_found = []
+        total_rms_activated = 0
         
         for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
             if not row[0]:
@@ -2419,13 +2420,18 @@ async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: st
                 inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
                 await db.branch_sku_inventory.insert_one(inv_doc)
             
+            # Activate corresponding RMs for this SKU
+            rms_activated = await activate_rms_for_sku(actual_sku_id, branch)
+            total_rms_activated += rms_activated
+            
             assigned_count += 1
         
         return {
             "assigned": assigned_count,
             "skipped": skipped_count,
             "not_found": not_found[:20],
-            "total_not_found": len(not_found)
+            "total_not_found": len(not_found),
+            "rms_activated": total_rms_activated
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
