@@ -2795,7 +2795,7 @@ async def get_filtered_skus(
     search: Optional[str] = None,
     branch: Optional[str] = None
 ):
-    """Get SKUs filtered by vertical, model, brand, and optionally branch"""
+    """Get SKUs filtered by vertical, model, brand, and optionally branch subscription"""
     query = {}
     
     if vertical:
@@ -2812,23 +2812,32 @@ async def get_filtered_skus(
             {"description": {"$regex": search, "$options": "i"}}
         ]
     
-    # If branch is specified, only return SKUs active in that branch
+    # If branch is specified, only return SKUs subscribed to that branch
     if branch:
-        inventory_query = {"branch": branch, "is_active": True}
-        branch_inventories = await db.branch_sku_inventory.find(inventory_query, {"_id": 0}).to_list(10000)
-        active_sku_ids = [inv['sku_id'] for inv in branch_inventories]
+        # Get subscribed SKUs from sku_branch_assignments
+        assignments = await db.sku_branch_assignments.find({"branch": branch}, {"_id": 0}).to_list(10000)
+        subscribed_sku_ids = [a['sku_id'] for a in assignments]
+        
+        if not subscribed_sku_ids:
+            return []
         
         if query:
-            query = {"$and": [query, {"sku_id": {"$in": active_sku_ids}}]}
+            query = {"$and": [query, {"sku_id": {"$in": subscribed_sku_ids}}]}
         else:
-            query = {"sku_id": {"$in": active_sku_ids}}
+            query = {"sku_id": {"$in": subscribed_sku_ids}}
         
         skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
         
-        # Merge with inventory data
+        # Get inventory data for stock levels
+        branch_inventories = await db.branch_sku_inventory.find(
+            {"branch": branch, "sku_id": {"$in": subscribed_sku_ids}}, 
+            {"_id": 0}
+        ).to_list(10000)
+        inv_map = {inv['sku_id']: inv for inv in branch_inventories}
+        
         result = []
         for sku in skus:
-            inv = next((i for i in branch_inventories if i['sku_id'] == sku['sku_id']), None)
+            inv = inv_map.get(sku['sku_id'])
             sku['current_stock'] = inv['current_stock'] if inv else 0
             sku['branch'] = branch
             result.append(serialize_doc(sku))
