@@ -499,10 +499,10 @@ const VendorManagement = () => {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openEditVendor(selectedVendor)}>
+                      <Button size="sm" variant="outline" onClick={() => openEditVendor(selectedVendor)} data-testid="edit-vendor-btn">
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleDeleteVendor(selectedVendor.id)}>
+                      <Button size="sm" variant="outline" onClick={() => handleDeleteVendor(selectedVendor.id)} data-testid="delete-vendor-btn">
                         <Trash2 className="w-4 h-4 text-red-600" />
                       </Button>
                       <Dialog open={showAddPriceDialog} onOpenChange={(open) => {
