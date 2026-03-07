@@ -50,16 +50,27 @@ Build a factory management tool with the following modules:
 - [x] 709 SKUs uploaded from Excel (Buyer_SKU_ID as primary)
 - [x] **2,402 RMs imported** from 7 Excel files - March 7, 2026
 - [x] Fixed sequence logic for proper numeric ID continuation
-- [x] New API `/api/raw-materials/import-with-ids` for bulk import with existing IDs
-- [x] UI tab visibility fix
 - [x] **Authentication system working** - JWT login, role-based access
 - [x] **RM Inward Entry module complete** - search, auto-activate RMs, branch inventory
 - [x] **User Management module working** - view users, create users (admin only)
+- [x] **RM Module Enhanced** - Column filters with dropdown + search (Category, Type, Model, Colour, Brand)
+- [x] **Pagination** for RM listing (100 items per page)
+- [x] **SKU Subscription Module** - Upload Buyer SKU IDs to assign to branches
+- [x] **Vendor Management Module** - Add vendors with details (Name, GST, Address, POC, Email, Phone)
+- [x] **Vendor RM Pricing** - Map RM IDs to vendors with prices
+- [x] **Price Comparison Report** - Shows lowest vendor price per RM for procurement decisions
 
-### Testing Status ✅
-- Backend: 100% (15/15 tests passed)
-- Frontend: 100% (all UI flows working)
-- Test file: `/app/backend/tests/test_factory_api.py`
+### New API Endpoints (March 7, 2026)
+- `GET /api/raw-materials/filter-options` - Get unique filter values
+- `GET /api/raw-materials/filtered` - Paginated RM with filters
+- `POST /api/vendors` - Create vendor
+- `GET /api/vendors` - List vendors
+- `GET /api/vendors/{vendor_id}` - Vendor details with RM prices
+- `POST /api/vendor-rm-prices` - Add/update vendor RM price
+- `GET /api/vendor-rm-prices/by-rm/{rm_id}` - All vendors for an RM
+- `GET /api/vendor-rm-prices/comparison` - Price comparison report
+- `POST /api/sku-branch-assignments/upload` - Upload SKUs to assign to branch
+- `GET /api/sku-branch-assignments` - Get assignments by branch
 
 ---
 
@@ -68,10 +79,13 @@ Build a factory management tool with the following modules:
 ### P0 - Critical (DONE)
 - ~~Fix authentication flow~~ ✅
 - ~~Complete RM Inward module~~ ✅
+- ~~RM Module filters~~ ✅
+- ~~SKU Subscription to Units~~ ✅
+- ~~Vendor Management with pricing~~ ✅
 
 ### P1 - High Priority
-- Add pagination to `/api/raw-materials` endpoint (currently limited to 1000 items)
-- Create new branch users and test branch-specific data visibility
+- Create branch users and test branch-specific data visibility
+- Add bulk RM inward upload feature
 
 ### P2 - Medium Priority
 - Inter-branch stock transfer
@@ -84,18 +98,6 @@ Build a factory management tool with the following modules:
 
 ---
 
-## Key API Endpoints
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Current user info
-- `POST /api/users` - Create user (admin only)
-- `GET /api/raw-materials` - List RMs (branch-filtered or global)
-- `POST /api/raw-materials` - Create RM (auto-generates ID)
-- `POST /api/raw-materials/import-with-ids` - Bulk import with existing IDs
-- `POST /api/purchase-entries` - Record RM inward (auto-activates in branch)
-- `GET /api/purchase-entries` - List inward entries
-- `GET /api/skus` - List SKUs
-- `POST /api/sku_rm_mapping/upload` - Bulk BOM upload
-
 ## Database Collections
 - `users` - User accounts and roles
 - `raw_materials` - Global RM definitions (2,402 records)
@@ -103,8 +105,11 @@ Build a factory management tool with the following modules:
 - `skus` - Global SKU definitions (709 records)
 - `branch_sku_inventory` - Branch-specific SKU stock
 - `sku_rm_mapping` - BOM mappings
+- `sku_branch_assignments` - SKU to branch assignments
 - `production` - Production entries
 - `purchase_entries` - RM inward entries
+- `vendors` - Vendor information
+- `vendor_rm_prices` - Vendor RM pricing
 
 ## Default Credentials
 - Email: `admin@factory.com`
