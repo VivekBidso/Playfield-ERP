@@ -75,6 +75,8 @@ function App() {
             <Route path="rm-inward" element={<RMInward />} />
             <Route path="skus" element={<SKUs />} />
             <Route path="sku-mapping" element={<SKUMapping />} />
+            <Route path="sku-subscription" element={<SKUSubscription />} />
+            <Route path="vendors" element={<VendorManagement />} />
             <Route path="production-planning" element={<ProductionPlanning />} />
             <Route path="production" element={<Production />} />
             <Route path="dispatch" element={<Dispatch />} />
