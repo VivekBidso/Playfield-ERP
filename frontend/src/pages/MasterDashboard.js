@@ -203,6 +203,56 @@ const MasterDashboard = () => {
         </div>
       </div>
 
+      {/* Bulk Download Section */}
+      <div className="mb-8 border border-border bg-white rounded-sm p-6">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-600 mb-4">
+          <Download className="w-4 h-4 inline-block mr-2" strokeWidth={1.5} />
+          Bulk Downloads
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={downloadAllRMs}
+            disabled={downloading !== null}
+            data-testid="download-all-rm-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            {downloading === 'rm' ? 'Downloading...' : 'All Raw Materials'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={downloadAllSKUs}
+            disabled={downloading !== null}
+            data-testid="download-all-sku-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            {downloading === 'sku' ? 'Downloading...' : 'All SKUs'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={downloadBranchInventory}
+            disabled={downloading !== null}
+            data-testid="download-branch-inventory-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            {downloading === 'inventory' ? 'Downloading...' : 'Branch Inventory'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={downloadVendorRMPricing}
+            disabled={downloading !== null}
+            data-testid="download-vendor-pricing-btn"
+            className="uppercase text-xs tracking-wide"
+          >
+            <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
+            {downloading === 'vendor' ? 'Downloading...' : 'Vendor RM Pricing'}
+          </Button>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-border border border-border mb-8">
         {statCards.map((stat, idx) => (
