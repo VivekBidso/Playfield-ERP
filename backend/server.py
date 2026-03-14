@@ -3655,6 +3655,27 @@ async def update_vertical(vertical_id: str, data: VerticalCreate):
         raise HTTPException(status_code=404, detail="Vertical not found")
     return {"message": "Vertical updated"}
 
+@api_router.delete("/verticals/{vertical_id}")
+async def delete_vertical(vertical_id: str):
+    """Delete a vertical (soft delete - set status to INACTIVE)"""
+    # Check if any models use this vertical
+    models_count = await db.models.count_documents({"vertical_id": vertical_id, "status": "ACTIVE"})
+    if models_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {models_count} active models use this vertical")
+    
+    # Check if any SKUs use this vertical
+    skus_count = await db.skus.count_documents({"vertical_id": vertical_id})
+    if skus_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this vertical")
+    
+    result = await db.verticals.update_one(
+        {"id": vertical_id},
+        {"$set": {"status": "INACTIVE"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vertical not found")
+    return {"message": "Vertical deleted"}
+
 # --- Models CRUD ---
 @api_router.get("/models")
 async def get_models(vertical_id: Optional[str] = None):
