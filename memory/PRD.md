@@ -153,6 +153,15 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
   - Schedule suggestions from dispatch lots
   - Frontend CPC.js page with 4 tabs (Dashboard, Schedules, Branch Capacity, Suggestions)
   - 100% test pass rate (20 backend tests, all UI flows)
+- [x] **RBAC System Complete** - Granular Role-Based Access Control (March 14, 2026):
+  - 10 roles seeded on application startup
+  - Permission matrix for all entities (CREATE, READ, UPDATE, DELETE)
+  - Constraint system: STATUS_CHECK, REFERENCE_CHECK, TIME_WINDOW, MOVEMENT_TYPE_CHECK
+  - `@require_permission` decorator for route protection
+  - Frontend User Management page with role assignment dialog
+  - Navigation items conditionally rendered based on user roles
+  - 100% test pass rate (18 backend tests, all UI flows)
+  - Files: `services/rbac_service.py`, `services/seed_rbac.py`, `models/rbac.py`
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
