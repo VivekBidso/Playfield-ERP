@@ -19,6 +19,9 @@ import TechOps from "@/pages/TechOps";
 import Demand from "@/pages/Demand";
 import Quality from "@/pages/Quality";
 import CPC from "@/pages/CPC";
+import Procurement from "@/pages/Procurement";
+import Logistics from "@/pages/Logistics";
+import IBT from "@/pages/IBT";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -89,6 +92,9 @@ function App() {
             <Route path="demand" element={<Demand />} />
             <Route path="quality" element={<Quality />} />
             <Route path="cpc" element={<CPC />} />
+            <Route path="procurement" element={<Procurement />} />
+            <Route path="logistics" element={<Logistics />} />
+            <Route path="ibt" element={<IBT />} />
           </Route>
         </Routes>
       </BrowserRouter>
