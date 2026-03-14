@@ -9,13 +9,15 @@ import io
 from database import db
 from models import User, SKU, SKUCreate, SKUMapping, SKUMappingCreate, ActivateItemRequest
 from services.utils import get_current_user, serialize_doc
+from services.rbac_service import require_permission, check_user_permission
 
 router = APIRouter(tags=["SKUs"])
 
 
 @router.post("/skus", response_model=SKU)
-async def create_sku(input: SKUCreate):
-    """Create a new SKU"""
+@require_permission("BuyerSKU", "CREATE")
+async def create_sku(input: SKUCreate, current_user: User = Depends(get_current_user)):
+    """Create a new SKU (MASTER_ADMIN, DEMAND_PLANNER)"""
     # Check if SKU already exists
     existing = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
     if existing:
@@ -24,6 +26,7 @@ async def create_sku(input: SKUCreate):
     sku = SKU(**input.model_dump())
     doc = sku.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    doc['created_by'] = current_user.id
     await db.skus.insert_one(doc)
     
     return sku
