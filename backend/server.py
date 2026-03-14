@@ -3939,6 +3939,7 @@ async def create_production_batch(data: ProductionBatchCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.production_batches.insert_one(batch)
+    del batch["_id"]
     return serialize_doc(batch)
 
 @api_router.put("/production-batches/{batch_id}/start")
