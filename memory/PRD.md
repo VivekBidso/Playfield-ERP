@@ -78,6 +78,9 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - [x] **Inter-Branch SKU Transfer** - Physical inventory movement without RM consumption (March 7, 2026)
 - [x] **Vendor Management & RM Filters Tested** - 100% test pass rate (23/23 backend, all UI flows)
 - [x] **Production Planning Enhancement** - Add individual plans with date picker and cascading SKU filters - 100% test pass rate (December 2025)
+- [x] **Backend Modular Architecture Started** - Created `/models/`, `/routes/`, `/services/` directories with core files (March 14, 2026)
+- [x] **New Frontend Modules Routed** - TechOps, Demand, Quality pages added to navigation (March 14, 2026)
+- [x] **Tech Ops API Endpoints Working** - Verticals, Models, Brands, Buyers CRUD tested (March 14, 2026)
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
