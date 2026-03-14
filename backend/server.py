@@ -3947,6 +3947,71 @@ async def seed_tech_ops_from_skus():
     
     return results
 
+# --- Migrate SKUs to use Master Data IDs ---
+@api_router.post("/tech-ops/migrate-skus-to-ids")
+async def migrate_skus_to_ids():
+    """
+    Update all SKUs to use vertical_id, model_id, brand_id references
+    instead of text strings.
+    """
+    results = {
+        "skus_updated": 0,
+        "skus_skipped": 0,
+        "errors": []
+    }
+    
+    # Build lookup maps
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(1000)
+    models = await db.models.find({}, {"_id": 0}).to_list(1000)
+    brands = await db.brands.find({}, {"_id": 0}).to_list(1000)
+    
+    vertical_map = {v["name"].lower(): v["id"] for v in verticals}
+    # Model map needs vertical context
+    model_map = {}
+    for m in models:
+        key = (m.get("vertical_id", ""), m["name"].lower())
+        model_map[key] = m["id"]
+        # Also map by name alone for fallback
+        model_map[m["name"].lower()] = m["id"]
+    brand_map = {b["name"].lower(): b["id"] for b in brands}
+    
+    # Get all SKUs that need migration
+    skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    
+    for sku in skus:
+        updates = {}
+        
+        # Match vertical
+        vertical_name = sku.get("vertical", "").strip().lower()
+        if vertical_name and vertical_name in vertical_map:
+            updates["vertical_id"] = vertical_map[vertical_name]
+        
+        # Match model (try with vertical context first)
+        model_name = sku.get("model", "").strip().lower()
+        vertical_id = updates.get("vertical_id") or sku.get("vertical_id")
+        if model_name:
+            model_key = (vertical_id, model_name)
+            if model_key in model_map:
+                updates["model_id"] = model_map[model_key]
+            elif model_name in model_map:
+                updates["model_id"] = model_map[model_name]
+        
+        # Match brand
+        brand_name = sku.get("brand", "").strip().lower()
+        if brand_name and brand_name in brand_map:
+            updates["brand_id"] = brand_map[brand_name]
+        
+        if updates:
+            await db.skus.update_one(
+                {"id": sku["id"]},
+                {"$set": updates}
+            )
+            results["skus_updated"] += 1
+        else:
+            results["skus_skipped"] += 1
+    
+    return results
+
 # --- Branches CRUD ---
 @api_router.get("/branches")
 async def get_branches_list():
