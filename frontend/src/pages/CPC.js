@@ -567,9 +567,10 @@ const CPC = () => {
             <div>
               <Label>Dispatch Lot (Optional)</Label>
               <Select 
-                value={scheduleForm.dispatch_lot_id} 
+                value={scheduleForm.dispatch_lot_id || "none"} 
                 onValueChange={(v) => {
-                  setScheduleForm({...scheduleForm, dispatch_lot_id: v});
+                  const actualValue = v === "none" ? "" : v;
+                  setScheduleForm({...scheduleForm, dispatch_lot_id: actualValue});
                   const lot = dispatchLots.find(l => l.id === v);
                   if (lot) {
                     setScheduleForm(f => ({
