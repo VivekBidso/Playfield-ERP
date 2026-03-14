@@ -80,6 +80,15 @@ class RawMaterialCreate(BaseModel):
     category: str
     category_data: Dict[str, Any]
     low_stock_threshold: float = 10.0
+    # L1/L2 Fields
+    rm_level: str = "DIRECT"
+    parent_rm_id: Optional[str] = None
+    unit_weight_grams: Optional[float] = None
+    scrap_factor: float = 0.02
+    processing_cost: float = 0.0
+    secondary_l1_rm_id: Optional[str] = None
+    powder_qty_grams: Optional[float] = None
+    coating_scrap_factor: float = 0.10
 
 class BranchRMInventory(BaseModel):
     """Branch-specific RM inventory"""
