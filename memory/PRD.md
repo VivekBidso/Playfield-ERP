@@ -55,9 +55,33 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 7 Branches supported:
 - Unit 1 Vedica, Unit 2 Trikes, Unit 3 TM, Unit 4 Goa, Unit 5 Baabus, Unit 6 Emox, BHDG WH
 
-## User Roles
+## User Roles & RBAC (Role-Based Access Control)
+
+### Legacy Roles
 - **Master Admin**: Global view, can manage users
 - **Branch User**: View/edit data only for assigned branch
+
+### RBAC System (Implemented March 14, 2026)
+10 granular roles with permission-based access control:
+
+| Role | Code | Description |
+|------|------|-------------|
+| Master Admin | `MASTER_ADMIN` | Full system access - can perform all operations |
+| Demand Planner | `DEMAND_PLANNER` | Manages forecasts, dispatch lots, and early SKU lifecycle |
+| Tech Ops Engineer | `TECH_OPS_ENGINEER` | Manages master data, BOMs, and technical configurations |
+| CPC Planner | `CPC_PLANNER` | Central Production Control planning and scheduling |
+| Procurement Officer | `PROCUREMENT_OFFICER` | Vendor management and purchase orders |
+| Branch Ops User | `BRANCH_OPS_USER` | Branch-level production and stock operations |
+| Quality Inspector | `QUALITY_INSPECTOR` | QC checklists, inspections, and approvals |
+| Logistics Coordinator | `LOGISTICS_COORDINATOR` | Dispatch, IBT, and invoice management |
+| Finance Viewer | `FINANCE_VIEWER` | Read-only access to financial data |
+| Auditor | `AUDITOR_READONLY` | Global read-only access for audit purposes |
+
+**RBAC Features:**
+- Permission-based route protection via `@require_permission` decorator
+- Constraint-based permissions (STATUS_CHECK, REFERENCE_CHECK, TIME_WINDOW)
+- Role assignment UI in User Management page
+- Frontend conditional rendering based on user roles
 
 ## RM Categories
 | Code | Name | Count | Highest ID |
