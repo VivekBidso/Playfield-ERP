@@ -1478,7 +1478,16 @@ async def create_raw_material(input: RawMaterialCreate):
         rm_id=rm_id,
         category=input.category,
         category_data=input.category_data,
-        low_stock_threshold=input.low_stock_threshold
+        low_stock_threshold=input.low_stock_threshold,
+        # L1/L2 Fields
+        rm_level=input.rm_level,
+        parent_rm_id=input.parent_rm_id,
+        unit_weight_grams=input.unit_weight_grams,
+        scrap_factor=input.scrap_factor,
+        processing_cost=input.processing_cost,
+        secondary_l1_rm_id=input.secondary_l1_rm_id,
+        powder_qty_grams=input.powder_qty_grams,
+        coating_scrap_factor=input.coating_scrap_factor
     )
     doc = rm_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
