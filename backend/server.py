@@ -277,7 +277,7 @@ class ChangePasswordRequest(BaseModel):
 # ============ Vendor Models ============
 
 class Vendor(BaseModel):
-    """Vendor definition"""
+    """Vendor definition with extended fields"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     vendor_id: str = ""  # Auto-generated unique ID like VND_001
@@ -287,8 +287,16 @@ class Vendor(BaseModel):
     poc: str = ""  # Point of Contact
     email: str = ""
     phone: str = ""
+    # Extended fields
+    legal_name: str = ""  # GST-validated legal name
+    gst_validated: bool = False
+    gst_validated_at: Optional[datetime] = None
+    payment_terms_days: int = 30
+    rating: Optional[float] = None  # 1-5
     is_active: bool = True
+    status: str = "ACTIVE"  # ACTIVE, INACTIVE, BLACKLISTED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
 class VendorCreate(BaseModel):
     name: str
