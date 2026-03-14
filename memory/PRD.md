@@ -214,6 +214,8 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~Demand Module (Forecasts, Dispatch Lots)~~ ✅ March 14, 2026
 - ~~Quality Control Module (QC Checklists, Results, Approvals)~~ ✅ March 14, 2026
 - ~~CPC Module (Central Production Control, Branch Capacity)~~ ✅ March 14, 2026
+- ~~Backend Refactoring~~ ✅ March 14, 2026 (server.py: 5500+ → 112 lines)
+- ~~RBAC Verification~~ ✅ March 14, 2026 (Branch User tested)
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
