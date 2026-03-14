@@ -4119,6 +4119,7 @@ async def create_qc_approval(
         "approved_by": "system"
     }
     await db.qc_approvals.insert_one(approval)
+    del approval["_id"]
     
     # Update batch status
     new_status = "QC_PASSED" if overall_status == "APPROVED" else "QC_FAILED"
