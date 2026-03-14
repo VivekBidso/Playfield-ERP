@@ -6,6 +6,8 @@ import uuid
 
 from database import db
 from models import User
+from models.core import ProductionEntryCreate, ProductionPlanCreate
+from models.transactional import ProductionBatchCreate
 from services.utils import (
     get_current_user, check_branch_access, serialize_doc,
     update_branch_rm_inventory, generate_movement_code, 
