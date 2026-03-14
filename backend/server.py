@@ -4043,6 +4043,7 @@ async def create_qc_checklist(data: QCChecklistCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.qc_checklists.insert_one(checklist)
+    del checklist["_id"]
     return serialize_doc(checklist)
 
 # --- QC Results ---
@@ -4077,6 +4078,7 @@ async def create_qc_result(data: QCResultCreate):
         "inspected_by": "system"  # Would come from auth
     }
     await db.qc_results.insert_one(result)
+    del result["_id"]
     
     # Update batch status to QC_HOLD if not already
     await db.production_batches.update_one(
