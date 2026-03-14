@@ -80,7 +80,14 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - [x] **Production Planning Enhancement** - Add individual plans with date picker and cascading SKU filters - 100% test pass rate (December 2025)
 - [x] **Backend Modular Architecture Started** - Created `/models/`, `/routes/`, `/services/` directories with core files (March 14, 2026)
 - [x] **New Frontend Modules Routed** - TechOps, Demand, Quality pages added to navigation (March 14, 2026)
-- [x] **Tech Ops API Endpoints Working** - Verticals, Models, Brands, Buyers CRUD tested (March 14, 2026)
+- [x] **Tech Ops API Endpoints Working** - Verticals, Models, Brands, Buyers CRUD with Edit/Delete (March 14, 2026)
+- [x] **Tech Ops Data Seeded** - 9 Verticals, 47 Models, 28 Brands from SKU data (March 14, 2026)
+- [x] **SKU ID Migration** - 708 SKUs linked to vertical_id, model_id, brand_id (March 14, 2026)
+- [x] **BOM Consolidation** - 20,157 records migrated to bill_of_materials collection (March 14, 2026)
+- [x] **Branches Normalized** - 7 branches stored in database collection (March 14, 2026)
+- [x] **Purchase Orders** - PO creation, line items, send/receive flow (March 14, 2026)
+- [x] **Dispatches** - Dispatch records with shipping tracking (March 14, 2026)
+- [x] **Invoices** - Invoice creation with tax calculation (March 14, 2026)
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
