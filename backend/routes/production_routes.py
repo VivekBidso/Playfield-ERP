@@ -196,6 +196,20 @@ async def create_production_entry(
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     
+    # Publish event
+    from services.event_system import event_bus, EventType
+    await event_bus.publish(
+        EventType.PRODUCTION_ENTRY_CREATED,
+        {
+            "entry_id": entry.id,
+            "sku_id": input.sku_id,
+            "quantity": input.quantity,
+            "branch": input.branch,
+            "created_by": current_user.id
+        },
+        source_module="production"
+    )
+    
     return {
         "message": "Production entry created",
         "entry": doc,
