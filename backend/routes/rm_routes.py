@@ -12,6 +12,7 @@ from services.utils import (
     get_current_user, check_master_admin, check_branch_access,
     get_next_rm_sequence, serialize_doc, RM_CATEGORIES, BRANCHES
 )
+from services.rbac_service import require_permission
 
 router = APIRouter(tags=["Raw Materials"])
 
@@ -23,8 +24,9 @@ async def get_rm_categories():
 
 
 @router.post("/raw-materials", response_model=RawMaterial)
-async def create_raw_material(input: RawMaterialCreate):
-    """Create a new raw material"""
+@require_permission("RawMaterial", "CREATE")
+async def create_raw_material(input: RawMaterialCreate, current_user: User = Depends(get_current_user)):
+    """Create a new raw material (MASTER_ADMIN, TECH_OPS_ENGINEER)"""
     if input.category not in RM_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category: {input.category}")
     
@@ -49,7 +51,10 @@ async def create_raw_material(input: RawMaterialCreate):
     
     doc = rm.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    doc['created_by'] = current_user.id
     await db.raw_materials.insert_one(doc)
+    
+    return rm
     
     return rm
 
