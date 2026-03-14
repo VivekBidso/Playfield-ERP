@@ -2105,6 +2105,197 @@ async def get_all_sku_mappings():
 
 # ============ Production Entry Routes ============
 
+async def consume_rm_for_production(
+    branch: str,
+    rm_id: str,
+    quantity: float,
+    production_entry_id: str,
+    user_id: str = "system"
+) -> dict:
+    """
+    Intelligent RM consumption based on RM type (DIRECT, L1, L2).
+    For L2 materials, triggers the L1/L2 consumption engine.
+    """
+    # Get RM details
+    rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+    if not rm:
+        # RM not found in system - do direct deduction as fallback
+        await db.branch_rm_inventory.update_one(
+            {"rm_id": rm_id, "branch": branch},
+            {"$inc": {"current_stock": -quantity}}
+        )
+        return {"rm_id": rm_id, "type": "UNKNOWN", "quantity_consumed": quantity}
+    
+    rm_level = rm.get("rm_level", "DIRECT")
+    category = rm.get("category", "")
+    
+    # L2 INP - Weight-based polymer consumption
+    if rm_level == "L2" and category == "INP":
+        parent_rm_id = rm.get("parent_rm_id")
+        if parent_rm_id:
+            unit_weight_kg = (rm.get("unit_weight_grams") or 0) / 1000
+            scrap_factor = rm.get("scrap_factor") or 0.02
+            l1_consumption = quantity * unit_weight_kg * (1 + scrap_factor)
+            
+            # Check L1 stock
+            l1_inv = await db.branch_rm_inventory.find_one({"rm_id": parent_rm_id, "branch": branch})
+            l1_stock = l1_inv.get("current_stock", 0) if l1_inv else 0
+            
+            if l1_stock < l1_consumption:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"INP L2 {rm_id}: Need {l1_consumption:.3f} KG of {parent_rm_id}, only {l1_stock:.3f} available"
+                )
+            
+            # Deduct L1 polymer
+            await db.branch_rm_inventory.update_one(
+                {"rm_id": parent_rm_id, "branch": branch},
+                {"$inc": {"current_stock": -l1_consumption}}
+            )
+            
+            # Record movement
+            await db.rm_stock_movements.insert_one({
+                "id": str(uuid.uuid4()),
+                "movement_code": f"MV_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{rm_id[:8]}",
+                "rm_id": parent_rm_id,
+                "branch": branch,
+                "movement_type": "CONSUMPTION",
+                "quantity": -l1_consumption,
+                "unit_of_measure": "KG",
+                "reference_type": "PRODUCTION_ENTRY",
+                "reference_id": production_entry_id,
+                "balance_after": l1_stock - l1_consumption,
+                "notes": f"L1 polymer for L2 {rm_id} x {quantity}",
+                "created_at": datetime.now(timezone.utc),
+                "created_by": user_id
+            })
+            
+            return {
+                "rm_id": rm_id,
+                "type": "INP_L2",
+                "l1_rm_id": parent_rm_id,
+                "l1_consumed_kg": round(l1_consumption, 4),
+                "quantity_produced": quantity
+            }
+    
+    # L2 INM - Dual deduction (base metal + powder coating)
+    elif rm_level == "L2" and category == "INM":
+        parent_rm_id = rm.get("parent_rm_id")
+        coating_rm_id = rm.get("secondary_l1_rm_id")
+        
+        if parent_rm_id:
+            # 1:1 base metal consumption
+            metal_inv = await db.branch_rm_inventory.find_one({"rm_id": parent_rm_id, "branch": branch})
+            metal_stock = metal_inv.get("current_stock", 0) if metal_inv else 0
+            
+            if metal_stock < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"INM L2 {rm_id}: Need {quantity} units of {parent_rm_id}, only {metal_stock} available"
+                )
+            
+            # Deduct base metal 1:1
+            await db.branch_rm_inventory.update_one(
+                {"rm_id": parent_rm_id, "branch": branch},
+                {"$inc": {"current_stock": -quantity}}
+            )
+            
+            # Record base metal movement
+            await db.rm_stock_movements.insert_one({
+                "id": str(uuid.uuid4()),
+                "movement_code": f"MV_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{parent_rm_id[:8]}",
+                "rm_id": parent_rm_id,
+                "branch": branch,
+                "movement_type": "CONSUMPTION",
+                "quantity": -quantity,
+                "unit_of_measure": "PCS",
+                "reference_type": "PRODUCTION_ENTRY",
+                "reference_id": production_entry_id,
+                "balance_after": metal_stock - quantity,
+                "notes": f"Base metal for L2 {rm_id} x {quantity} (1:1)",
+                "created_at": datetime.now(timezone.utc),
+                "created_by": user_id
+            })
+            
+            result = {
+                "rm_id": rm_id,
+                "type": "INM_L2",
+                "l1_rm_id": parent_rm_id,
+                "l1_consumed_pcs": quantity
+            }
+            
+            # Powder coating if defined
+            if coating_rm_id:
+                powder_qty_grams = rm.get("powder_qty_grams") or 0
+                coating_scrap = rm.get("coating_scrap_factor") or 0.10
+                coating_consumption = (quantity * powder_qty_grams / 1000) * (1 + coating_scrap)
+                
+                coating_inv = await db.branch_rm_inventory.find_one({"rm_id": coating_rm_id, "branch": branch})
+                coating_stock = coating_inv.get("current_stock", 0) if coating_inv else 0
+                
+                if coating_stock < coating_consumption:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"INM L2 {rm_id}: Need {coating_consumption:.4f} KG of {coating_rm_id}, only {coating_stock:.4f} available"
+                    )
+                
+                # Deduct powder coating
+                await db.branch_rm_inventory.update_one(
+                    {"rm_id": coating_rm_id, "branch": branch},
+                    {"$inc": {"current_stock": -coating_consumption}}
+                )
+                
+                # Record coating movement
+                await db.rm_stock_movements.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "movement_code": f"MV_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{coating_rm_id[:8]}",
+                    "rm_id": coating_rm_id,
+                    "branch": branch,
+                    "movement_type": "CONSUMPTION",
+                    "quantity": -coating_consumption,
+                    "unit_of_measure": "KG",
+                    "reference_type": "PRODUCTION_ENTRY",
+                    "reference_id": production_entry_id,
+                    "balance_after": coating_stock - coating_consumption,
+                    "notes": f"Powder coating for L2 {rm_id} x {quantity} @ {powder_qty_grams}g each",
+                    "created_at": datetime.now(timezone.utc),
+                    "created_by": user_id
+                })
+                
+                result["coating_rm_id"] = coating_rm_id
+                result["coating_consumed_kg"] = round(coating_consumption, 4)
+            
+            return result
+    
+    # DIRECT or L1 - Simple deduction
+    else:
+        await db.branch_rm_inventory.update_one(
+            {"rm_id": rm_id, "branch": branch},
+            {"$inc": {"current_stock": -quantity}}
+        )
+        
+        # Record movement for direct consumption
+        current_inv = await db.branch_rm_inventory.find_one({"rm_id": rm_id, "branch": branch})
+        current_stock = current_inv.get("current_stock", 0) if current_inv else 0
+        
+        await db.rm_stock_movements.insert_one({
+            "id": str(uuid.uuid4()),
+            "movement_code": f"MV_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{rm_id[:8]}",
+            "rm_id": rm_id,
+            "branch": branch,
+            "movement_type": "CONSUMPTION",
+            "quantity": -quantity,
+            "unit_of_measure": rm.get("category_data", {}).get("unit", "PCS"),
+            "reference_type": "PRODUCTION_ENTRY",
+            "reference_id": production_entry_id,
+            "balance_after": current_stock,
+            "notes": f"Direct consumption for production",
+            "created_at": datetime.now(timezone.utc),
+            "created_by": user_id
+        })
+        
+        return {"rm_id": rm_id, "type": "DIRECT", "quantity_consumed": quantity}
+
 @api_router.post("/production-entries")
 async def create_production_entry(input: ProductionEntryCreate):
     # Check SKU is active in branch
@@ -2115,49 +2306,117 @@ async def create_production_entry(input: ProductionEntryCreate):
     if not sku_inv:
         raise HTTPException(status_code=400, detail=f"SKU not active in {input.branch}")
     
-    # Get mapping from either collection
-    mapping = await db.sku_mappings.find_one({"sku_id": input.sku_id}, {"_id": 0})
-    rm_mappings = []
+    # Get BOM from consolidated bill_of_materials collection first
+    bom_entries = await db.bill_of_materials.find(
+        {"sku_id": input.sku_id, "status": "ACTIVE"},
+        {"_id": 0}
+    ).to_list(500)
     
-    if mapping:
-        rm_mappings = mapping['rm_mappings']
+    rm_mappings = []
+    if bom_entries:
+        rm_mappings = [{"rm_id": b["rm_id"], "quantity_required": b["quantity_required"]} for b in bom_entries]
     else:
-        # Check new sku_rm_mapping collection
-        new_mappings = await db.sku_rm_mapping.find({"sku_id": input.sku_id}, {"_id": 0}).to_list(100)
-        if new_mappings:
-            rm_mappings = [{"rm_id": m['rm_id'], "quantity_required": m.get('quantity', 1)} for m in new_mappings]
+        # Fallback to legacy collections
+        mapping = await db.sku_mappings.find_one({"sku_id": input.sku_id}, {"_id": 0})
+        if mapping:
+            rm_mappings = mapping['rm_mappings']
+        else:
+            new_mappings = await db.sku_rm_mapping.find({"sku_id": input.sku_id}, {"_id": 0}).to_list(100)
+            if new_mappings:
+                rm_mappings = [{"rm_id": m['rm_id'], "quantity_required": m.get('quantity', 1)} for m in new_mappings]
     
     if not rm_mappings:
         raise HTTPException(status_code=400, detail="SKU mapping not found. Please map raw materials first.")
     
-    # Check RM stock
+    # Pre-check all RM stock (including L1 for L2 materials)
     for rm_mapping in rm_mappings:
+        rm_id = rm_mapping['rm_id']
         required_qty = rm_mapping['quantity_required'] * input.quantity
-        rm_inv = await db.branch_rm_inventory.find_one(
-            {"rm_id": rm_mapping['rm_id'], "branch": input.branch, "is_active": True},
-            {"_id": 0}
-        )
-        if not rm_inv:
-            raise HTTPException(status_code=400, detail=f"RM {rm_mapping['rm_id']} not active in {input.branch}")
-        if rm_inv['current_stock'] < required_qty:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient stock for {rm_mapping['rm_id']}. Required: {required_qty}, Available: {rm_inv['current_stock']}"
+        
+        # Get RM details to check if L2
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        
+        if rm and rm.get("rm_level") == "L2":
+            # For L2, check L1 parent stock
+            parent_rm_id = rm.get("parent_rm_id")
+            if parent_rm_id:
+                if rm.get("category") == "INP":
+                    # Calculate L1 consumption
+                    unit_weight_kg = (rm.get("unit_weight_grams") or 0) / 1000
+                    scrap_factor = rm.get("scrap_factor") or 0.02
+                    l1_needed = required_qty * unit_weight_kg * (1 + scrap_factor)
+                    
+                    l1_inv = await db.branch_rm_inventory.find_one(
+                        {"rm_id": parent_rm_id, "branch": input.branch, "is_active": True},
+                        {"_id": 0}
+                    )
+                    if not l1_inv or l1_inv.get('current_stock', 0) < l1_needed:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Insufficient L1 polymer {parent_rm_id} for L2 {rm_id}. Need: {l1_needed:.3f} KG"
+                        )
+                elif rm.get("category") == "INM":
+                    # Check base metal (1:1)
+                    l1_inv = await db.branch_rm_inventory.find_one(
+                        {"rm_id": parent_rm_id, "branch": input.branch, "is_active": True},
+                        {"_id": 0}
+                    )
+                    if not l1_inv or l1_inv.get('current_stock', 0) < required_qty:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Insufficient L1 base metal {parent_rm_id} for L2 {rm_id}. Need: {required_qty}"
+                        )
+                    
+                    # Check powder coating if defined
+                    coating_rm_id = rm.get("secondary_l1_rm_id")
+                    if coating_rm_id:
+                        powder_qty_grams = rm.get("powder_qty_grams") or 0
+                        coating_scrap = rm.get("coating_scrap_factor") or 0.10
+                        coating_needed = (required_qty * powder_qty_grams / 1000) * (1 + coating_scrap)
+                        
+                        coating_inv = await db.branch_rm_inventory.find_one(
+                            {"rm_id": coating_rm_id, "branch": input.branch, "is_active": True},
+                            {"_id": 0}
+                        )
+                        if not coating_inv or coating_inv.get('current_stock', 0) < coating_needed:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Insufficient powder coating {coating_rm_id} for L2 {rm_id}. Need: {coating_needed:.4f} KG"
+                            )
+        else:
+            # Direct RM - check direct stock
+            rm_inv = await db.branch_rm_inventory.find_one(
+                {"rm_id": rm_id, "branch": input.branch, "is_active": True},
+                {"_id": 0}
             )
+            if not rm_inv:
+                raise HTTPException(status_code=400, detail=f"RM {rm_id} not active in {input.branch}")
+            if rm_inv['current_stock'] < required_qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for {rm_id}. Required: {required_qty}, Available: {rm_inv['current_stock']}"
+                )
     
+    # Create production entry
     entry_obj = ProductionEntry(**input.model_dump())
     doc = entry_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     doc['date'] = doc['date'].isoformat()
     await db.production_entries.insert_one(doc)
     
-    # Deduct RM stock
+    production_entry_id = doc['id']
+    consumption_details = []
+    
+    # Consume RMs using intelligent engine
     for rm_mapping in rm_mappings:
         required_qty = rm_mapping['quantity_required'] * input.quantity
-        await db.branch_rm_inventory.update_one(
-            {"rm_id": rm_mapping['rm_id'], "branch": input.branch},
-            {"$inc": {"current_stock": -required_qty}}
+        result = await consume_rm_for_production(
+            branch=input.branch,
+            rm_id=rm_mapping['rm_id'],
+            quantity=required_qty,
+            production_entry_id=production_entry_id
         )
+        consumption_details.append(result)
     
     # Add SKU stock
     await db.branch_sku_inventory.update_one(
@@ -2165,7 +2424,10 @@ async def create_production_entry(input: ProductionEntryCreate):
         {"$inc": {"current_stock": input.quantity}}
     )
     
-    return entry_obj
+    # Return entry with consumption details
+    response = entry_obj.model_dump()
+    response['consumption_details'] = consumption_details
+    return response
 
 @api_router.get("/production-entries")
 async def get_production_entries(branch: Optional[str] = None, sku_id: Optional[str] = None):
