@@ -149,21 +149,27 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~RM Module filters~~ ✅
 - ~~SKU Subscription to Units~~ ✅
 - ~~Vendor Management with pricing~~ ✅
+- ~~Tech Ops Module (Verticals, Models, Brands, Buyers)~~ ✅ March 14, 2026
+- ~~Demand Module (Forecasts, Dispatch Lots)~~ ✅ March 14, 2026
+- ~~Quality Control Module (QC Checklists, Results, Approvals)~~ ✅ March 14, 2026
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
-- Refactor server.py (2400+ lines) into modular structure
-- Create branch users and test branch-specific data visibility
+- Complete backend refactoring - extract remaining routes from server.py into modular files
+- Create branch users and test branch-specific data visibility (RBAC)
 
 ### P2 - Medium Priority
 - ~~Inter-branch stock transfer~~ ✅ DONE
 - Dispatch tracking module enhancements
 - Add bulk RM inward upload feature
+- Wire L1/L2 consumption engine to Production entry flow
 
 ### P3 - Future
 - Barcode scanning capabilities
 - Multi-month production planning view
 - Validation preview for bulk uploads
+- Event-driven architecture implementation
+- Database partitioning for high-volume tables
 
 ---
 
@@ -182,10 +188,22 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - `sku_transfers` - Inter-branch transfer records
 - `vendors` - Vendor information (504 records)
 - `vendor_rm_prices` - Vendor RM pricing
+- `verticals` - Product verticals (NEW)
+- `models` - Product models (NEW)
+- `brands` - Brands (NEW)
+- `buyers` - Buyers/Customers (NEW)
+- `forecasts` - Demand forecasts (NEW)
+- `dispatch_lots` - Dispatch lots (NEW)
+- `production_batches` - Production batches (NEW)
+- `qc_checklists` - QC checklist items (NEW)
+- `qc_results` - QC inspection results (NEW)
+- `qc_approvals` - Batch QC approvals (NEW)
+- `fg_inventory` - Finished goods inventory (NEW)
+- `rm_stock_movements` - RM stock movement log (NEW)
 
 ## Default Credentials
 - Email: `admin@factory.com`
 - Password: `admin123`
 
 ---
-*Last updated: December 2025*
+*Last updated: March 14, 2026*
