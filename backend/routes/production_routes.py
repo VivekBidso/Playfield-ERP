@@ -429,6 +429,21 @@ async def complete_production_batch(
         }}
     )
     
+    # Publish BATCH_COMPLETED event
+    from services.event_system import event_bus, EventType
+    await event_bus.publish(
+        EventType.BATCH_COMPLETED,
+        {
+            "batch_id": batch_id,
+            "batch_code": batch.get("batch_code"),
+            "sku_id": batch["sku_id"],
+            "produced_quantity": produced_quantity,
+            "branch": batch["branch"],
+            "completed_by": current_user.id
+        },
+        source_module="production"
+    )
+    
     return {
         "message": "Production batch completed",
         "consumption": consumption_result
