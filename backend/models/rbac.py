@@ -86,9 +86,9 @@ class RoleResponse(BaseModel):
     id: str
     code: str
     name: str
-    description: Optional[str]
-    is_system_role: bool
-    is_active: bool
+    description: Optional[str] = None
+    is_system_role: bool = False
+    is_active: bool = True
 
 
 class PermissionResult(BaseModel):
