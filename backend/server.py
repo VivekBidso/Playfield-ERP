@@ -5536,7 +5536,8 @@ from routes import (
     tech_ops_router,
     demand_router,
     quality_router,
-    procurement_router
+    procurement_router,
+    cpc_router
 )
 
 # Include modular routers under /api prefix
@@ -5544,6 +5545,7 @@ api_router.include_router(tech_ops_router)
 api_router.include_router(demand_router)
 api_router.include_router(quality_router)
 api_router.include_router(procurement_router)
+api_router.include_router(cpc_router)
 
 app.include_router(api_router)
 
