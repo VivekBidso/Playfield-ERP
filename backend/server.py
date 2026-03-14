@@ -4027,6 +4027,183 @@ async def migrate_skus_to_ids():
     
     return results
 
+# --- BOM Consolidation Migration ---
+@api_router.post("/tech-ops/consolidate-bom")
+async def consolidate_bom():
+    """
+    Migrate data from sku_rm_mapping and sku_mappings collections
+    into a single bill_of_materials collection.
+    """
+    results = {
+        "bom_records_created": 0,
+        "from_sku_rm_mapping": 0,
+        "from_sku_mappings": 0,
+        "duplicates_skipped": 0,
+        "errors": []
+    }
+    
+    # Track existing BOMs to avoid duplicates
+    existing_boms = set()
+    existing = await db.bill_of_materials.find({}, {"_id": 0, "sku_id": 1, "rm_id": 1}).to_list(100000)
+    for bom in existing:
+        existing_boms.add((bom["sku_id"], bom["rm_id"]))
+    
+    # 1. Migrate from sku_rm_mapping (flat structure)
+    sku_rm_mappings = await db.sku_rm_mapping.find({}, {"_id": 0}).to_list(100000)
+    for mapping in sku_rm_mappings:
+        sku_id = mapping.get("sku_id")
+        rm_id = mapping.get("rm_id")
+        qty = mapping.get("quantity_required", 1)
+        
+        if not sku_id or not rm_id:
+            continue
+        
+        key = (sku_id, rm_id)
+        if key in existing_boms:
+            results["duplicates_skipped"] += 1
+            continue
+        
+        bom_record = {
+            "id": str(uuid.uuid4()),
+            "sku_id": sku_id,
+            "rm_id": rm_id,
+            "quantity_required": qty,
+            "unit_of_measure": "PCS",
+            "is_critical": False,
+            "alternate_rm_id": None,
+            "version": 1,
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc),
+            "source": "sku_rm_mapping"
+        }
+        await db.bill_of_materials.insert_one(bom_record)
+        existing_boms.add(key)
+        results["bom_records_created"] += 1
+        results["from_sku_rm_mapping"] += 1
+    
+    # 2. Migrate from sku_mappings (nested structure)
+    sku_mappings = await db.sku_mappings.find({}, {"_id": 0}).to_list(10000)
+    for mapping in sku_mappings:
+        sku_id = mapping.get("sku_id")
+        rm_list = mapping.get("rm_mappings", [])
+        
+        if not sku_id or not rm_list:
+            continue
+        
+        for rm in rm_list:
+            rm_id = rm.get("rm_id")
+            qty = rm.get("quantity_required", 1)
+            
+            if not rm_id:
+                continue
+            
+            key = (sku_id, rm_id)
+            if key in existing_boms:
+                results["duplicates_skipped"] += 1
+                continue
+            
+            bom_record = {
+                "id": str(uuid.uuid4()),
+                "sku_id": sku_id,
+                "rm_id": rm_id,
+                "quantity_required": qty,
+                "unit_of_measure": "PCS",
+                "is_critical": False,
+                "alternate_rm_id": None,
+                "version": 1,
+                "status": "ACTIVE",
+                "created_at": datetime.now(timezone.utc),
+                "source": "sku_mappings"
+            }
+            await db.bill_of_materials.insert_one(bom_record)
+            existing_boms.add(key)
+            results["bom_records_created"] += 1
+            results["from_sku_mappings"] += 1
+    
+    return results
+
+# --- Bill of Materials CRUD ---
+@api_router.get("/bill-of-materials")
+async def get_bill_of_materials(sku_id: str = None):
+    """Get BOM records, optionally filtered by SKU"""
+    query = {"status": "ACTIVE"}
+    if sku_id:
+        query["sku_id"] = sku_id
+    bom_records = await db.bill_of_materials.find(query, {"_id": 0}).to_list(10000)
+    return [serialize_doc(b) for b in bom_records]
+
+@api_router.get("/bill-of-materials/{sku_id}")
+async def get_bom_for_sku(sku_id: str):
+    """Get all BOM entries for a specific SKU"""
+    bom_records = await db.bill_of_materials.find(
+        {"sku_id": sku_id, "status": "ACTIVE"},
+        {"_id": 0}
+    ).to_list(1000)
+    return [serialize_doc(b) for b in bom_records]
+
+class BOMEntryCreate(BaseModel):
+    sku_id: str
+    rm_id: str
+    quantity_required: float
+    unit_of_measure: str = "PCS"
+    is_critical: bool = False
+    alternate_rm_id: Optional[str] = None
+
+@api_router.post("/bill-of-materials")
+async def create_bom_entry(data: BOMEntryCreate):
+    """Create a new BOM entry"""
+    # Check for duplicate
+    existing = await db.bill_of_materials.find_one({
+        "sku_id": data.sku_id,
+        "rm_id": data.rm_id,
+        "status": "ACTIVE"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail=f"BOM entry for SKU {data.sku_id} and RM {data.rm_id} already exists")
+    
+    bom_record = {
+        "id": str(uuid.uuid4()),
+        "sku_id": data.sku_id,
+        "rm_id": data.rm_id,
+        "quantity_required": data.quantity_required,
+        "unit_of_measure": data.unit_of_measure,
+        "is_critical": data.is_critical,
+        "alternate_rm_id": data.alternate_rm_id,
+        "version": 1,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.bill_of_materials.insert_one(bom_record)
+    del bom_record["_id"]
+    return serialize_doc(bom_record)
+
+@api_router.put("/bill-of-materials/{bom_id}")
+async def update_bom_entry(bom_id: str, data: BOMEntryCreate):
+    """Update a BOM entry"""
+    result = await db.bill_of_materials.update_one(
+        {"id": bom_id},
+        {"$set": {
+            "quantity_required": data.quantity_required,
+            "unit_of_measure": data.unit_of_measure,
+            "is_critical": data.is_critical,
+            "alternate_rm_id": data.alternate_rm_id
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="BOM entry not found")
+    return {"message": "BOM entry updated"}
+
+@api_router.delete("/bill-of-materials/{bom_id}")
+async def delete_bom_entry(bom_id: str):
+    """Soft delete a BOM entry"""
+    result = await db.bill_of_materials.update_one(
+        {"id": bom_id},
+        {"$set": {"status": "INACTIVE"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="BOM entry not found")
+    return {"message": "BOM entry deleted"}
+
 # --- Branches CRUD ---
 @api_router.get("/branches")
 async def get_branches_list():
