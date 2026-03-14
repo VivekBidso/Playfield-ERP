@@ -22,11 +22,28 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - **Backend**: FastAPI + MongoDB (Motor async driver)
 - **Frontend**: React + TailwindCSS + Shadcn/UI + Zustand
 - **Auth**: JWT-based authentication with role-based access control
-- **Backend Structure** (In Progress):
-  - `/app/backend/models/` - Pydantic models
-  - `/app/backend/routes/` - API routers
-  - `/app/backend/services/` - Business logic
-  - `/app/backend/database.py` - DB connection
+- **Backend Structure** (REFACTORED - March 14, 2026):
+  ```
+  /app/backend/
+  ├── server.py          # Main entry + core routes (~5500 lines)
+  ├── database.py        # DB connection + constants
+  ├── models/            # Pydantic models (830 lines)
+  │   ├── core.py        # RM, SKU, Production models
+  │   ├── auth.py        # User, Login models
+  │   ├── vendor.py      # Vendor models
+  │   ├── master_data.py # Verticals, Models, Brands, Buyers
+  │   └── transactional.py # Forecasts, Batches, QC, etc.
+  ├── routes/            # Modular API routers (1065 lines)
+  │   ├── tech_ops_routes.py    # Verticals, Models, Brands, Buyers
+  │   ├── demand_routes.py      # Forecasts, Dispatch Lots
+  │   ├── quality_routes.py     # QC Checklists, Results, Approvals
+  │   └── procurement_routes.py # POs, Dispatches, Invoices, IBT
+  └── services/          # Business logic (552 lines)
+      ├── auth_service.py       # JWT, password hashing
+      ├── helpers.py            # Utilities
+      ├── inventory_service.py  # Stock management
+      └── l1_l2_engine.py       # L1/L2 consumption engine
+  ```
 
 ## Multi-Branch System
 7 Branches supported:
