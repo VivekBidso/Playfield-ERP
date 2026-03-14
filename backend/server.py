@@ -4214,19 +4214,11 @@ async def delete_bom_entry(bom_id: str):
         raise HTTPException(status_code=404, detail="BOM entry not found")
     return {"message": "BOM entry deleted"}
 
-# --- Branches CRUD ---
-@api_router.get("/branches")
-async def get_branches_list():
-    """Get all branches from database"""
-    branches = await db.branches.find({}, {"_id": 0}).to_list(100)
-    if not branches:
-        # Return default branches if none exist
-        return [{"name": b, "code": b.replace(" ", "_").upper()} for b in BRANCHES]
-    return [serialize_doc(b) for b in branches]
-
+# --- Branches Initialize (moved from duplicate) ---
 @api_router.post("/branches/initialize")
 async def initialize_branches():
     """Initialize branches collection from BRANCHES constant"""
+    created = 0
     for branch_name in BRANCHES:
         existing = await db.branches.find_one({"name": branch_name})
         if not existing:
@@ -4240,7 +4232,8 @@ async def initialize_branches():
                 "is_active": True,
                 "created_at": datetime.now(timezone.utc)
             })
-    return {"message": f"Initialized {len(BRANCHES)} branches"}
+            created += 1
+    return {"message": f"Initialized {created} new branches"}
 
 # --- Forecasts CRUD ---
 @api_router.get("/forecasts")
