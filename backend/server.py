@@ -3825,6 +3825,33 @@ async def get_buyer(buyer_id: str):
         raise HTTPException(status_code=404, detail="Buyer not found")
     return serialize_doc(buyer)
 
+@api_router.put("/buyers/{buyer_id}")
+async def update_buyer(buyer_id: str, data: BuyerCreate):
+    """Update a buyer"""
+    result = await db.buyers.update_one(
+        {"id": buyer_id},
+        {"$set": {"code": data.code.upper(), "name": data.name, "country": data.country, "contact_email": data.contact_email, "payment_terms_days": data.payment_terms_days}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    return {"message": "Buyer updated"}
+
+@api_router.delete("/buyers/{buyer_id}")
+async def delete_buyer(buyer_id: str):
+    """Delete a buyer (soft delete)"""
+    # Check if any brands use this buyer
+    brands_count = await db.brands.count_documents({"buyer_id": buyer_id, "status": "ACTIVE"})
+    if brands_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {brands_count} active brands use this buyer")
+    
+    result = await db.buyers.update_one(
+        {"id": buyer_id},
+        {"$set": {"status": "INACTIVE"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    return {"message": "Buyer deleted"}
+
 # --- Seed Tech Ops from SKUs ---
 @api_router.post("/tech-ops/seed-from-skus")
 async def seed_tech_ops_from_skus():
