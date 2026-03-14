@@ -3818,6 +3818,7 @@ async def create_forecast(data: ForecastCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.forecasts.insert_one(forecast)
+    del forecast["_id"]
     return serialize_doc(forecast)
 
 @api_router.put("/forecasts/{forecast_id}/confirm")
@@ -3872,6 +3873,7 @@ async def create_dispatch_lot(data: DispatchLotCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.dispatch_lots.insert_one(lot)
+    del lot["_id"]
     return serialize_doc(lot)
 
 @api_router.put("/dispatch-lots/{lot_id}/status")
