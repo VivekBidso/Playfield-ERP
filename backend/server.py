@@ -3615,6 +3615,841 @@ async def get_brands_by_vertical_model(vertical: str, model: Optional[str] = Non
     brands = sorted(list(set(s.get('brand', '') for s in skus if s.get('brand'))))
     return {"brands": brands}
 
+# ============ NEW ARCHITECTURE API ENDPOINTS (PRD v2) ============
+
+# --- Verticals CRUD ---
+@api_router.get("/verticals")
+async def get_verticals():
+    """Get all verticals"""
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(1000)
+    return [serialize_doc(v) for v in verticals]
+
+@api_router.post("/verticals")
+async def create_vertical(data: VerticalCreate):
+    """Create a new vertical"""
+    existing = await db.verticals.find_one({"code": data.code})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Vertical with code {data.code} already exists")
+    
+    vertical = {
+        "id": str(uuid.uuid4()),
+        "code": data.code.upper(),
+        "name": data.name,
+        "description": data.description,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.verticals.insert_one(vertical)
+    return serialize_doc(vertical)
+
+@api_router.put("/verticals/{vertical_id}")
+async def update_vertical(vertical_id: str, data: VerticalCreate):
+    """Update a vertical"""
+    result = await db.verticals.update_one(
+        {"id": vertical_id},
+        {"$set": {"code": data.code.upper(), "name": data.name, "description": data.description}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vertical not found")
+    return {"message": "Vertical updated"}
+
+# --- Models CRUD ---
+@api_router.get("/models")
+async def get_models(vertical_id: Optional[str] = None):
+    """Get all models, optionally filtered by vertical"""
+    query = {}
+    if vertical_id:
+        query["vertical_id"] = vertical_id
+    models = await db.models.find(query, {"_id": 0}).to_list(1000)
+    return [serialize_doc(m) for m in models]
+
+@api_router.post("/models")
+async def create_model(data: ModelCreate):
+    """Create a new model"""
+    existing = await db.models.find_one({"vertical_id": data.vertical_id, "code": data.code})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Model with code {data.code} already exists for this vertical")
+    
+    model = {
+        "id": str(uuid.uuid4()),
+        "vertical_id": data.vertical_id,
+        "code": data.code.upper(),
+        "name": data.name,
+        "description": data.description,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.models.insert_one(model)
+    return serialize_doc(model)
+
+# --- Brands CRUD ---
+@api_router.get("/brands")
+async def get_brands(buyer_id: Optional[str] = None):
+    """Get all brands"""
+    query = {}
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    brands = await db.brands.find(query, {"_id": 0}).to_list(1000)
+    return [serialize_doc(b) for b in brands]
+
+@api_router.post("/brands")
+async def create_brand(data: BrandCreate):
+    """Create a new brand"""
+    existing = await db.brands.find_one({"code": data.code})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Brand with code {data.code} already exists")
+    
+    brand = {
+        "id": str(uuid.uuid4()),
+        "code": data.code.upper(),
+        "name": data.name,
+        "buyer_id": data.buyer_id,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.brands.insert_one(brand)
+    return serialize_doc(brand)
+
+# --- Buyers CRUD ---
+@api_router.get("/buyers")
+async def get_buyers():
+    """Get all buyers"""
+    buyers = await db.buyers.find({}, {"_id": 0}).to_list(1000)
+    return [serialize_doc(b) for b in buyers]
+
+@api_router.post("/buyers")
+async def create_buyer(data: BuyerCreate):
+    """Create a new buyer"""
+    existing = await db.buyers.find_one({"code": data.code})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Buyer with code {data.code} already exists")
+    
+    buyer = {
+        "id": str(uuid.uuid4()),
+        "code": data.code.upper(),
+        "name": data.name,
+        "country": data.country,
+        "contact_email": data.contact_email,
+        "payment_terms_days": data.payment_terms_days,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.buyers.insert_one(buyer)
+    return serialize_doc(buyer)
+
+@api_router.get("/buyers/{buyer_id}")
+async def get_buyer(buyer_id: str):
+    """Get buyer by ID"""
+    buyer = await db.buyers.find_one({"id": buyer_id}, {"_id": 0})
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    return serialize_doc(buyer)
+
+# --- Branches CRUD ---
+@api_router.get("/branches")
+async def get_branches_list():
+    """Get all branches from database"""
+    branches = await db.branches.find({}, {"_id": 0}).to_list(100)
+    if not branches:
+        # Return default branches if none exist
+        return [{"name": b, "code": b.replace(" ", "_").upper()} for b in BRANCHES]
+    return [serialize_doc(b) for b in branches]
+
+@api_router.post("/branches/initialize")
+async def initialize_branches():
+    """Initialize branches collection from BRANCHES constant"""
+    for branch_name in BRANCHES:
+        existing = await db.branches.find_one({"name": branch_name})
+        if not existing:
+            await db.branches.insert_one({
+                "id": str(uuid.uuid4()),
+                "code": branch_name.replace(" ", "_").upper(),
+                "name": branch_name,
+                "location": "",
+                "branch_type": "PRODUCTION",
+                "capacity_units_per_day": 0,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc)
+            })
+    return {"message": f"Initialized {len(BRANCHES)} branches"}
+
+# --- Forecasts CRUD ---
+@api_router.get("/forecasts")
+async def get_forecasts(
+    buyer_id: Optional[str] = None,
+    status: Optional[str] = None,
+    forecast_month: Optional[str] = None
+):
+    """Get forecasts with filters"""
+    query = {}
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    if status:
+        query["status"] = status
+    if forecast_month:
+        query["forecast_month"] = {"$regex": f"^{forecast_month}"}
+    
+    forecasts = await db.forecasts.find(query, {"_id": 0}).sort("forecast_month", -1).to_list(1000)
+    return [serialize_doc(f) for f in forecasts]
+
+@api_router.post("/forecasts")
+async def create_forecast(data: ForecastCreate):
+    """Create a new forecast"""
+    # Generate forecast code
+    count = await db.forecasts.count_documents({})
+    forecast_code = f"FC_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    forecast = {
+        "id": str(uuid.uuid4()),
+        "forecast_code": forecast_code,
+        "buyer_id": data.buyer_id,
+        "vertical_id": data.vertical_id,
+        "sku_id": data.sku_id,
+        "forecast_month": data.forecast_month,
+        "quantity": data.quantity,
+        "priority": data.priority,
+        "status": "DRAFT",
+        "notes": data.notes,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.forecasts.insert_one(forecast)
+    return serialize_doc(forecast)
+
+@api_router.put("/forecasts/{forecast_id}/confirm")
+async def confirm_forecast(forecast_id: str):
+    """Confirm a forecast"""
+    result = await db.forecasts.update_one(
+        {"id": forecast_id},
+        {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Forecast not found")
+    return {"message": "Forecast confirmed"}
+
+# --- Dispatch Lots CRUD ---
+@api_router.get("/dispatch-lots")
+async def get_dispatch_lots(
+    buyer_id: Optional[str] = None,
+    sku_id: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """Get dispatch lots with filters"""
+    query = {}
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    if sku_id:
+        query["sku_id"] = sku_id
+    if status:
+        query["status"] = status
+    
+    lots = await db.dispatch_lots.find(query, {"_id": 0}).sort("target_date", 1).to_list(1000)
+    return [serialize_doc(l) for l in lots]
+
+@api_router.post("/dispatch-lots")
+async def create_dispatch_lot(data: DispatchLotCreate):
+    """Create a new dispatch lot"""
+    count = await db.dispatch_lots.count_documents({})
+    lot_code = f"DL_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    lot = {
+        "id": str(uuid.uuid4()),
+        "lot_code": lot_code,
+        "forecast_id": data.forecast_id,
+        "sku_id": data.sku_id,
+        "buyer_id": data.buyer_id,
+        "required_quantity": data.required_quantity,
+        "produced_quantity": 0,
+        "qc_passed_quantity": 0,
+        "dispatched_quantity": 0,
+        "target_date": data.target_date,
+        "status": "CREATED",
+        "priority": data.priority,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.dispatch_lots.insert_one(lot)
+    return serialize_doc(lot)
+
+@api_router.put("/dispatch-lots/{lot_id}/status")
+async def update_dispatch_lot_status(lot_id: str, status: str):
+    """Update dispatch lot status"""
+    valid_statuses = ["CREATED", "PRODUCTION_ASSIGNED", "PARTIALLY_PRODUCED", "FULLY_PRODUCED", 
+                     "QC_CLEARED", "DISPATCH_READY", "DISPATCHED", "DELIVERED"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    result = await db.dispatch_lots.update_one(
+        {"id": lot_id},
+        {"$set": {"status": status}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    return {"message": "Status updated"}
+
+# --- Production Batches ---
+@api_router.get("/production-batches")
+async def get_production_batches(
+    branch: Optional[str] = None,
+    sku_id: Optional[str] = None,
+    status: Optional[str] = None,
+    batch_date: Optional[str] = None
+):
+    """Get production batches with filters"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    if sku_id:
+        query["sku_id"] = sku_id
+    if status:
+        query["status"] = status
+    if batch_date:
+        query["batch_date"] = {"$regex": f"^{batch_date}"}
+    
+    batches = await db.production_batches.find(query, {"_id": 0}).sort("batch_date", -1).to_list(1000)
+    return [serialize_doc(b) for b in batches]
+
+@api_router.post("/production-batches")
+async def create_production_batch(data: ProductionBatchCreate):
+    """Create a new production batch"""
+    count = await db.production_batches.count_documents({})
+    branch_code = data.branch.split()[0].upper() if data.branch else "XX"
+    batch_code = f"PB_{branch_code}_{datetime.now(timezone.utc).strftime('%Y%m%d')}_{count + 1:04d}"
+    
+    batch = {
+        "id": str(uuid.uuid4()),
+        "batch_code": batch_code,
+        "production_plan_id": data.production_plan_id,
+        "dispatch_lot_id": data.dispatch_lot_id,
+        "branch_id": "",
+        "branch": data.branch,
+        "sku_id": data.sku_id,
+        "planned_quantity": data.planned_quantity,
+        "produced_quantity": 0,
+        "good_quantity": 0,
+        "rejected_quantity": 0,
+        "batch_date": data.batch_date,
+        "shift": data.shift,
+        "status": "PLANNED",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.production_batches.insert_one(batch)
+    return serialize_doc(batch)
+
+@api_router.put("/production-batches/{batch_id}/start")
+async def start_production_batch(batch_id: str):
+    """Mark batch as in progress"""
+    result = await db.production_batches.update_one(
+        {"id": batch_id},
+        {"$set": {"status": "IN_PROGRESS", "started_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return {"message": "Batch started"}
+
+@api_router.put("/production-batches/{batch_id}/complete")
+async def complete_production_batch(batch_id: str, produced_quantity: int):
+    """Mark batch as completed with produced quantity"""
+    result = await db.production_batches.update_one(
+        {"id": batch_id},
+        {"$set": {
+            "status": "COMPLETED",
+            "produced_quantity": produced_quantity,
+            "completed_at": datetime.now(timezone.utc)
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return {"message": "Batch completed", "produced_quantity": produced_quantity}
+
+# --- L2 Production Endpoint ---
+@api_router.post("/production-batches/{batch_id}/produce-l2")
+async def produce_l2_in_batch(batch_id: str, rm_id: str, quantity: int):
+    """Produce L2 material within a production batch (triggers L1 consumption)"""
+    batch = await db.production_batches.find_one({"id": batch_id})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    result = await consume_l2_material(
+        branch=batch["branch"],
+        rm_id=rm_id,
+        quantity=quantity,
+        production_batch_id=batch_id,
+        user_id="system"  # Would come from auth in real implementation
+    )
+    
+    return result
+
+# --- QC Checklists ---
+@api_router.get("/qc-checklists")
+async def get_qc_checklists(
+    vertical_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    brand_id: Optional[str] = None
+):
+    """Get QC checklists - supports inheritance query"""
+    # Build effective checklist query
+    queries = []
+    
+    # Vertical level (base)
+    if vertical_id:
+        queries.append({"vertical_id": vertical_id, "model_id": None, "brand_id": None})
+    
+    # Model level
+    if model_id:
+        queries.append({"model_id": model_id, "brand_id": None})
+    
+    # Brand level
+    if brand_id:
+        queries.append({"brand_id": brand_id})
+    
+    # If no filters, get all
+    if not queries:
+        checklists = await db.qc_checklists.find({"status": "ACTIVE"}, {"_id": 0}).to_list(1000)
+    else:
+        checklists = await db.qc_checklists.find(
+            {"$or": queries, "status": "ACTIVE"},
+            {"_id": 0}
+        ).sort("check_priority", 1).to_list(1000)
+    
+    return [serialize_doc(c) for c in checklists]
+
+@api_router.post("/qc-checklists")
+async def create_qc_checklist(data: QCChecklistCreate):
+    """Create a new QC checklist item"""
+    count = await db.qc_checklists.count_documents({})
+    checklist_code = f"QC_{count + 1:04d}"
+    
+    checklist = {
+        "id": str(uuid.uuid4()),
+        "checklist_code": checklist_code,
+        "name": data.name,
+        "description": data.description,
+        "check_type": data.check_type,
+        "vertical_id": data.vertical_id,
+        "model_id": data.model_id,
+        "brand_id": data.brand_id,
+        "expected_value": data.expected_value,
+        "tolerance": data.tolerance,
+        "is_mandatory": data.is_mandatory,
+        "check_priority": data.check_priority,
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.qc_checklists.insert_one(checklist)
+    return serialize_doc(checklist)
+
+# --- QC Results ---
+@api_router.get("/qc-results")
+async def get_qc_results(production_batch_id: str):
+    """Get QC results for a production batch"""
+    results = await db.qc_results.find({"production_batch_id": production_batch_id}, {"_id": 0}).to_list(1000)
+    return [serialize_doc(r) for r in results]
+
+@api_router.post("/qc-results")
+async def create_qc_result(data: QCResultCreate):
+    """Record a QC inspection result"""
+    count = await db.qc_results.count_documents({})
+    result_code = f"QCR_{datetime.now(timezone.utc).strftime('%Y%m%d')}_{count + 1:04d}"
+    
+    result_status = "PASSED" if data.failed_count == 0 else ("FAILED" if data.passed_count == 0 else "CONDITIONAL")
+    
+    result = {
+        "id": str(uuid.uuid4()),
+        "result_code": result_code,
+        "production_batch_id": data.production_batch_id,
+        "checklist_id": data.checklist_id,
+        "sample_size": data.sample_size,
+        "passed_count": data.passed_count,
+        "failed_count": data.failed_count,
+        "actual_value": data.actual_value,
+        "result_status": result_status,
+        "defect_type": data.defect_type,
+        "defect_description": data.defect_description,
+        "inspector_notes": data.inspector_notes,
+        "inspected_at": datetime.now(timezone.utc),
+        "inspected_by": "system"  # Would come from auth
+    }
+    await db.qc_results.insert_one(result)
+    
+    # Update batch status to QC_HOLD if not already
+    await db.production_batches.update_one(
+        {"id": data.production_batch_id, "status": "COMPLETED"},
+        {"$set": {"status": "QC_HOLD"}}
+    )
+    
+    return serialize_doc(result)
+
+# --- QC Approval ---
+@api_router.post("/qc-approvals")
+async def create_qc_approval(
+    production_batch_id: str,
+    overall_status: str,
+    approved_quantity: int = 0,
+    rejection_reason: str = "",
+    rework_instructions: str = ""
+):
+    """Create QC approval for a batch"""
+    # Get all QC results for batch
+    results = await db.qc_results.find({"production_batch_id": production_batch_id}, {"_id": 0}).to_list(1000)
+    
+    total_passed = sum(r.get("passed_count", 0) for r in results)
+    total_failed = sum(r.get("failed_count", 0) for r in results)
+    total_inspected = total_passed + total_failed
+    
+    approval = {
+        "id": str(uuid.uuid4()),
+        "production_batch_id": production_batch_id,
+        "total_inspected": total_inspected,
+        "total_passed": total_passed,
+        "total_failed": total_failed,
+        "overall_status": overall_status,
+        "approved_quantity": approved_quantity,
+        "rejection_reason": rejection_reason,
+        "rework_instructions": rework_instructions,
+        "approved_at": datetime.now(timezone.utc),
+        "approved_by": "system"
+    }
+    await db.qc_approvals.insert_one(approval)
+    
+    # Update batch status
+    new_status = "QC_PASSED" if overall_status == "APPROVED" else "QC_FAILED"
+    await db.production_batches.update_one(
+        {"id": production_batch_id},
+        {"$set": {"status": new_status, "good_quantity": approved_quantity, "rejected_quantity": total_failed}}
+    )
+    
+    # If approved, create FG inventory
+    if overall_status == "APPROVED" and approved_quantity > 0:
+        batch = await db.production_batches.find_one({"id": production_batch_id})
+        if batch:
+            fg_entry = {
+                "id": str(uuid.uuid4()),
+                "branch_id": batch.get("branch_id", ""),
+                "branch": batch.get("branch"),
+                "sku_id": batch.get("sku_id"),
+                "dispatch_lot_id": batch.get("dispatch_lot_id"),
+                "production_batch_id": production_batch_id,
+                "quantity": approved_quantity,
+                "status": "AVAILABLE",
+                "qc_approval_id": approval["id"],
+                "received_at": datetime.now(timezone.utc)
+            }
+            await db.fg_inventory.insert_one(fg_entry)
+    
+    return serialize_doc(approval)
+
+# --- FG Inventory ---
+@api_router.get("/fg-inventory")
+async def get_fg_inventory(
+    branch: Optional[str] = None,
+    sku_id: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """Get finished goods inventory"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    if sku_id:
+        query["sku_id"] = sku_id
+    if status:
+        query["status"] = status
+    
+    inventory = await db.fg_inventory.find(query, {"_id": 0}).to_list(10000)
+    return [serialize_doc(i) for i in inventory]
+
+@api_router.get("/fg-inventory/summary")
+async def get_fg_inventory_summary(branch: Optional[str] = None):
+    """Get FG inventory summary by SKU"""
+    match_stage = {"status": "AVAILABLE"}
+    if branch:
+        match_stage["branch"] = branch
+    
+    pipeline = [
+        {"$match": match_stage},
+        {"$group": {
+            "_id": {"branch": "$branch", "sku_id": "$sku_id"},
+            "total_quantity": {"$sum": "$quantity"}
+        }},
+        {"$sort": {"_id.branch": 1, "_id.sku_id": 1}}
+    ]
+    
+    results = await db.fg_inventory.aggregate(pipeline).to_list(10000)
+    return [{"branch": r["_id"]["branch"], "sku_id": r["_id"]["sku_id"], "total_quantity": r["total_quantity"]} for r in results]
+
+# --- Purchase Orders ---
+@api_router.get("/purchase-orders")
+async def get_purchase_orders(
+    vendor_id: Optional[str] = None,
+    branch: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """Get purchase orders"""
+    query = {}
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    if branch:
+        query["branch"] = branch
+    if status:
+        query["status"] = status
+    
+    orders = await db.purchase_orders.find(query, {"_id": 0}).sort("order_date", -1).to_list(1000)
+    return [serialize_doc(o) for o in orders]
+
+@api_router.post("/purchase-orders")
+async def create_purchase_order(data: PurchaseOrderCreate):
+    """Create a new purchase order"""
+    count = await db.purchase_orders.count_documents({})
+    po_number = f"PO_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    po = {
+        "id": str(uuid.uuid4()),
+        "po_number": po_number,
+        "vendor_id": data.vendor_id,
+        "branch_id": "",
+        "branch": data.branch,
+        "order_date": data.order_date,
+        "expected_delivery_date": data.expected_delivery_date,
+        "total_amount": 0,
+        "currency": "INR",
+        "status": "DRAFT",
+        "payment_status": "PENDING",
+        "notes": data.notes,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.purchase_orders.insert_one(po)
+    return serialize_doc(po)
+
+@api_router.post("/purchase-orders/{po_id}/lines")
+async def add_po_line(po_id: str, data: PurchaseOrderLineCreate):
+    """Add line item to a PO"""
+    line = {
+        "id": str(uuid.uuid4()),
+        "po_id": po_id,
+        "rm_id": data.rm_id,
+        "quantity_ordered": data.quantity_ordered,
+        "quantity_received": 0,
+        "unit_price": data.unit_price,
+        "unit_of_measure": data.unit_of_measure,
+        "line_total": data.quantity_ordered * data.unit_price,
+        "status": "PENDING"
+    }
+    await db.purchase_order_lines.insert_one(line)
+    
+    # Update PO total
+    lines = await db.purchase_order_lines.find({"po_id": po_id}, {"_id": 0}).to_list(1000)
+    total = sum(l.get("line_total", 0) for l in lines)
+    await db.purchase_orders.update_one({"id": po_id}, {"$set": {"total_amount": total}})
+    
+    return serialize_doc(line)
+
+@api_router.get("/purchase-orders/{po_id}/lines")
+async def get_po_lines(po_id: str):
+    """Get all lines for a PO"""
+    lines = await db.purchase_order_lines.find({"po_id": po_id}, {"_id": 0}).to_list(1000)
+    return [serialize_doc(l) for l in lines]
+
+# --- RM Stock Movements ---
+@api_router.get("/rm-stock-movements")
+async def get_rm_stock_movements(
+    rm_id: Optional[str] = None,
+    branch: Optional[str] = None,
+    movement_type: Optional[str] = None,
+    limit: int = 100
+):
+    """Get RM stock movements (audit trail)"""
+    query = {}
+    if rm_id:
+        query["rm_id"] = rm_id
+    if branch:
+        query["branch"] = branch
+    if movement_type:
+        query["movement_type"] = movement_type
+    
+    movements = await db.rm_stock_movements.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return [serialize_doc(m) for m in movements]
+
+# --- IBT Transfers ---
+@api_router.get("/ibt-transfers")
+async def get_ibt_transfers(
+    source_branch: Optional[str] = None,
+    destination_branch: Optional[str] = None,
+    status: Optional[str] = None,
+    transfer_type: Optional[str] = None
+):
+    """Get inter-branch transfers"""
+    query = {}
+    if source_branch:
+        query["source_branch"] = source_branch
+    if destination_branch:
+        query["destination_branch"] = destination_branch
+    if status:
+        query["status"] = status
+    if transfer_type:
+        query["transfer_type"] = transfer_type
+    
+    transfers = await db.ibt_transfers.find(query, {"_id": 0}).sort("initiated_at", -1).to_list(1000)
+    return [serialize_doc(t) for t in transfers]
+
+@api_router.post("/ibt-transfers")
+async def create_ibt_transfer(
+    transfer_type: str,
+    source_branch: str,
+    destination_branch: str,
+    item_id: str,
+    quantity: float,
+    unit_of_measure: str = "",
+    notes: str = ""
+):
+    """Create a new inter-branch transfer"""
+    if source_branch == destination_branch:
+        raise HTTPException(status_code=400, detail="Source and destination branches must be different")
+    
+    count = await db.ibt_transfers.count_documents({})
+    transfer_code = f"IBT_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    transfer = {
+        "id": str(uuid.uuid4()),
+        "transfer_code": transfer_code,
+        "transfer_type": transfer_type,
+        "source_branch_id": "",
+        "source_branch": source_branch,
+        "destination_branch_id": "",
+        "destination_branch": destination_branch,
+        "item_id": item_id,
+        "quantity": quantity,
+        "unit_of_measure": unit_of_measure,
+        "status": "INITIATED",
+        "initiated_at": datetime.now(timezone.utc),
+        "notes": notes
+    }
+    await db.ibt_transfers.insert_one(transfer)
+    return serialize_doc(transfer)
+
+@api_router.put("/ibt-transfers/{transfer_id}/approve")
+async def approve_ibt_transfer(transfer_id: str):
+    """Approve an IBT transfer"""
+    result = await db.ibt_transfers.update_one(
+        {"id": transfer_id, "status": "INITIATED"},
+        {"$set": {"status": "APPROVED", "approved_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Transfer not found or already processed")
+    return {"message": "Transfer approved"}
+
+@api_router.put("/ibt-transfers/{transfer_id}/ship")
+async def ship_ibt_transfer(transfer_id: str):
+    """Mark IBT as shipped/in-transit"""
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    # Deduct from source
+    if transfer["transfer_type"] == "RM":
+        await update_branch_rm_inventory(transfer["source_branch"], transfer["item_id"], -transfer["quantity"])
+    else:  # FG
+        # Update FG inventory status
+        await db.fg_inventory.update_many(
+            {"branch": transfer["source_branch"], "sku_id": transfer["item_id"], "status": "AVAILABLE"},
+            {"$set": {"status": "IN_TRANSIT"}}
+        )
+    
+    await db.ibt_transfers.update_one(
+        {"id": transfer_id},
+        {"$set": {"status": "IN_TRANSIT", "shipped_at": datetime.now(timezone.utc)}}
+    )
+    return {"message": "Transfer shipped"}
+
+@api_router.put("/ibt-transfers/{transfer_id}/receive")
+async def receive_ibt_transfer(transfer_id: str):
+    """Mark IBT as received"""
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    # Add to destination
+    if transfer["transfer_type"] == "RM":
+        await update_branch_rm_inventory(transfer["destination_branch"], transfer["item_id"], transfer["quantity"])
+    else:  # FG
+        # Create new FG inventory at destination
+        fg_entry = {
+            "id": str(uuid.uuid4()),
+            "branch_id": "",
+            "branch": transfer["destination_branch"],
+            "sku_id": transfer["item_id"],
+            "quantity": int(transfer["quantity"]),
+            "status": "AVAILABLE",
+            "received_at": datetime.now(timezone.utc)
+        }
+        await db.fg_inventory.insert_one(fg_entry)
+    
+    await db.ibt_transfers.update_one(
+        {"id": transfer_id},
+        {"$set": {"status": "COMPLETED", "received_at": datetime.now(timezone.utc)}}
+    )
+    return {"message": "Transfer received and completed"}
+
+# --- Price History ---
+@api_router.get("/price-history")
+async def get_price_history(
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    limit: int = 100
+):
+    """Get price change history"""
+    query = {}
+    if entity_type:
+        query["entity_type"] = entity_type
+    if entity_id:
+        query["entity_id"] = entity_id
+    
+    history = await db.price_history.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return [serialize_doc(h) for h in history]
+
+# --- Audit Logs ---
+@api_router.get("/audit-logs")
+async def get_audit_logs(
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100
+):
+    """Get audit logs"""
+    query = {}
+    if entity_type:
+        query["entity_type"] = entity_type
+    if entity_id:
+        query["entity_id"] = entity_id
+    if action:
+        query["action"] = action
+    
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return [serialize_doc(l) for l in logs]
+
+# --- Initialize Predefined Powder Coating RMs ---
+@api_router.post("/setup/initialize-powder-coatings")
+async def initialize_powder_coatings():
+    """Initialize predefined powder coating L1 RMs for INM"""
+    powder_coatings = [
+        {"rm_id": "INM_PC_001", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "Black", "finish": "Matte", "unit": "KG"}},
+        {"rm_id": "INM_PC_002", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "White", "finish": "Gloss", "unit": "KG"}},
+        {"rm_id": "INM_PC_003", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "Red", "finish": "Matte", "unit": "KG"}},
+        {"rm_id": "INM_PC_004", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "Blue", "finish": "Gloss", "unit": "KG"}},
+        {"rm_id": "INM_PC_005", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "Silver", "finish": "Metallic", "unit": "KG"}},
+        {"rm_id": "INM_PC_006", "category": "INM", "rm_level": "L1", "category_data": {"type": "Powder Coating", "color": "Custom", "finish": "Various", "unit": "KG"}},
+    ]
+    
+    created = 0
+    for pc in powder_coatings:
+        existing = await db.raw_materials.find_one({"rm_id": pc["rm_id"]})
+        if not existing:
+            pc["id"] = str(uuid.uuid4())
+            pc["low_stock_threshold"] = 10.0
+            pc["status"] = "ACTIVE"
+            pc["created_at"] = datetime.now(timezone.utc)
+            await db.raw_materials.insert_one(pc)
+            created += 1
+    
+    return {"message": f"Initialized {created} powder coating RMs"}
+
 @api_router.get("/skus/filtered")
 async def get_filtered_skus(
     vertical: Optional[str] = None,
