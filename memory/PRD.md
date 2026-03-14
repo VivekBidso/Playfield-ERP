@@ -229,6 +229,14 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - `PUT /api/branch-allocations/{id}/start` - Start production on allocation
 - `PUT /api/branch-allocations/{id}/complete` - Complete allocation with quantity
 
+**RBAC Module (March 14, 2026)**
+- `GET /api/roles` - List all available roles (10 roles)
+- `GET /api/auth/permissions` - Get current user's roles and permissions
+- `GET /api/users/{id}/roles` - Get roles assigned to a specific user
+- `POST /api/users/{id}/roles` - Assign a role to a user (Master Admin only)
+- `DELETE /api/users/{id}/roles/{role_code}` - Remove a role from a user
+- `GET /api/users-with-roles` - List all users with their RBAC roles
+
 **L1/L2 Engine (Backend Services)**
 - INP (Plastic) consumption: Weight-based polymer deduction
 - INM (Metal) consumption: Dual L1 deduction (base metal + powder coating)
