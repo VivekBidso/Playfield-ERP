@@ -5,23 +5,14 @@ from datetime import datetime, timezone, date
 import uuid
 
 from database import db
-from models import (
-    User, ProductionEntry, ProductionEntryCreate,
-    ProductionPlanEntry, ProductionPlanCreate,
-    ProductionBatch, ProductionBatchCreate,
-    RMStockMovement
-)
+from models import User
 from services.utils import (
     get_current_user, check_branch_access, serialize_doc,
     update_branch_rm_inventory, generate_movement_code, 
     get_branch_rm_stock, get_current_rm_price
 )
-from services.l1_l2_engine import L1L2ConsumptionEngine
 
 router = APIRouter(tags=["Production"])
-
-# Initialize L1/L2 engine
-l1l2_engine = L1L2ConsumptionEngine(db)
 
 
 async def consume_rm_for_production(
