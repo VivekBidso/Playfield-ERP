@@ -264,8 +264,9 @@ async def activate_rm_in_branch(request: ActivateItemRequest):
 
 
 @router.delete("/raw-materials/{rm_id}")
-async def delete_raw_material(rm_id: str):
-    """Delete a raw material"""
+@require_permission("RawMaterial", "DELETE")
+async def delete_raw_material(rm_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a raw material (MASTER_ADMIN only, TECH_OPS can soft-delete)"""
     result = await db.raw_materials.delete_one({"rm_id": rm_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Raw material not found")
