@@ -10,10 +10,23 @@ Build a factory management tool with the following modules:
 6. **Dispatch Tracking**: Mark outgoing SKUs as dispatched.
 7. **Reporting**: Provide a net-off tracking of RM and SKU inventory.
 
+## Extended Architecture (PRD v2 - March 2026)
+The system is being evolved into an **Integrated Manufacturing & Operations Suite** as defined in `/app/memory/ARCHITECTURE_PRD_v2.md`. Key additions:
+- **L1/L2 Raw Material Engine**: INP (plastic) and INM (metal) in-house manufacturing with calculated consumption
+- **Modular Service Architecture**: Backend refactoring into services/routes/models
+- **Master Data Management**: Verticals, Models, Brands, Buyers entities
+- **Quality Control Module**: QC Checklists, Results, Approvals
+- **Demand Planning**: Forecasts and Dispatch Lots
+
 ## Architecture
 - **Backend**: FastAPI + MongoDB (Motor async driver)
 - **Frontend**: React + TailwindCSS + Shadcn/UI + Zustand
 - **Auth**: JWT-based authentication with role-based access control
+- **Backend Structure** (In Progress):
+  - `/app/backend/models/` - Pydantic models
+  - `/app/backend/routes/` - API routers
+  - `/app/backend/services/` - Business logic
+  - `/app/backend/database.py` - DB connection
 
 ## Multi-Branch System
 7 Branches supported:
@@ -95,6 +108,33 @@ Build a factory management tool with the following modules:
 - `POST /api/production-plans` - Create single production plan with date picker (sku_id, branch, date, planned_quantity)
 - Automatically derives plan_month from date
 - Updates existing plan if same SKU/branch/date combination
+
+### New Architecture Endpoints (March 14, 2026)
+**Master Data (Tech Ops)**
+- `GET/POST /api/verticals` - Product Verticals (SCOOTER, TRIKE, etc.)
+- `GET/POST /api/models` - Product Models under Verticals
+- `GET/POST /api/brands` - Brands tied to Buyers
+- `GET/POST /api/buyers` - Buyer/Customer management
+
+**Demand Module**
+- `GET/POST /api/forecasts` - Demand Forecasts
+- `GET/POST /api/dispatch-lots` - Dispatch Lot management
+
+**Production Batches**
+- `GET/POST /api/production-batches` - Production batch tracking
+
+**Quality Control**
+- `GET/POST /api/qc-checklists` - QC checklist items
+- `GET/POST /api/qc-results` - QC inspection results
+- `POST /api/qc-approvals` - Batch QC approvals
+
+**Finished Goods**
+- `GET /api/fg-inventory` - FG inventory tracking
+- `GET /api/fg-inventory/summary` - FG summary by SKU
+
+**L1/L2 Engine (Backend Services)**
+- INP (Plastic) consumption: Weight-based polymer deduction
+- INM (Metal) consumption: Dual L1 deduction (base metal + powder coating)
 
 ---
 
