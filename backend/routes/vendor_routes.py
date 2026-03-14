@@ -7,6 +7,7 @@ import uuid
 from database import db
 from models import User, Vendor, VendorCreate, VendorRMPrice, VendorRMPriceCreate, PurchaseEntry, PurchaseEntryCreate
 from services.utils import get_current_user, get_next_vendor_id, serialize_doc, update_branch_rm_inventory, generate_movement_code, get_branch_rm_stock
+from services.rbac_service import require_permission
 
 router = APIRouter(tags=["Vendors"])
 
@@ -21,8 +22,9 @@ async def get_vendors():
 
 
 @router.post("/vendors", response_model=Vendor)
-async def create_vendor(input: VendorCreate):
-    """Create a new vendor"""
+@require_permission("Vendor", "CREATE")
+async def create_vendor(input: VendorCreate, current_user: User = Depends(get_current_user)):
+    """Create a new vendor (MASTER_ADMIN, PROCUREMENT_OFFICER)"""
     vendor_id = await get_next_vendor_id()
     
     vendor = Vendor(
@@ -38,20 +40,23 @@ async def create_vendor(input: VendorCreate):
     
     doc = vendor.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
+    doc['created_by'] = current_user.id
     await db.vendors.insert_one(doc)
     
     return vendor
 
 
 @router.put("/vendors/{vendor_id}", response_model=Vendor)
-async def update_vendor(vendor_id: str, input: VendorCreate):
-    """Update a vendor"""
+@require_permission("Vendor", "UPDATE")
+async def update_vendor(vendor_id: str, input: VendorCreate, current_user: User = Depends(get_current_user)):
+    """Update a vendor (MASTER_ADMIN, PROCUREMENT_OFFICER)"""
     existing = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Vendor not found")
     
     update_data = input.model_dump()
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_by"] = current_user.id
     
     await db.vendors.update_one({"vendor_id": vendor_id}, {"$set": update_data})
     
@@ -60,8 +65,9 @@ async def update_vendor(vendor_id: str, input: VendorCreate):
 
 
 @router.delete("/vendors/{vendor_id}")
-async def delete_vendor(vendor_id: str):
-    """Delete a vendor"""
+@require_permission("Vendor", "DELETE")
+async def delete_vendor(vendor_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a vendor (MASTER_ADMIN only)"""
     result = await db.vendors.delete_one({"vendor_id": vendor_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Vendor not found")
