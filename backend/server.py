@@ -3750,6 +3750,101 @@ async def get_buyer(buyer_id: str):
         raise HTTPException(status_code=404, detail="Buyer not found")
     return serialize_doc(buyer)
 
+# --- Seed Tech Ops from SKUs ---
+@api_router.post("/tech-ops/seed-from-skus")
+async def seed_tech_ops_from_skus():
+    """
+    Extract unique Verticals, Models, and Brands from existing SKU data
+    and populate the Tech Ops master data collections.
+    """
+    results = {
+        "verticals_created": 0,
+        "models_created": 0,
+        "brands_created": 0,
+        "skipped": {"verticals": [], "models": [], "brands": []}
+    }
+    
+    # Get all SKUs
+    skus = await db.skus.find({}, {"_id": 0, "vertical": 1, "model": 1, "brand": 1}).to_list(10000)
+    
+    # Extract unique values
+    unique_verticals = set(s.get("vertical", "").strip() for s in skus if s.get("vertical", "").strip())
+    unique_models = set((s.get("vertical", "").strip(), s.get("model", "").strip()) for s in skus if s.get("model", "").strip())
+    unique_brands = set(s.get("brand", "").strip() for s in skus if s.get("brand", "").strip())
+    
+    # Create verticals (skip 'temp' and empty)
+    vertical_map = {}  # name -> id mapping
+    for v_name in sorted(unique_verticals):
+        if v_name.lower() == 'temp' or not v_name:
+            continue
+        code = v_name.upper().replace(" ", "_").replace("-", "_")
+        existing = await db.verticals.find_one({"$or": [{"code": code}, {"name": v_name}]})
+        if existing:
+            vertical_map[v_name] = existing.get("id")
+            results["skipped"]["verticals"].append(v_name)
+            continue
+        
+        vertical = {
+            "id": str(uuid.uuid4()),
+            "code": code,
+            "name": v_name,
+            "description": f"Auto-seeded from SKU data",
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.verticals.insert_one(vertical)
+        vertical_map[v_name] = vertical["id"]
+        results["verticals_created"] += 1
+    
+    # Create models (need vertical_id)
+    for v_name, m_name in sorted(unique_models):
+        if m_name.lower() == 'temp' or not m_name or not v_name:
+            continue
+        vertical_id = vertical_map.get(v_name)
+        if not vertical_id:
+            continue
+        
+        code = m_name.upper().replace(" ", "_").replace("-", "_")
+        existing = await db.models.find_one({"vertical_id": vertical_id, "code": code})
+        if existing:
+            results["skipped"]["models"].append(m_name)
+            continue
+        
+        model = {
+            "id": str(uuid.uuid4()),
+            "vertical_id": vertical_id,
+            "code": code,
+            "name": m_name,
+            "description": f"Auto-seeded from SKU data",
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.models.insert_one(model)
+        results["models_created"] += 1
+    
+    # Create brands
+    for b_name in sorted(unique_brands):
+        if b_name.lower() == 'temp' or not b_name:
+            continue
+        code = b_name.upper().replace(" ", "_").replace("-", "_").replace("&", "AND")
+        existing = await db.brands.find_one({"$or": [{"code": code}, {"name": b_name}]})
+        if existing:
+            results["skipped"]["brands"].append(b_name)
+            continue
+        
+        brand = {
+            "id": str(uuid.uuid4()),
+            "code": code,
+            "name": b_name,
+            "buyer_id": None,
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.brands.insert_one(brand)
+        results["brands_created"] += 1
+    
+    return results
+
 # --- Branches CRUD ---
 @api_router.get("/branches")
 async def get_branches_list():
