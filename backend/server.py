@@ -99,6 +99,11 @@ async def startup_event():
         }
         await db.users.insert_one(admin_user)
         logger.info("Default admin user created")
+    
+    # Seed RBAC roles, permissions, and constraints
+    from services.seed_rbac import seed_rbac
+    await seed_rbac(db)
+    logger.info("RBAC seeding complete")
 
 
 @app.on_event("shutdown")
