@@ -179,11 +179,12 @@ async def get_purchase_entries(
 
 
 @router.post("/purchase-entries")
+@require_permission("RMStockMovement", "CREATE")
 async def create_purchase_entry(
     input: PurchaseEntryCreate,
     current_user: User = Depends(get_current_user)
 ):
-    """Create a purchase entry (RM Inward)"""
+    """Create a purchase entry (RM Inward) - MASTER_ADMIN, PROCUREMENT_OFFICER, BRANCH_OPS_USER"""
     # Verify RM exists
     rm = await db.raw_materials.find_one({"rm_id": input.rm_id}, {"_id": 0})
     if not rm:
@@ -201,6 +202,7 @@ async def create_purchase_entry(
     doc = entry.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     doc['purchase_date'] = doc['purchase_date'].isoformat() if doc.get('purchase_date') else None
+    doc['created_by'] = current_user.id
     
     await db.purchase_entries.insert_one(doc)
     
@@ -220,6 +222,7 @@ async def create_purchase_entry(
         "reference_type": "PURCHASE_ENTRY",
         "reference_id": entry.id,
         "balance_after": current_stock + input.quantity,
+        "created_by": current_user.id,
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
