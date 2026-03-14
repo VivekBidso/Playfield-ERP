@@ -34,6 +34,9 @@ async def login(request: LoginRequest):
     # Create access token
     access_token = create_access_token(data={"sub": user_doc["id"]})
     
+    # Get user's roles from new RBAC system
+    user_roles = await rbac_service.get_user_roles(user_doc["id"])
+    
     user_response = UserResponse(
         id=user_doc["id"],
         email=user_doc["email"],
