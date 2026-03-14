@@ -161,14 +161,16 @@ async def activate_sku_in_branch(request: ActivateItemRequest):
 
 
 @router.put("/skus/{sku_id}", response_model=SKU)
-async def update_sku(sku_id: str, input: SKUCreate):
-    """Update an existing SKU"""
+@require_permission("BuyerSKU", "UPDATE")
+async def update_sku(sku_id: str, input: SKUCreate, current_user: User = Depends(get_current_user)):
+    """Update an existing SKU (MASTER_ADMIN, DEMAND_PLANNER, TECH_OPS_ENGINEER)"""
     existing = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="SKU not found")
     
     update_data = input.model_dump()
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_by"] = current_user.id
     
     await db.skus.update_one({"sku_id": sku_id}, {"$set": update_data})
     
@@ -177,8 +179,9 @@ async def update_sku(sku_id: str, input: SKUCreate):
 
 
 @router.delete("/skus/{sku_id}")
-async def delete_sku(sku_id: str):
-    """Delete an SKU"""
+@require_permission("BuyerSKU", "DELETE")
+async def delete_sku(sku_id: str, current_user: User = Depends(get_current_user)):
+    """Delete an SKU (MASTER_ADMIN, DEMAND_PLANNER with constraints)"""
     result = await db.skus.delete_one({"sku_id": sku_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="SKU not found")
