@@ -427,6 +427,8 @@ async def produce_l2_in_batch(
     current_user: User = Depends(get_current_user)
 ):
     """Produce L2 items within a batch (INP molding, INM fabrication)"""
+    from services.l1_l2_engine import consume_inp_l2_material, consume_inm_l2_material
+    
     batch = await db.production_batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -441,14 +443,27 @@ async def produce_l2_in_batch(
     if rm.get("rm_level") != "L2":
         raise HTTPException(status_code=400, detail="This RM is not an L2 item")
     
-    # Use L1/L2 engine to produce
+    # Use L1/L2 engine to produce based on category
     try:
-        result = await l1l2_engine.produce_l2_material(
-            branch=batch["branch"],
-            l2_rm_id=rm_id,
-            quantity=quantity,
-            production_batch_id=batch_id
-        )
+        rm_category = rm.get("category", "")
+        if rm_category == "INP":
+            result = await consume_inp_l2_material(
+                branch=batch["branch"],
+                rm_id=rm_id,
+                quantity=quantity,
+                production_batch_id=batch_id,
+                user_id=current_user.id
+            )
+        elif rm_category == "INM":
+            result = await consume_inm_l2_material(
+                branch=batch["branch"],
+                rm_id=rm_id,
+                quantity=quantity,
+                production_batch_id=batch_id,
+                user_id=current_user.id
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"L2 production not supported for category {rm_category}")
         
         return {
             "message": f"Produced {quantity} units of {rm_id}",
