@@ -20,7 +20,8 @@ import {
   Workflow,
   ShoppingCart,
   ArrowLeftRight,
-  Receipt
+  Receipt,
+  Activity
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -50,6 +51,7 @@ const Layout = () => {
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: true },
     { path: "/logistics", label: "Logistics", icon: Truck, show: true },
     { path: "/ibt", label: "IBT Transfers", icon: ArrowLeftRight, show: true },
+    { path: "/events", label: "Event System", icon: Activity, show: isMasterAdmin },
     { path: "/dispatch", label: "Dispatch (Legacy)", icon: Receipt, show: true },
     { path: "/reports", label: "Reports", icon: FileText, show: true },
   ];
