@@ -331,10 +331,11 @@ class TestProcurementOfficerAccess:
         
         vendor_data = {
             "name": f"TEST_PO_Vendor_{uuid.uuid4().hex[:8]}",
-            "contact_person": "Test Contact",
+            "poc": "Test Contact",
             "phone": "1234567890",
             "email": "test@vendor.com",
-            "address": "Test Address"
+            "address": "Test Address",
+            "gst": ""
         }
         response = requests.post(f"{BASE_URL}/api/vendors", json=vendor_data, headers=self.procurement_headers)
         assert response.status_code == 200, f"Procurement Officer should be able to create Vendor: {response.text}"
@@ -353,13 +354,15 @@ class TestProcurementOfficerAccess:
         # First create an SKU as admin
         sku_data = {
             "sku_id": f"TEST_PO_SKU_{uuid.uuid4().hex[:8]}",
+            "bidso_sku": f"BIDSO_PO_{uuid.uuid4().hex[:8]}",
+            "buyer_sku_id": f"BUYER_PO_{uuid.uuid4().hex[:8]}",
             "description": "Procurement Test SKU",
             "vertical": "Test",
             "model": "Test Model",
             "brand": "Test Brand"
         }
         create_response = requests.post(f"{BASE_URL}/api/skus", json=sku_data, headers=self.admin_headers)
-        assert create_response.status_code == 200
+        assert create_response.status_code == 200, f"Failed to create SKU: {create_response.text}"
         sku_id = sku_data["sku_id"]
         
         # Try to delete as procurement officer - should fail
