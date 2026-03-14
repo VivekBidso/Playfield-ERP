@@ -15,6 +15,9 @@ import Production from "@/pages/Production";
 import Dispatch from "@/pages/Dispatch";
 import Reports from "@/pages/Reports";
 import UserManagement from "@/pages/UserManagement";
+import TechOps from "@/pages/TechOps";
+import Demand from "@/pages/Demand";
+import Quality from "@/pages/Quality";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -81,6 +84,9 @@ function App() {
             <Route path="production" element={<Production />} />
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="techops" element={<TechOps />} />
+            <Route path="demand" element={<Demand />} />
+            <Route path="quality" element={<Quality />} />
           </Route>
         </Routes>
       </BrowserRouter>
