@@ -204,3 +204,183 @@ async def toggle_user_active(user_id: str, current_user: User = Depends(get_curr
     await db.users.update_one({"id": user_id}, {"$set": {"is_active": new_status}})
     
     return {"message": f"User {'activated' if new_status else 'deactivated'} successfully"}
+
+
+# ============ RBAC Management Endpoints ============
+
+@router.get("/roles", response_model=List[RoleResponse])
+async def list_roles(current_user: User = Depends(get_current_user)):
+    """List all available roles"""
+    roles = await db.roles.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return [RoleResponse(**r) for r in roles]
+
+
+@router.get("/users/{user_id}/roles")
+async def get_user_roles(user_id: str, current_user: User = Depends(get_current_user)):
+    """Get roles assigned to a user"""
+    check_master_admin(current_user)
+    
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get roles from user_roles collection
+    user_roles = await db.user_roles.find({"user_id": user_id}).to_list(100)
+    role_ids = [ur["role_id"] for ur in user_roles]
+    
+    roles = []
+    if role_ids:
+        roles = await db.roles.find({"id": {"$in": role_ids}, "is_active": True}, {"_id": 0}).to_list(100)
+    
+    # Also include legacy role
+    legacy_role = user.get("role", "")
+    
+    return {
+        "user_id": user_id,
+        "legacy_role": legacy_role,
+        "roles": [RoleResponse(**r) for r in roles]
+    }
+
+
+@router.post("/users/{user_id}/roles")
+async def assign_role_to_user(
+    user_id: str,
+    request: AssignRoleRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Assign a role to a user (Master Admin only)"""
+    check_master_admin(current_user)
+    
+    # Validate user exists
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Validate role exists
+    role = await db.roles.find_one({"code": request.role_code, "is_active": True}, {"_id": 0})
+    if not role:
+        raise HTTPException(status_code=404, detail=f"Role not found: {request.role_code}")
+    
+    # Check if already assigned
+    existing = await db.user_roles.find_one({
+        "user_id": user_id,
+        "role_id": role["id"]
+    })
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Role already assigned to user")
+    
+    # Assign role
+    user_role = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "role_id": role["id"],
+        "branch_id": request.branch_id,
+        "is_primary": request.is_primary,
+        "granted_by": current_user.id,
+        "granted_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.user_roles.insert_one(user_role)
+    
+    # Clear RBAC cache for affected roles
+    rbac_service.clear_cache()
+    
+    return {"message": f"Role {request.role_code} assigned to user successfully"}
+
+
+@router.delete("/users/{user_id}/roles/{role_code}")
+async def remove_role_from_user(
+    user_id: str,
+    role_code: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a role from a user (Master Admin only)"""
+    check_master_admin(current_user)
+    
+    # Get role
+    role = await db.roles.find_one({"code": role_code}, {"_id": 0})
+    if not role:
+        raise HTTPException(status_code=404, detail=f"Role not found: {role_code}")
+    
+    # Remove role assignment
+    result = await db.user_roles.delete_one({
+        "user_id": user_id,
+        "role_id": role["id"]
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    
+    # Clear RBAC cache
+    rbac_service.clear_cache()
+    
+    return {"message": f"Role {role_code} removed from user"}
+
+
+@router.get("/auth/permissions")
+async def get_my_permissions(current_user: User = Depends(get_current_user)):
+    """Get current user's permissions"""
+    user_roles = await rbac_service.get_user_roles(current_user.id)
+    
+    # Get all permissions for user's roles
+    permissions = []
+    for role_code in user_roles:
+        role_perms = await rbac_service.load_role_permissions(role_code)
+        for perm in role_perms:
+            perm_entry = {
+                "entity": perm["entity"],
+                "action": perm["action"],
+                "scope": perm["scope"],
+                "role": role_code
+            }
+            if perm_entry not in permissions:
+                permissions.append(perm_entry)
+    
+    return {
+        "user_id": current_user.id,
+        "roles": user_roles,
+        "permissions": permissions
+    }
+
+
+# Extended user response with roles
+class UserWithRolesResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    legacy_role: str
+    roles: List[str]
+    assigned_branches: List[str]
+    is_active: bool
+    created_at: datetime
+
+
+@router.get("/users-with-roles", response_model=List[UserWithRolesResponse])
+async def list_users_with_roles(current_user: User = Depends(get_current_user)):
+    """List all users with their roles (Master Admin only)"""
+    check_master_admin(current_user)
+    
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    result = []
+    
+    for user in users:
+        user_roles = await rbac_service.get_user_roles(user["id"])
+        
+        created_at = user.get("created_at")
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at)
+        
+        result.append(UserWithRolesResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            legacy_role=user.get("role", ""),
+            roles=user_roles,
+            assigned_branches=user.get("assigned_branches", []),
+            is_active=user.get("is_active", True),
+            created_at=created_at
+        ))
+    
+    return result
+
