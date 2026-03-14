@@ -49,3 +49,10 @@ from .transactional import (
     PriceHistory,
     AuditLog,
 )
+
+from .rbac import (
+    Role, Permission, RolePermission, UserRole, PermissionConstraint,
+    RoleResponse, PermissionResult,
+    RoleCode, Action, Scope,
+    RoleCreateRequest, AssignRoleRequest,
+)
