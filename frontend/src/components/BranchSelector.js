@@ -16,10 +16,11 @@ const BranchSelector = () => {
 
   const fetchBranches = async () => {
     try {
-      const response = await axios.get(`${API}/branches`);
-      setBranches(response.data.branches);
+      const response = await axios.get(`${API}/branches/names`);
+      setBranches(response.data.branches || []);
     } catch (error) {
       console.error('Failed to fetch branches:', error);
+      setBranches([]);
     }
   };
 
