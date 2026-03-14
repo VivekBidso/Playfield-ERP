@@ -1,14 +1,18 @@
-"""Authentication routes - Login, User Management"""
+"""Authentication routes - Login, User Management, RBAC"""
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
+from pydantic import BaseModel
+import uuid
 
 from database import db
 from models import User, UserCreate, UserResponse, LoginRequest, LoginResponse, ChangePasswordRequest
+from models import RoleResponse, AssignRoleRequest
 from services.utils import (
     get_current_user, check_master_admin, 
     hash_password, verify_password, create_access_token, serialize_doc
 )
+from services.rbac_service import rbac_service
 
 router = APIRouter(tags=["Authentication"])
 
