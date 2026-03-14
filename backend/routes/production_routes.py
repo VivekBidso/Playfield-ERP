@@ -20,9 +20,11 @@ async def consume_rm_for_production(
     sku_id: str,
     quantity: int,
     batch_id: str = None,
-    entry_id: str = None
+    entry_id: str = None,
+    user_id: str = None
 ) -> Dict[str, Any]:
     """Consume raw materials for production using L1/L2 engine"""
+    from services.l1_l2_engine import consume_inp_l2_material, consume_inm_l2_material
     
     # Get BOM for SKU
     bom = await db.bill_of_materials.find_one({"sku_id": sku_id}, {"_id": 0})
@@ -33,7 +35,6 @@ async def consume_rm_for_production(
         raise HTTPException(status_code=400, detail=f"No BOM found for SKU {sku_id}")
     
     consumption_details = []
-    movements = []
     
     for mapping in bom["rm_mappings"]:
         rm_id = mapping["rm_id"]
@@ -48,25 +49,45 @@ async def consume_rm_for_production(
         rm_level = rm.get("rm_level", "DIRECT")
         rm_category = rm.get("category", "")
         
-        # Use L1/L2 engine for INP/INM items
-        if rm_level == "L2" and rm_category in ["INP", "INM"]:
+        # Use L1/L2 engine for INP/INM L2 items
+        if rm_level == "L2" and rm_category == "INP":
             try:
-                result = await l1l2_engine.consume_l2_material(
+                result = await consume_inp_l2_material(
                     branch=branch,
-                    l2_rm_id=rm_id,
-                    quantity=total_qty,
-                    production_batch_id=batch_id,
-                    production_entry_id=entry_id
+                    rm_id=rm_id,
+                    quantity=int(total_qty),
+                    production_batch_id=batch_id or entry_id,
+                    user_id=user_id or "system"
                 )
                 consumption_details.append({
                     "rm_id": rm_id,
                     "quantity_consumed": total_qty,
                     "rm_level": "L2",
-                    "l1_consumption": result.get("l1_consumption", {}),
-                    "l2_consumption": result.get("l2_consumption", {})
+                    "l1_consumption": result
                 })
             except Exception as e:
-                # Fallback to direct consumption
+                consumption_details.append({
+                    "rm_id": rm_id,
+                    "quantity_consumed": total_qty,
+                    "rm_level": "L2",
+                    "error": str(e)
+                })
+        elif rm_level == "L2" and rm_category == "INM":
+            try:
+                result = await consume_inm_l2_material(
+                    branch=branch,
+                    rm_id=rm_id,
+                    quantity=int(total_qty),
+                    production_batch_id=batch_id or entry_id,
+                    user_id=user_id or "system"
+                )
+                consumption_details.append({
+                    "rm_id": rm_id,
+                    "quantity_consumed": total_qty,
+                    "rm_level": "L2",
+                    "l1_consumption": result
+                })
+            except Exception as e:
                 consumption_details.append({
                     "rm_id": rm_id,
                     "quantity_consumed": total_qty,
