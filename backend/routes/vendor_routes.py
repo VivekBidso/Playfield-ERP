@@ -30,12 +30,11 @@ async def create_vendor(input: VendorCreate, current_user: User = Depends(get_cu
     vendor = Vendor(
         vendor_id=vendor_id,
         name=input.name,
-        contact_person=input.contact_person,
+        poc=input.poc,
         phone=input.phone,
         email=input.email,
         address=input.address,
-        gst_number=input.gst_number if hasattr(input, 'gst_number') else None,
-        payment_terms=input.payment_terms if hasattr(input, 'payment_terms') else "Net 30"
+        gst=input.gst
     )
     
     doc = vendor.model_dump()
