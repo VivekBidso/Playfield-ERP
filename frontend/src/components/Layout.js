@@ -13,7 +13,10 @@ import {
   LogOut,
   PackagePlus,
   Building2,
-  PackageCheck
+  PackageCheck,
+  Settings,
+  TrendingUp,
+  CheckCircle
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -28,6 +31,8 @@ const Layout = () => {
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard, show: true },
     { path: "/master-dashboard", label: "Master Dashboard", icon: Gauge, show: isMasterAdmin },
     { path: "/user-management", label: "User Management", icon: Users, show: isMasterAdmin },
+    { path: "/techops", label: "Tech Ops", icon: Settings, show: true },
+    { path: "/demand", label: "Demand", icon: TrendingUp, show: true },
     { path: "/raw-materials", label: "Raw Materials", icon: Package, show: true },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: true },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: true },
@@ -36,6 +41,7 @@ const Layout = () => {
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: true },
     { path: "/production-planning", label: "Production Planning", icon: ClipboardList, show: true },
     { path: "/production", label: "Production", icon: Factory, show: true },
+    { path: "/quality", label: "Quality Control", icon: CheckCircle, show: true },
     { path: "/dispatch", label: "Dispatch", icon: Truck, show: true },
     { path: "/reports", label: "Reports", icon: FileText, show: true },
   ];
