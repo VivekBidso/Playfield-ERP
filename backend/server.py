@@ -3640,6 +3640,8 @@ async def create_vertical(data: VerticalCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.verticals.insert_one(vertical)
+    # Return without _id
+    del vertical["_id"]
     return serialize_doc(vertical)
 
 @api_router.put("/verticals/{vertical_id}")
@@ -3680,6 +3682,7 @@ async def create_model(data: ModelCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.models.insert_one(model)
+    del model["_id"]
     return serialize_doc(model)
 
 # --- Brands CRUD ---
@@ -3708,6 +3711,7 @@ async def create_brand(data: BrandCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.brands.insert_one(brand)
+    del brand["_id"]
     return serialize_doc(brand)
 
 # --- Buyers CRUD ---
