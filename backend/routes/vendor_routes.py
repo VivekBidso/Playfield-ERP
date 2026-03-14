@@ -102,8 +102,9 @@ async def get_vendor_rm_prices(
 
 
 @router.post("/vendor-rm-prices", response_model=VendorRMPrice)
-async def create_vendor_rm_price(input: VendorRMPriceCreate):
-    """Create a vendor RM price entry"""
+@require_permission("VendorRMPrice", "CREATE")
+async def create_vendor_rm_price(input: VendorRMPriceCreate, current_user: User = Depends(get_current_user)):
+    """Create a vendor RM price entry (MASTER_ADMIN, PROCUREMENT_OFFICER)"""
     # Verify vendor exists
     vendor = await db.vendors.find_one({"vendor_id": input.vendor_id}, {"_id": 0})
     if not vendor:
@@ -131,6 +132,7 @@ async def create_vendor_rm_price(input: VendorRMPriceCreate):
     
     doc = price.model_dump()
     doc['effective_date'] = doc['effective_date'].isoformat()
+    doc['created_by'] = current_user.id
     await db.vendor_rm_prices.insert_one(doc)
     
     # Record price history
@@ -140,6 +142,7 @@ async def create_vendor_rm_price(input: VendorRMPriceCreate):
         "vendor_id": input.vendor_id,
         "price": input.price,
         "effective_date": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.id,
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
