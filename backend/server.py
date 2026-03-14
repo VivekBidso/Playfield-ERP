@@ -55,14 +55,26 @@ RM_CATEGORIES = {
 # ============ Models ============
 
 class RawMaterial(BaseModel):
-    """Global RM definition"""
+    """Global RM definition with L1/L2 support"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     rm_id: str
     category: str
     category_data: Dict[str, Any] = {}
     low_stock_threshold: float = 10.0
+    # L1/L2 Fields
+    rm_level: str = "DIRECT"  # L1, L2, DIRECT
+    parent_rm_id: Optional[str] = None  # L1 parent for L2 items
+    unit_weight_grams: Optional[float] = None  # Weight per unit (for INP L2)
+    scrap_factor: float = 0.02  # Waste factor (2% default)
+    processing_cost: float = 0.0  # Per-unit processing cost
+    # INM-specific fields
+    secondary_l1_rm_id: Optional[str] = None  # Powder coating RM (INM only)
+    powder_qty_grams: Optional[float] = None  # Predefined powder coating qty in grams
+    coating_scrap_factor: float = 0.10  # Coating waste factor (INM only)
+    status: str = "ACTIVE"  # ACTIVE, INACTIVE, DISCONTINUED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
 class RawMaterialCreate(BaseModel):
     category: str
