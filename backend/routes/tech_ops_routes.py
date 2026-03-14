@@ -216,3 +216,43 @@ async def delete_buyer(buyer_id: str):
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Buyer not found")
     return {"message": "Buyer deleted"}
+
+
+
+# --- Branches ---
+BRANCHES = [
+    "Unit 1 Vedica",
+    "Unit 2 Trikes",
+    "Unit 3 TM",
+    "Unit 4 Goa",
+    "Unit 5 Baabus",
+    "Unit 6 Emox",
+    "BHDG WH"
+]
+
+RM_CATEGORIES = {
+    "INP": {"name": "In-house Plastic", "fields": ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"]},
+    "INM": {"name": "In-house Metal", "fields": ["process", "model_name", "part_name", "specs", "per_unit_weight", "unit"]},
+    "ACC": {"name": "Accessories", "fields": ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"]},
+    "ELC": {"name": "Electric Components", "fields": ["model", "type", "specs", "per_unit_weight", "unit"]},
+    "SP": {"name": "Spares", "fields": ["type", "specs", "per_unit_weight", "unit"]},
+    "BS": {"name": "Brand Assets", "fields": ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"]},
+    "PM": {"name": "Packaging", "fields": ["model", "type", "specs", "brand", "per_unit_weight", "unit"]},
+    "LB": {"name": "Labels", "fields": ["type", "buyer_sku", "per_unit_weight", "unit"]}
+}
+
+@router.get("/branches")
+async def get_branches():
+    """Get all branches from database"""
+    branches = await db.branches.find({}, {"_id": 0}).to_list(1000)
+    return branches
+
+@router.get("/branches/names")
+async def get_branch_names():
+    """Get branch names only"""
+    return {"branches": BRANCHES}
+
+@router.get("/rm-categories")
+async def get_rm_categories():
+    """Get all RM categories"""
+    return RM_CATEGORIES
