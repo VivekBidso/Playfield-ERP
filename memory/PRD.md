@@ -96,6 +96,13 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - [x] **Vendor Management & RM Filters Tested** - 100% test pass rate (23/23 backend, all UI flows)
 - [x] **Production Planning Enhancement** - Add individual plans with date picker and cascading SKU filters - 100% test pass rate (December 2025)
 - [x] **Backend Modular Architecture Started** - Created `/models/`, `/routes/`, `/services/` directories with core files (March 14, 2026)
+- [x] **Backend Refactoring Phase 1 Complete** - Extracted 2,447 lines into modular files (March 14, 2026):
+  - `routes/tech_ops_routes.py` - Verticals, Models, Brands, Buyers CRUD (218 lines)
+  - `routes/demand_routes.py` - Forecasts, Dispatch Lots (141 lines)
+  - `routes/quality_routes.py` - QC Checklists, Results, Approvals (187 lines)
+  - `routes/procurement_routes.py` - POs, Dispatches, Invoices, IBT (405 lines)
+  - `models/*.py` - All Pydantic models (830 lines)
+  - `services/*.py` - Auth, helpers, L1/L2 engine (552 lines)
 - [x] **New Frontend Modules Routed** - TechOps, Demand, Quality pages added to navigation (March 14, 2026)
 - [x] **Tech Ops API Endpoints Working** - Verticals, Models, Brands, Buyers CRUD with Edit/Delete (March 14, 2026)
 - [x] **Tech Ops Data Seeded** - 9 Verticals, 47 Models, 28 Brands from SKU data (March 14, 2026)
