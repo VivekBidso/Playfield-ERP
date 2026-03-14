@@ -216,6 +216,9 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~CPC Module (Central Production Control, Branch Capacity)~~ ✅ March 14, 2026
 - ~~Backend Refactoring~~ ✅ March 14, 2026 (server.py: 5500+ → 112 lines)
 - ~~RBAC Verification~~ ✅ March 14, 2026 (Branch User tested)
+- ~~Procurement UI~~ ✅ March 14, 2026 (Purchase Orders, Vendor Prices)
+- ~~Logistics UI~~ ✅ March 14, 2026 (Dispatches, Invoices)
+- ~~IBT UI~~ ✅ March 14, 2026 (Inter-Branch Transfers)
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
@@ -273,4 +276,4 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - Password: `admin123`
 
 ---
-*Last updated: March 14, 2026 - Backend Refactoring Complete, RBAC Verified*
+*Last updated: March 14, 2026 - Frontend Complete (Procurement, Logistics, IBT)*
