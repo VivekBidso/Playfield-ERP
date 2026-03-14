@@ -1442,6 +1442,16 @@ async def create_default_admin():
 
 @api_router.get("/branches")
 async def get_branches():
+    """Get all branches - from database if exists, otherwise defaults"""
+    branches = await db.branches.find({"is_active": True}, {"_id": 0}).to_list(100)
+    if branches:
+        return [serialize_doc(b) for b in branches]
+    # Return default branches if none in DB
+    return [{"name": b, "code": b.replace(" ", "_").upper(), "branch_type": "PRODUCTION"} for b in BRANCHES]
+
+@api_router.get("/branches/names")
+async def get_branch_names():
+    """Get just branch names for dropdowns"""
     return {"branches": BRANCHES}
 
 @api_router.get("/rm-categories")
