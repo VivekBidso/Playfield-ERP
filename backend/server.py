@@ -101,7 +101,7 @@ class BranchRMInventory(BaseModel):
     activated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SKU(BaseModel):
-    """Global SKU definition"""
+    """Global SKU definition with extended fields"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     sku_id: str
@@ -112,7 +112,17 @@ class SKU(BaseModel):
     vertical: str
     model: str
     low_stock_threshold: float = 5.0
+    # New normalized references
+    vertical_id: Optional[str] = None
+    model_id: Optional[str] = None
+    brand_id: Optional[str] = None
+    buyer_id: Optional[str] = None
+    status: str = "DRAFT"  # DRAFT, BOM_PENDING, BOM_COMPLETE, ACTIVE, DISCONTINUED
+    bom_finalized_at: Optional[datetime] = None
+    bom_finalized_by: Optional[str] = None
+    base_price: Optional[float] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
 class SKUCreate(BaseModel):
     sku_id: str
