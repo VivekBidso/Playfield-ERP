@@ -122,6 +122,8 @@ class TestMasterAdminAccess:
         """Master Admin can CREATE SKUs"""
         sku_data = {
             "sku_id": f"TEST_RBAC_SKU_{uuid.uuid4().hex[:8]}",
+            "bidso_sku": f"BIDSO_{uuid.uuid4().hex[:8]}",
+            "buyer_sku_id": f"BUYER_{uuid.uuid4().hex[:8]}",
             "description": "RBAC Test SKU",
             "vertical": "Test",
             "model": "Test Model",
@@ -138,10 +140,11 @@ class TestMasterAdminAccess:
         """Master Admin can CREATE Vendors"""
         vendor_data = {
             "name": f"TEST_RBAC_Vendor_{uuid.uuid4().hex[:8]}",
-            "contact_person": "Test Contact",
+            "poc": "Test Contact",
             "phone": "1234567890",
             "email": "test@vendor.com",
-            "address": "Test Address"
+            "address": "Test Address",
+            "gst": ""
         }
         response = requests.post(f"{BASE_URL}/api/vendors", json=vendor_data, headers=self.admin_headers)
         assert response.status_code == 200, f"Admin should be able to create Vendor: {response.text}"
@@ -154,9 +157,10 @@ class TestMasterAdminAccess:
     
     def test_admin_can_create_raw_material(self):
         """Master Admin can CREATE Raw Materials"""
+        # Use valid category from RM_CATEGORIES: INP, INM, ACC, ELC, SP, BS, PM, LB
         rm_data = {
-            "category": "FABRIC",
-            "category_data": {"type": "Test Fabric", "color": "Blue"},
+            "category": "ACC",
+            "category_data": {"part_name": "Test Accessory", "type": "Test Type"},
             "low_stock_threshold": 10.0
         }
         response = requests.post(f"{BASE_URL}/api/raw-materials", json=rm_data, headers=self.admin_headers)
