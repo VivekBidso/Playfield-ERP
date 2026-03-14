@@ -3762,6 +3762,33 @@ async def create_brand(data: BrandCreate):
     del brand["_id"]
     return serialize_doc(brand)
 
+@api_router.put("/brands/{brand_id}")
+async def update_brand(brand_id: str, data: BrandCreate):
+    """Update a brand"""
+    result = await db.brands.update_one(
+        {"id": brand_id},
+        {"$set": {"code": data.code.upper(), "name": data.name, "buyer_id": data.buyer_id}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return {"message": "Brand updated"}
+
+@api_router.delete("/brands/{brand_id}")
+async def delete_brand(brand_id: str):
+    """Delete a brand (soft delete)"""
+    # Check if any SKUs use this brand
+    skus_count = await db.skus.count_documents({"brand_id": brand_id})
+    if skus_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this brand")
+    
+    result = await db.brands.update_one(
+        {"id": brand_id},
+        {"$set": {"status": "INACTIVE"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return {"message": "Brand deleted"}
+
 # --- Buyers CRUD ---
 @api_router.get("/buyers")
 async def get_buyers():
