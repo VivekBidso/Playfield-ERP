@@ -3706,6 +3706,33 @@ async def create_model(data: ModelCreate):
     del model["_id"]
     return serialize_doc(model)
 
+@api_router.put("/models/{model_id}")
+async def update_model(model_id: str, data: ModelCreate):
+    """Update a model"""
+    result = await db.models.update_one(
+        {"id": model_id},
+        {"$set": {"vertical_id": data.vertical_id, "code": data.code.upper(), "name": data.name, "description": data.description}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return {"message": "Model updated"}
+
+@api_router.delete("/models/{model_id}")
+async def delete_model(model_id: str):
+    """Delete a model (soft delete)"""
+    # Check if any SKUs use this model
+    skus_count = await db.skus.count_documents({"model_id": model_id})
+    if skus_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this model")
+    
+    result = await db.models.update_one(
+        {"id": model_id},
+        {"$set": {"status": "INACTIVE"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return {"message": "Model deleted"}
+
 # --- Brands CRUD ---
 @api_router.get("/brands")
 async def get_brands(buyer_id: Optional[str] = None):
