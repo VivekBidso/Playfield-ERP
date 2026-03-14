@@ -22,27 +22,33 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - **Backend**: FastAPI + MongoDB (Motor async driver)
 - **Frontend**: React + TailwindCSS + Shadcn/UI + Zustand
 - **Auth**: JWT-based authentication with role-based access control
-- **Backend Structure** (REFACTORED - March 14, 2026):
+- **Backend Structure** (FULLY REFACTORED - March 14, 2026):
   ```
   /app/backend/
-  ├── server.py          # Main entry + core routes (~5500 lines)
-  ├── database.py        # DB connection + constants
+  ├── server.py          # Main entry point (112 lines) - CLEAN!
+  ├── database.py        # DB connection
   ├── models/            # Pydantic models (830 lines)
   │   ├── core.py        # RM, SKU, Production models
   │   ├── auth.py        # User, Login models
   │   ├── vendor.py      # Vendor models
   │   ├── master_data.py # Verticals, Models, Brands, Buyers
   │   └── transactional.py # Forecasts, Batches, QC, etc.
-  ├── routes/            # Modular API routers (1065 lines)
-  │   ├── tech_ops_routes.py    # Verticals, Models, Brands, Buyers
-  │   ├── demand_routes.py      # Forecasts, Dispatch Lots
-  │   ├── quality_routes.py     # QC Checklists, Results, Approvals
-  │   └── procurement_routes.py # POs, Dispatches, Invoices, IBT
-  └── services/          # Business logic (552 lines)
-      ├── auth_service.py       # JWT, password hashing
-      ├── helpers.py            # Utilities
-      ├── inventory_service.py  # Stock management
-      └── l1_l2_engine.py       # L1/L2 consumption engine
+  ├── routes/            # Modular API routers (3,386 lines) - ALL ROUTES HERE!
+  │   ├── auth_routes.py       # Login, User Management (199 lines)
+  │   ├── rm_routes.py         # Raw Materials CRUD (271 lines)
+  │   ├── sku_routes.py        # SKU CRUD, Mappings (397 lines)
+  │   ├── vendor_routes.py     # Vendors, Pricing (217 lines)
+  │   ├── production_routes.py # Production entries/batches (475 lines)
+  │   ├── report_routes.py     # FG Inventory, IBT (317 lines)
+  │   ├── tech_ops_routes.py   # Verticals, Models, Brands, Buyers (258 lines)
+  │   ├── demand_routes.py     # Forecasts, Dispatch Lots (141 lines)
+  │   ├── quality_routes.py    # QC Checklists, Results (187 lines)
+  │   ├── procurement_routes.py # POs, Dispatches, Invoices (405 lines)
+  │   └── cpc_routes.py        # CPC, Branch Capacity (493 lines)
+  └── services/          # Business logic
+      ├── utils.py            # Shared utilities, auth helpers
+      ├── l1_l2_engine.py     # L1/L2 consumption engine
+      └── inventory_service.py
   ```
 
 ## Multi-Branch System
