@@ -112,6 +112,17 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - [x] **Purchase Orders** - PO creation, line items, send/receive flow (March 14, 2026)
 - [x] **Dispatches** - Dispatch records with shipping tracking (March 14, 2026)
 - [x] **Invoices** - Invoice creation with tax calculation (March 14, 2026)
+- [x] **CPC Module Complete** - Central Production Control & Branch Capacity Planning (March 14, 2026):
+  - `routes/cpc_routes.py` - Full CPC API (494 lines)
+  - Production Schedules CRUD with status workflow (DRAFT → SCHEDULED → IN_PROGRESS → COMPLETED)
+  - Branch Capacity Management (capacity_units_per_day per branch)
+  - Auto-allocate production across branches based on available capacity
+  - Branch allocation workflow (manual and automatic)
+  - CPC Dashboard with branch utilization metrics
+  - 7-day capacity forecast per branch
+  - Schedule suggestions from dispatch lots
+  - Frontend CPC.js page with 4 tabs (Dashboard, Schedules, Branch Capacity, Suggestions)
+  - 100% test pass rate (20 backend tests, all UI flows)
 
 ### New API Endpoints (March 7, 2026)
 - `GET /api/raw-materials/filter-options` - Get unique filter values
@@ -166,6 +177,19 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - `GET /api/fg-inventory` - FG inventory tracking
 - `GET /api/fg-inventory/summary` - FG summary by SKU
 
+**CPC Module (March 14, 2026)**
+- `GET /api/cpc/dashboard` - CPC overview (pending schedules, in-progress, today's stats, branch utilization)
+- `GET /api/cpc/schedule-suggestions` - Dispatch lots needing production scheduling
+- `GET /api/branches/capacity` - All branch capacities with utilization
+- `PUT /api/branches/{branch_name}/capacity` - Update branch daily capacity
+- `GET /api/branches/{branch_name}/capacity-forecast` - 7-day capacity forecast
+- `GET/POST /api/production-schedules` - Production schedule CRUD
+- `GET /api/production-schedules/{schedule_id}` - Schedule details with allocations
+- `POST /api/branch-allocations` - Manual branch allocation
+- `POST /api/branch-allocations/auto-allocate` - Auto-distribute production to branches
+- `PUT /api/branch-allocations/{id}/start` - Start production on allocation
+- `PUT /api/branch-allocations/{id}/complete` - Complete allocation with quantity
+
 **L1/L2 Engine (Backend Services)**
 - INP (Plastic) consumption: Weight-based polymer deduction
 - INM (Metal) consumption: Dual L1 deduction (base metal + powder coating)
@@ -183,6 +207,7 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~Tech Ops Module (Verticals, Models, Brands, Buyers)~~ ✅ March 14, 2026
 - ~~Demand Module (Forecasts, Dispatch Lots)~~ ✅ March 14, 2026
 - ~~Quality Control Module (QC Checklists, Results, Approvals)~~ ✅ March 14, 2026
+- ~~CPC Module (Central Production Control, Branch Capacity)~~ ✅ March 14, 2026
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
@@ -231,10 +256,13 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - `qc_approvals` - Batch QC approvals (NEW)
 - `fg_inventory` - Finished goods inventory (NEW)
 - `rm_stock_movements` - RM stock movement log (NEW)
+- `production_schedules` - CPC production schedules (NEW)
+- `branch_allocations` - Branch production allocations (NEW)
+- `capacity_history` - Branch capacity change history (NEW)
 
 ## Default Credentials
 - Email: `admin@factory.com`
 - Password: `admin123`
 
 ---
-*Last updated: March 14, 2026*
+*Last updated: March 14, 2026 - CPC Module Complete*
