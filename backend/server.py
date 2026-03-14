@@ -3739,6 +3739,7 @@ async def create_buyer(data: BuyerCreate):
         "created_at": datetime.now(timezone.utc)
     }
     await db.buyers.insert_one(buyer)
+    del buyer["_id"]
     return serialize_doc(buyer)
 
 @api_router.get("/buyers/{buyer_id}")
