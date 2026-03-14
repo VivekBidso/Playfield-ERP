@@ -585,7 +585,7 @@ const CPC = () => {
                   <SelectValue placeholder="Select dispatch lot" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {dispatchLots.map(l => (
                     <SelectItem key={l.id} value={l.id}>
                       {l.lot_code} - {l.sku_id} ({l.required_quantity} units)
