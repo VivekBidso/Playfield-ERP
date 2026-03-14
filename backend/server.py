@@ -3965,15 +3965,30 @@ async def migrate_skus_to_ids():
     models = await db.models.find({}, {"_id": 0}).to_list(1000)
     brands = await db.brands.find({}, {"_id": 0}).to_list(1000)
     
-    vertical_map = {v["name"].lower(): v["id"] for v in verticals}
+    # Vertical map - match by name, code, or partial
+    vertical_map = {}
+    for v in verticals:
+        vertical_map[v["name"].lower()] = v["id"]
+        vertical_map[v["code"].lower()] = v["id"]
+        # Also add partial matches (e.g., "scooter" matches "Electric Scooters")
+        for word in v["name"].lower().split():
+            if len(word) > 3:  # Skip short words
+                vertical_map[word] = v["id"]
+    
     # Model map needs vertical context
     model_map = {}
     for m in models:
         key = (m.get("vertical_id", ""), m["name"].lower())
         model_map[key] = m["id"]
-        # Also map by name alone for fallback
+        # Also map by name and code alone for fallback
         model_map[m["name"].lower()] = m["id"]
-    brand_map = {b["name"].lower(): b["id"] for b in brands}
+        model_map[m["code"].lower()] = m["id"]
+    
+    # Brand map - match by name or code
+    brand_map = {}
+    for b in brands:
+        brand_map[b["name"].lower()] = b["id"]
+        brand_map[b["code"].lower()] = b["id"]
     
     # Get all SKUs that need migration
     skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
