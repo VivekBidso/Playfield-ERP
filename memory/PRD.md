@@ -219,6 +219,7 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~Procurement UI~~ ✅ March 14, 2026 (Purchase Orders, Vendor Prices)
 - ~~Logistics UI~~ ✅ March 14, 2026 (Dispatches, Invoices)
 - ~~IBT UI~~ ✅ March 14, 2026 (Inter-Branch Transfers)
+- ~~Event System~~ ✅ March 14, 2026 (35 event types, 11 handlers, alerts)
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
@@ -276,4 +277,4 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - Password: `admin123`
 
 ---
-*Last updated: March 14, 2026 - Frontend Complete (Procurement, Logistics, IBT)*
+*Last updated: March 14, 2026 - Event System Complete*
