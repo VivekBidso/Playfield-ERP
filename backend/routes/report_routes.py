@@ -314,4 +314,20 @@ async def receive_ibt_transfer(transfer_id: str, current_user: User = Depends(ge
         {"$set": {"status": "COMPLETED", "received_at": datetime.now(timezone.utc).isoformat()}}
     )
     
+    # Publish IBT_COMPLETED event
+    from services.event_system import event_bus, EventType
+    await event_bus.publish(
+        EventType.IBT_COMPLETED,
+        {
+            "transfer_id": transfer_id,
+            "transfer_code": transfer.get("transfer_code"),
+            "from_branch": transfer["from_branch"],
+            "to_branch": transfer["to_branch"],
+            "rm_id": transfer["rm_id"],
+            "quantity": transfer["quantity"],
+            "received_by": current_user.id
+        },
+        source_module="logistics"
+    )
+    
     return {"message": "Transfer received"}
