@@ -225,6 +225,8 @@ class TestDemandPlannerAccess:
         
         sku_data = {
             "sku_id": f"TEST_DP_SKU_{uuid.uuid4().hex[:8]}",
+            "bidso_sku": f"BIDSO_DP_{uuid.uuid4().hex[:8]}",
+            "buyer_sku_id": f"BUYER_DP_{uuid.uuid4().hex[:8]}",
             "description": "Demand Planner Test SKU",
             "vertical": "Test",
             "model": "Test Model",
@@ -242,14 +244,14 @@ class TestDemandPlannerAccess:
         if not hasattr(self, 'planner_headers'):
             pytest.skip("Demand planner not available")
         
-        # First create an RM as admin
+        # First create an RM as admin (use valid category)
         rm_data = {
-            "category": "FABRIC",
-            "category_data": {"type": "Test Fabric", "color": "Red"},
+            "category": "ACC",
+            "category_data": {"part_name": "Test Accessory", "type": "Test Type"},
             "low_stock_threshold": 10.0
         }
         create_response = requests.post(f"{BASE_URL}/api/raw-materials", json=rm_data, headers=self.admin_headers)
-        assert create_response.status_code == 200
+        assert create_response.status_code == 200, f"Failed to create RM: {create_response.text}"
         rm_id = create_response.json()["rm_id"]
         
         # Try to delete as demand planner - should fail
@@ -267,10 +269,11 @@ class TestDemandPlannerAccess:
         
         vendor_data = {
             "name": f"TEST_DP_Vendor_{uuid.uuid4().hex[:8]}",
-            "contact_person": "Test Contact",
+            "poc": "Test Contact",
             "phone": "1234567890",
             "email": "test@vendor.com",
-            "address": "Test Address"
+            "address": "Test Address",
+            "gst": ""
         }
         response = requests.post(f"{BASE_URL}/api/vendors", json=vendor_data, headers=self.planner_headers)
         assert response.status_code == 403, f"Demand Planner should NOT be able to create Vendor, got: {response.status_code}"
