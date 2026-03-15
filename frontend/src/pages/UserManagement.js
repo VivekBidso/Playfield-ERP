@@ -102,16 +102,46 @@ const UserManagement = () => {
 
   const handleSubmit = async () => {
     try {
+      let newUserId = null;
+      
       if (editMode) {
         await axios.put(`${API}/users/${selectedUser.id}`, formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         toast.success("User updated");
       } else {
-        await axios.post(`${API}/users`, formData, {
+        // Create user with legacy role based on RBAC selection
+        const legacyRole = formData.rbac_role === 'MASTER_ADMIN' ? 'master_admin' : 'branch_user';
+        const createPayload = {
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          role: legacyRole,
+          assigned_branches: formData.assigned_branches
+        };
+        
+        const response = await axios.post(`${API}/users`, createPayload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        toast.success("User created");
+        newUserId = response.data.id;
+        
+        // Auto-assign the selected RBAC role
+        if (newUserId && formData.rbac_role) {
+          try {
+            await axios.post(`${API}/users/${newUserId}/roles`, {
+              user_id: newUserId,
+              role_code: formData.rbac_role,
+              is_primary: true
+            }, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          } catch (roleError) {
+            console.error("Failed to assign role:", roleError);
+            // User was created, just role assignment failed
+          }
+        }
+        
+        toast.success(`User created with ${formData.rbac_role} role`);
       }
       setShowDialog(false);
       resetForm();
