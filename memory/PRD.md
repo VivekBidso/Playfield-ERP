@@ -354,6 +354,14 @@ All test accounts use password: `bidso123`
 - `GET /api/dispatch-lots/{lot_id}/details` - Lot details with readiness status
 - `GET /api/dispatch-lots/with-readiness` - All lots with readiness calculations
 - `PUT /api/dispatch-lots/{lot_id}` - Edit dispatch lot (target date, priority, notes, line quantities) (NEW)
+- `POST /api/dispatch-lots/{lot_id}/add-line` - Add line to existing dispatch lot (NEW)
+- `GET /api/dispatch-lots/by-buyer/{buyer_id}` - Get buyer's open dispatch lots (NEW)
+
+### CPC Branch Capacity (March 15, 2026)
+- `GET /api/skus/{sku_id}/assigned-branches` - Get branches where SKU is assigned (NEW)
+- `GET /api/branches/{branch}/capacity-for-date?date_str=YYYY-MM-DD` - Get available capacity for date (NEW)
+- `POST /api/branches/model-capacity/upload` - Upload model-specific capacity (Month, Day, Model, Qty) (NEW)
+- `GET /api/branches/{branch}/model-capacity` - Get model-specific capacity for branch (NEW)
 
 ---
-*Last updated: March 15, 2026 - Dispatch Lot Edit Functionality*
+*Last updated: March 15, 2026 - CPC Branch Planning & Forecast Enhancements*
