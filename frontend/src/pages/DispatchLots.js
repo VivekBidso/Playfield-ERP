@@ -771,13 +771,26 @@ const DispatchLots = () => {
                 <Package className="w-5 h-5" />
                 Dispatch Lot: {selectedLot?.lot_code}
               </div>
-              {selectedLot?.readiness_status && (
-                <div className="flex items-center gap-2">
-                  {getReadinessIcon(selectedLot.readiness_status)}
-                  <span className={`text-sm font-mono px-3 py-1 rounded border ${getReadinessColor(selectedLot.readiness_status)}`}>
-                    {selectedLot.readiness_status === 'READY' ? 'DISPATCH READY' : 
-                     selectedLot.readiness_status === 'PARTIAL' ? 'PARTIALLY READY' : 
-                     'PENDING PRODUCTION'}
+              <div className="flex items-center gap-3">
+                {selectedLot && !["DISPATCHED", "DELIVERED"].includes(selectedLot.status) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEditDialog(selectedLot)}
+                    className="uppercase text-xs"
+                    data-testid="edit-lot-btn"
+                  >
+                    <Pencil className="w-4 h-4 mr-1" />
+                    Edit
+                  </Button>
+                )}
+                {selectedLot?.readiness_status && (
+                  <div className="flex items-center gap-2">
+                    {getReadinessIcon(selectedLot.readiness_status)}
+                    <span className={`text-sm font-mono px-3 py-1 rounded border ${getReadinessColor(selectedLot.readiness_status)}`}>
+                      {selectedLot.readiness_status === 'READY' ? 'DISPATCH READY' : 
+                       selectedLot.readiness_status === 'PARTIAL' ? 'PARTIALLY READY' : 
+                       'PENDING PRODUCTION'}
                   </span>
                 </div>
               )}
