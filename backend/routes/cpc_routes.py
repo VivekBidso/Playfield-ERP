@@ -934,22 +934,50 @@ async def get_demand_forecasts_summary():
         {"_id": 0, "quantity": 1, "status": 1, "id": 1, "sku_id": 1}
     ).to_list(5000)
     
+    forecast_ids = [f["id"] for f in forecasts]
     total_forecast_qty = sum(f.get("quantity", 0) for f in forecasts)
     
-    # Get scheduled quantities
+    # Get scheduled quantities - ONLY count schedules linked to forecasts
     schedules = await db.production_schedules.find(
-        {"status": {"$ne": "CANCELLED"}},
+        {"forecast_id": {"$in": forecast_ids}, "status": {"$ne": "CANCELLED"}},
         {"_id": 0, "target_quantity": 1}
     ).to_list(5000)
     
     total_scheduled_qty = sum(s.get("target_quantity", 0) for s in schedules)
     
+    # Ensure scheduled qty doesn't exceed forecast qty in the summary
+    total_scheduled_qty = min(total_scheduled_qty, total_forecast_qty)
+    
+    # Get FG inventory for SKUs in forecasts
+    sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}},
+        {"_id": 0, "sku_id": 1, "quantity": 1}
+    ).to_list(5000)
+    total_inventory = sum(inv.get("quantity", 0) for inv in fg_inventory)
+    
+    # Also check SKU current_stock
+    skus = await db.skus.find(
+        {"sku_id": {"$in": sku_ids}},
+        {"_id": 0, "sku_id": 1, "current_stock": 1}
+    ).to_list(5000)
+    
+    # Add current_stock if not already in fg_inventory
+    inventory_skus = set(inv.get("sku_id") for inv in fg_inventory)
+    for sku in skus:
+        if sku.get("sku_id") not in inventory_skus:
+            total_inventory += sku.get("current_stock", 0)
+    
+    # Schedule Pending = Forecast Qty - Inventory - Already Scheduled
+    remaining_to_schedule = max(0, total_forecast_qty - total_inventory - total_scheduled_qty)
+    
     return {
         "total_forecasts": len(forecasts),
         "total_forecast_qty": total_forecast_qty,
+        "total_inventory": total_inventory,
         "total_scheduled_qty": total_scheduled_qty,
-        "remaining_to_schedule": max(0, total_forecast_qty - total_scheduled_qty),
-        "scheduling_percent": round(total_scheduled_qty / total_forecast_qty * 100, 1) if total_forecast_qty > 0 else 0
+        "remaining_to_schedule": remaining_to_schedule,
+        "scheduling_percent": round((total_inventory + total_scheduled_qty) / total_forecast_qty * 100, 1) if total_forecast_qty > 0 else 0
     }
 
 
