@@ -808,6 +808,148 @@ async def get_schedule_suggestions():
     return suggestions
 
 
+# ===== Branch-wise Production Schedule View =====
+
+@router.get("/cpc/branch-schedules")
+async def get_branch_wise_schedules(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    branch: Optional[str] = None
+):
+    """
+    Get branch-wise per-day production schedules.
+    Shows all schedules grouped by branch and date.
+    """
+    # Default to next 14 days if no date range provided
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            start = today
+    else:
+        start = today
+    
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+        except ValueError:
+            end = today + timedelta(days=14)
+    else:
+        end = today + timedelta(days=14)
+    
+    # Build query
+    query = {
+        "target_date": {"$gte": start, "$lt": end},
+        "status": {"$ne": "CANCELLED"}
+    }
+    if branch:
+        query["branch"] = branch
+    
+    # Get schedules
+    schedules = await db.production_schedules.find(
+        query,
+        {"_id": 0}
+    ).sort("target_date", 1).to_list(5000)
+    
+    # Get branch info
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    branch_capacity = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
+    
+    # Get daily capacity overrides for date range
+    date_strs = []
+    current = start
+    while current < end:
+        date_strs.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+    
+    daily_overrides = await db.branch_daily_capacity.find(
+        {"date": {"$in": date_strs}},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Map daily overrides: {branch: {date: capacity}}
+    override_map = {}
+    for o in daily_overrides:
+        b = o.get("branch")
+        d = o.get("date")
+        if b not in override_map:
+            override_map[b] = {}
+        override_map[b][d] = o.get("capacity", 0)
+    
+    # Get SKU info
+    sku_ids = list(set(s.get("sku_id") for s in schedules if s.get("sku_id")))
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1}).to_list(1000)
+    sku_map = {s["sku_id"]: s.get("description", "") for s in skus}
+    
+    # Get forecast info
+    forecast_ids = list(set(s.get("forecast_id") for s in schedules if s.get("forecast_id")))
+    forecasts = await db.forecasts.find({"id": {"$in": forecast_ids}}, {"_id": 0, "id": 1, "forecast_code": 1}).to_list(1000)
+    forecast_map = {f["id"]: f.get("forecast_code", "") for f in forecasts}
+    
+    # Group schedules by branch and date
+    branch_date_schedules = {}
+    for s in schedules:
+        b = s.get("branch") or "Unassigned"
+        target_date = s.get("target_date")
+        if isinstance(target_date, str):
+            date_str = target_date[:10]
+        else:
+            date_str = target_date.strftime("%Y-%m-%d") if target_date else "No Date"
+        
+        key = f"{b}|{date_str}"
+        if key not in branch_date_schedules:
+            branch_date_schedules[key] = {
+                "branch": b,
+                "date": date_str,
+                "schedules": [],
+                "total_qty": 0
+            }
+        
+        branch_date_schedules[key]["schedules"].append({
+            "schedule_code": s.get("schedule_code"),
+            "sku_id": s.get("sku_id"),
+            "sku_description": sku_map.get(s.get("sku_id"), s.get("sku_description", "")),
+            "forecast_code": forecast_map.get(s.get("forecast_id"), ""),
+            "target_quantity": s.get("target_quantity", 0),
+            "completed_quantity": s.get("completed_quantity", 0),
+            "status": s.get("status"),
+            "priority": s.get("priority", "MEDIUM")
+        })
+        branch_date_schedules[key]["total_qty"] += s.get("target_quantity", 0)
+    
+    # Build result with capacity info
+    result = []
+    for key, data in branch_date_schedules.items():
+        b = data["branch"]
+        date_str = data["date"]
+        
+        # Get effective capacity (daily override or base)
+        if b in override_map and date_str in override_map[b]:
+            capacity = override_map[b][date_str]
+            capacity_source = "daily_override"
+        else:
+            capacity = branch_capacity.get(b, 0)
+            capacity_source = "base"
+        
+        result.append({
+            "branch": b,
+            "date": date_str,
+            "capacity": capacity,
+            "capacity_source": capacity_source,
+            "total_scheduled": data["total_qty"],
+            "available": max(0, capacity - data["total_qty"]),
+            "utilization_percent": round(data["total_qty"] / capacity * 100, 1) if capacity > 0 else 0,
+            "schedules": data["schedules"]
+        })
+    
+    # Sort by date then branch
+    result.sort(key=lambda x: (x["date"], x["branch"]))
+    
+    return result
+
+
 
 # ===== Demand Forecasts Visibility for CPC =====
 
