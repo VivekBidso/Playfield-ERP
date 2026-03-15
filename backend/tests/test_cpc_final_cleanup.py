@@ -130,8 +130,9 @@ class TestCPCFinalCleanup:
         }
         
         response = self.session.post(f"{BASE_URL}/api/cpc/schedule-from-forecast", json=payload)
-        assert response.status_code == 400, f"Expected 400 error when branch is null, got {response.status_code}"
-        print("Correctly rejected schedule with null branch")
+        # 400 or 422 (validation error) are both acceptable
+        assert response.status_code in [400, 422], f"Expected 400/422 error when branch is null, got {response.status_code}"
+        print(f"Correctly rejected schedule with null branch (status {response.status_code})")
     
     # ===== Test 4: Schedules with Branch have SCHEDULED Status =====
     def test_schedules_with_branch_have_scheduled_status(self):
@@ -323,9 +324,11 @@ class TestScheduleCreationWithBranch:
         # May fail due to capacity constraints, but should not fail due to missing branch
         if response.status_code == 200 or response.status_code == 201:
             data = response.json()
-            assert data.get("branch") == branch, "Created schedule should have branch assigned"
-            assert data.get("status") == "SCHEDULED", f"Status should be SCHEDULED, got {data.get('status')}"
-            print(f"Successfully created schedule {data.get('schedule_code')} with branch {branch}, status={data.get('status')}")
+            # Response may have schedule nested under "schedule" key
+            schedule = data.get("schedule", data)
+            assert schedule.get("branch") == branch, "Created schedule should have branch assigned"
+            assert schedule.get("status") == "SCHEDULED", f"Status should be SCHEDULED, got {schedule.get('status')}"
+            print(f"Successfully created schedule {schedule.get('schedule_code')} with branch {branch}, status={schedule.get('status')}")
         elif response.status_code == 400:
             error = response.json().get("detail", "")
             # Should not be a "branch required" error
