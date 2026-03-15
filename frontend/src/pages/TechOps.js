@@ -515,37 +515,26 @@ const TechOps = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Brand' : 'Create Brand'}</DialogTitle>
-            <DialogDescription>Brand tied to a buyer (e.g., Feber, BabyHug)</DialogDescription>
+            <DialogDescription>Brand definition (Code + Name)</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Code</Label>
               <Input 
                 value={brandForm.code}
-                onChange={(e) => setBrandForm({...brandForm, code: e.target.value})}
-                placeholder="e.g., FEBER"
+                onChange={(e) => setBrandForm({...brandForm, code: e.target.value.toUpperCase()})}
+                placeholder="e.g., FC"
                 className="font-mono uppercase"
+                maxLength={10}
               />
             </div>
             <div>
-              <Label>Name</Label>
+              <Label>Brand Name</Label>
               <Input 
                 value={brandForm.name}
                 onChange={(e) => setBrandForm({...brandForm, name: e.target.value})}
+                placeholder="e.g., Firstcry"
               />
-            </div>
-            <div>
-              <Label>Buyer (Optional)</Label>
-              <Select value={brandForm.buyer_id} onValueChange={(v) => setBrandForm({...brandForm, buyer_id: v})}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select buyer" />
-                </SelectTrigger>
-                <SelectContent>
-                  {buyers.map(b => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <Button onClick={handleCreateBrand} className="w-full">{editingItem ? 'Update' : 'Create'}</Button>
           </div>
