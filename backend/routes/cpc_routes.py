@@ -55,30 +55,63 @@ class AutoAllocateRequest(BaseModel):
 # ===== Branch Capacity Management =====
 @router.get("/branches/capacity")
 async def get_branch_capacities():
-    """Get all branch capacities"""
+    """Get all branch capacities, including model-specific overrides for today"""
     branches = await db.branches.find({"is_active": True}, {"_id": 0}).to_list(100)
     result = []
+    
+    # Get today's date info for model capacity lookup
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+    month_str = today.strftime("%Y-%m")
+    day_of_month = today.day
+    
     for b in branches:
-        # Get current utilization for today
-        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow = today + timedelta(days=1)
+        branch_name = b["name"]
+        base_capacity = b.get("capacity_units_per_day", 0)
         
+        # Check for model-specific capacity for today
+        model_capacities = await db.branch_model_capacity.find({
+            "branch": branch_name,
+            "month": month_str,
+            "day": day_of_month
+        }, {"_id": 0}).to_list(100)
+        
+        # If model-specific capacities exist for today, use their sum
+        if model_capacities:
+            effective_capacity = sum(mc.get("capacity_qty", 0) for mc in model_capacities)
+            capacity_source = "model_specific"
+        else:
+            effective_capacity = base_capacity
+            capacity_source = "base"
+        
+        # Get current utilization for today
         allocations = await db.branch_allocations.find({
-            "branch": b["name"],
+            "branch": branch_name,
             "planned_date": {"$gte": today, "$lt": tomorrow},
             "status": {"$in": ["PENDING", "IN_PROGRESS"]}
         }).to_list(1000)
         
-        allocated_today = sum(a.get("allocated_quantity", 0) for a in allocations)
-        capacity = b.get("capacity_units_per_day", 0)
+        # Also count production schedules assigned to this branch for today
+        schedules = await db.production_schedules.find({
+            "branch": branch_name,
+            "target_date": {"$gte": today, "$lt": tomorrow},
+            "status": {"$nin": ["CANCELLED", "COMPLETED"]}
+        }, {"_id": 0, "target_quantity": 1}).to_list(1000)
+        
+        allocated_from_allocations = sum(a.get("allocated_quantity", 0) for a in allocations)
+        allocated_from_schedules = sum(s.get("target_quantity", 0) for s in schedules)
+        allocated_today = allocated_from_allocations + allocated_from_schedules
         
         result.append({
             "branch_id": b.get("id"),
-            "branch": b["name"],
-            "capacity_units_per_day": capacity,
+            "branch": branch_name,
+            "capacity_units_per_day": effective_capacity,
+            "base_capacity": base_capacity,
+            "capacity_source": capacity_source,
+            "model_capacity_count": len(model_capacities),
             "allocated_today": allocated_today,
-            "available_today": max(0, capacity - allocated_today),
-            "utilization_percent": round((allocated_today / capacity * 100), 1) if capacity > 0 else 0
+            "available_today": max(0, effective_capacity - allocated_today),
+            "utilization_percent": round((allocated_today / effective_capacity * 100), 1) if effective_capacity > 0 else 0
         })
     return result
 
