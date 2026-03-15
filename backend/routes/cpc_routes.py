@@ -778,8 +778,22 @@ class ScheduleFromForecastRequest(BaseModel):
     forecast_id: str
     quantity: int
     target_date: datetime
+    branch: Optional[str] = None  # NEW: Branch assignment
     priority: Optional[str] = "MEDIUM"
     notes: Optional[str] = ""
+
+
+# NEW: Model capacity upload model
+class BranchModelCapacityUpload(BaseModel):
+    month: str  # Format: "2026-03"
+    day: int    # 1-31
+    model_id: str
+    capacity_qty: int
+
+
+class BranchModelCapacityBulkUpload(BaseModel):
+    branch: str
+    capacities: List[BranchModelCapacityUpload]
 
 
 @router.post("/cpc/schedule-from-forecast")
