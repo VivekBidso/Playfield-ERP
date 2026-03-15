@@ -334,4 +334,4 @@ All test accounts use password: `bidso123`
 | Auditor | `auditor@bidso.com` |
 
 ---
-*Last updated: March 15, 2026 - CPC Demand Visibility & Production Plan Branch Upload*
+*Last updated: March 15, 2026 - Forecast-Production Workflow Enhancement*
