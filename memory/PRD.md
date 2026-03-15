@@ -264,6 +264,9 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~CPC Excel Download~~ ✅ March 15, 2026 (Export confirmed forecasts as .xlsx)
 - ~~Dispatch Lot Forecast Linking~~ ✅ March 15, 2026 (forecast_id saved in lots)
 - ~~Edit Existing Dispatch Lots~~ ✅ March 15, 2026 (Edit target date, priority, notes, line quantities)
+- ~~CPC Branch-Level Production Planning~~ ✅ March 15, 2026 (Branch selector with capacity validation)
+- ~~Forecast Table Enhancements~~ ✅ March 15, 2026 (Dispatch Allocated, Production Scheduled, Schedule Pending columns)
+- ~~Add to Dispatch Lot from Forecast~~ ✅ March 15, 2026 (Add to existing lot or create new lot from View Lots dialog)
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
