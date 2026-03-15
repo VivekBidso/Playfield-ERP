@@ -333,5 +333,20 @@ All test accounts use password: `bidso123`
 | Finance Viewer | `financeviewer@bidso.com` |
 | Auditor | `auditor@bidso.com` |
 
+### Forecast-to-Production Workflow (March 15, 2026)
+- `GET /api/cpc/demand-forecasts` - CPC view of confirmed forecasts with scheduled/remaining quantities
+- `GET /api/cpc/demand-forecasts/summary` - Summary stats for CPC dashboard
+- `GET /api/cpc/demand-forecasts/download` - Download confirmed forecasts as Excel file (NEW)
+- `POST /api/cpc/schedule-from-forecast` - Create production schedule from forecast
+- `POST /api/dispatch-lots/multi` - Multi-line dispatch lot with forecast_id linking (UPDATED)
+
+### Dispatch Lot Cascade Filters (March 15, 2026)
+- `GET /api/dispatch-lots/buyers-with-forecasts` - Buyers with confirmed forecasts
+- `GET /api/dispatch-lots/brands-by-buyer` - Brands for a buyer
+- `GET /api/dispatch-lots/verticals-by-buyer` - Verticals for a buyer
+- `GET /api/dispatch-lots/forecasted-skus` - SKUs with available forecast quantities
+- `GET /api/dispatch-lots/{lot_id}/details` - Lot details with readiness status
+- `GET /api/dispatch-lots/with-readiness` - All lots with readiness calculations
+
 ---
-*Last updated: March 15, 2026 - Forecast-Production Workflow Enhancement*
+*Last updated: March 15, 2026 - CPC Excel Download & Dispatch Lot Forecast Linking*
