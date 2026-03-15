@@ -1,8 +1,9 @@
 """Production routes - Production entries, batches, planning"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, date
 import uuid
+import io
 
 from database import db
 from models import User
@@ -13,6 +14,14 @@ from services.utils import (
     update_branch_rm_inventory, generate_movement_code, 
     get_branch_rm_stock, get_current_rm_price
 )
+
+router = APIRouter(tags=["Production"])
+
+# Import openpyxl for Excel handling
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 router = APIRouter(tags=["Production"])
 
