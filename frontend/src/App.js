@@ -89,6 +89,7 @@ function App() {
             <Route path="production-planning" element={<ProductionPlanning />} />
             <Route path="production" element={<Production />} />
             <Route path="dispatch" element={<Dispatch />} />
+            <Route path="dispatch-lots" element={<DispatchLots />} />
             <Route path="reports" element={<Reports />} />
             <Route path="techops" element={<TechOps />} />
             <Route path="demand" element={<Demand />} />
