@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, Package, Trash2, Search, Users, Layers, Box, X, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Plus, Package, Trash2, Search, Users, Layers, Box, X, CheckCircle2, Clock, AlertCircle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
