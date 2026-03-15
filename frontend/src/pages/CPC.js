@@ -257,6 +257,10 @@ const CPC = () => {
             <BarChart3 className="w-4 h-4 mr-2" />
             Dashboard
           </TabsTrigger>
+          <TabsTrigger value="forecasts" className="uppercase text-xs tracking-wide" data-testid="forecasts-tab">
+            <TrendingUp className="w-4 h-4 mr-2" />
+            Demand Forecasts ({demandForecasts.filter(f => !f.is_fully_scheduled).length})
+          </TabsTrigger>
           <TabsTrigger value="schedules" className="uppercase text-xs tracking-wide">
             <Calendar className="w-4 h-4 mr-2" />
             Schedules ({schedules.length})
