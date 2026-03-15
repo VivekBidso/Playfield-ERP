@@ -148,8 +148,51 @@ const Demand = () => {
   };
 
   const getFilteredBrands = () => {
-    if (!forecastForm.model_id) return brands;
-    return brands.filter(b => b.model_id === forecastForm.model_id);
+    // Get brands from multiple sources
+    let filteredBrands = [...brands];
+    
+    // If a vertical is selected, get brands from SKUs in that vertical
+    if (forecastForm.vertical_id) {
+      const verticalName = verticals.find(v => v.id === forecastForm.vertical_id)?.name;
+      const skusInVertical = skus.filter(s => 
+        s.vertical_id === forecastForm.vertical_id || s.vertical === verticalName
+      );
+      
+      // Get unique brand names from these SKUs
+      const brandNamesFromSkus = [...new Set(skusInVertical.map(s => s.brand).filter(Boolean))];
+      
+      // Match with brands collection or create virtual brands
+      filteredBrands = brands.filter(b => brandNamesFromSkus.includes(b.name));
+      
+      // If no brands found in collection, create from SKU brand names
+      if (filteredBrands.length === 0) {
+        filteredBrands = brandNamesFromSkus.map(name => ({
+          id: name,
+          name: name
+        }));
+      }
+    }
+    
+    // If model is selected, further filter by model
+    if (forecastForm.model_id) {
+      const modelName = models.find(m => m.id === forecastForm.model_id)?.name;
+      const skusInModel = skus.filter(s => 
+        s.model_id === forecastForm.model_id || s.model === modelName
+      );
+      
+      const brandNamesFromSkus = [...new Set(skusInModel.map(s => s.brand).filter(Boolean))];
+      filteredBrands = filteredBrands.filter(b => brandNamesFromSkus.includes(b.name));
+      
+      // If no brands found, create from SKU brand names
+      if (filteredBrands.length === 0) {
+        filteredBrands = brandNamesFromSkus.map(name => ({
+          id: name,
+          name: name
+        }));
+      }
+    }
+    
+    return filteredBrands;
   };
 
   const getFilteredSkus = () => {
