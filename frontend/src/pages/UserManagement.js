@@ -49,6 +49,7 @@ const UserManagement = () => {
     password: "",
     name: "",
     role: "branch_user",
+    rbac_role: "BRANCH_OPS_USER",  // New RBAC role field
     assigned_branches: []
   });
 
