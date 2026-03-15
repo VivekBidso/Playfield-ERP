@@ -776,6 +776,270 @@ async def get_cpc_dashboard():
         "branch_utilization": branch_stats
     }
 
+
+# ===== Data Cleanup Endpoints =====
+
+@router.delete("/cpc/cleanup/unassigned-schedules")
+async def cleanup_unassigned_schedules():
+    """
+    Delete all production schedules that have no branch assigned.
+    Rule: All schedules must have a branch - unassigned schedules are invalid.
+    """
+    # Find unassigned schedules
+    unassigned = await db.production_schedules.find(
+        {"$or": [{"branch": None}, {"branch": ""}, {"branch": {"$exists": False}}]},
+        {"_id": 0, "schedule_code": 1, "id": 1}
+    ).to_list(1000)
+    
+    if not unassigned:
+        return {"message": "No unassigned schedules found", "deleted": 0}
+    
+    # Delete them
+    result = await db.production_schedules.delete_many(
+        {"$or": [{"branch": None}, {"branch": ""}, {"branch": {"$exists": False}}]}
+    )
+    
+    return {
+        "message": f"Deleted {result.deleted_count} unassigned schedules",
+        "deleted": result.deleted_count,
+        "schedule_codes": [s.get("schedule_code") for s in unassigned[:20]]
+    }
+
+
+@router.get("/cpc/unassigned-schedules")
+async def get_unassigned_schedules():
+    """List all production schedules without branch assignment (should be 0)"""
+    unassigned = await db.production_schedules.find(
+        {"$or": [{"branch": None}, {"branch": ""}, {"branch": {"$exists": False}}]},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    return {
+        "count": len(unassigned),
+        "schedules": [serialize_doc(s) for s in unassigned],
+        "message": "All schedules must have a branch assigned. Use cleanup endpoint to remove invalid schedules."
+    }
+
+
+# ===== RM Shortage Report =====
+
+@router.get("/cpc/rm-shortage-report")
+async def get_rm_shortage_report(branch: Optional[str] = None):
+    """
+    Get RM shortage report based on branch-level production schedules and branch RM stock.
+    Shows what raw materials are needed vs what's available at each branch.
+    """
+    # Build schedule query
+    query = {"status": {"$in": ["SCHEDULED", "IN_PROGRESS"]}}
+    if branch:
+        query["branch"] = branch
+    
+    # Get all scheduled production
+    schedules = await db.production_schedules.find(query, {"_id": 0}).to_list(5000)
+    
+    if not schedules:
+        return {
+            "message": "No scheduled production found",
+            "branch_filter": branch,
+            "branches": []
+        }
+    
+    # Group schedules by branch
+    branch_schedules = {}
+    for s in schedules:
+        b = s.get("branch") or "Unassigned"
+        if b not in branch_schedules:
+            branch_schedules[b] = []
+        branch_schedules[b].append(s)
+    
+    # Get all SKU IDs from schedules
+    sku_ids = list(set(s.get("sku_id") for s in schedules if s.get("sku_id")))
+    
+    # Get BOM mappings for these SKUs
+    bom_mappings = await db.bill_of_materials.find(
+        {"sku_id": {"$in": sku_ids}},
+        {"_id": 0, "sku_id": 1, "rm_id": 1, "quantity": 1}
+    ).to_list(50000)
+    
+    # Also check sku_rm_mapping collection
+    sku_rm_mappings = await db.sku_rm_mapping.find(
+        {"sku_id": {"$in": sku_ids}},
+        {"_id": 0, "sku_id": 1, "rm_id": 1, "quantity": 1}
+    ).to_list(50000)
+    
+    # Combine BOM data
+    bom_by_sku = {}
+    for m in bom_mappings + sku_rm_mappings:
+        sku = m.get("sku_id")
+        if sku not in bom_by_sku:
+            bom_by_sku[sku] = []
+        bom_by_sku[sku].append({
+            "rm_id": m.get("rm_id"),
+            "qty_per_unit": m.get("quantity", 1)
+        })
+    
+    # Get all RM IDs needed
+    all_rm_ids = set()
+    for sku, mappings in bom_by_sku.items():
+        for m in mappings:
+            all_rm_ids.add(m.get("rm_id"))
+    
+    # Get RM details
+    rms = await db.raw_materials.find(
+        {"rm_id": {"$in": list(all_rm_ids)}},
+        {"_id": 0, "rm_id": 1, "description": 1, "category": 1}
+    ).to_list(5000)
+    rm_map = {r["rm_id"]: r for r in rms}
+    
+    # Build report per branch
+    branch_reports = []
+    
+    for branch_name, branch_sched in branch_schedules.items():
+        if branch_name == "Unassigned":
+            continue  # Skip unassigned (shouldn't exist)
+        
+        # Calculate RM requirements for this branch
+        rm_requirements = {}
+        for s in branch_sched:
+            sku_id = s.get("sku_id")
+            target_qty = s.get("target_quantity", 0)
+            completed_qty = s.get("completed_quantity", 0)
+            pending_qty = target_qty - completed_qty
+            
+            if pending_qty <= 0:
+                continue
+            
+            bom = bom_by_sku.get(sku_id, [])
+            for m in bom:
+                rm_id = m.get("rm_id")
+                qty_per_unit = m.get("qty_per_unit", 1)
+                required = pending_qty * qty_per_unit
+                
+                if rm_id not in rm_requirements:
+                    rm_requirements[rm_id] = 0
+                rm_requirements[rm_id] += required
+        
+        # Get branch RM inventory
+        branch_rm_inv = await db.branch_rm_inventory.find(
+            {"branch": branch_name, "rm_id": {"$in": list(rm_requirements.keys())}},
+            {"_id": 0, "rm_id": 1, "quantity": 1}
+        ).to_list(5000)
+        
+        inv_by_rm = {inv["rm_id"]: inv.get("quantity", 0) for inv in branch_rm_inv}
+        
+        # Calculate shortages
+        shortages = []
+        for rm_id, required in rm_requirements.items():
+            available = inv_by_rm.get(rm_id, 0)
+            shortage = max(0, required - available)
+            
+            rm_info = rm_map.get(rm_id, {})
+            shortages.append({
+                "rm_id": rm_id,
+                "description": rm_info.get("description", ""),
+                "category": rm_info.get("category", ""),
+                "required": required,
+                "available": available,
+                "shortage": shortage,
+                "status": "CRITICAL" if shortage > 0 and available == 0 else ("SHORT" if shortage > 0 else "OK")
+            })
+        
+        # Sort by shortage (highest first)
+        shortages.sort(key=lambda x: -x["shortage"])
+        
+        branch_reports.append({
+            "branch": branch_name,
+            "scheduled_qty": sum(s.get("target_quantity", 0) for s in branch_sched),
+            "pending_qty": sum(max(0, s.get("target_quantity", 0) - s.get("completed_quantity", 0)) for s in branch_sched),
+            "total_rms_needed": len(rm_requirements),
+            "rms_with_shortage": len([s for s in shortages if s["shortage"] > 0]),
+            "critical_shortages": len([s for s in shortages if s["status"] == "CRITICAL"]),
+            "shortages": shortages[:50]  # Top 50 shortages
+        })
+    
+    # Sort branches by critical shortages
+    branch_reports.sort(key=lambda x: -x["critical_shortages"])
+    
+    return {
+        "branch_filter": branch,
+        "total_branches": len(branch_reports),
+        "total_shortages": sum(b["rms_with_shortage"] for b in branch_reports),
+        "total_critical": sum(b["critical_shortages"] for b in branch_reports),
+        "branches": branch_reports
+    }
+
+
+@router.get("/cpc/rm-shortage-report/download")
+async def download_rm_shortage_report(branch: Optional[str] = None):
+    """Download RM shortage report as Excel"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    # Get the report data
+    report = await get_rm_shortage_report(branch)
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "RM Shortage Report"
+    
+    # Headers
+    headers = ["Branch", "RM ID", "Description", "Category", "Required", "Available", "Shortage", "Status"]
+    header_fill = PatternFill(start_color="DC2626", end_color="DC2626", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data rows
+    row = 2
+    for branch_data in report.get("branches", []):
+        branch_name = branch_data.get("branch", "")
+        for shortage in branch_data.get("shortages", []):
+            ws.cell(row=row, column=1, value=branch_name)
+            ws.cell(row=row, column=2, value=shortage.get("rm_id", ""))
+            ws.cell(row=row, column=3, value=shortage.get("description", ""))
+            ws.cell(row=row, column=4, value=shortage.get("category", ""))
+            ws.cell(row=row, column=5, value=shortage.get("required", 0))
+            ws.cell(row=row, column=6, value=shortage.get("available", 0))
+            ws.cell(row=row, column=7, value=shortage.get("shortage", 0))
+            ws.cell(row=row, column=8, value=shortage.get("status", ""))
+            
+            # Highlight shortages
+            if shortage.get("status") == "CRITICAL":
+                for c in range(1, 9):
+                    ws.cell(row=row, column=c).fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+            elif shortage.get("status") == "SHORT":
+                for c in range(1, 9):
+                    ws.cell(row=row, column=c).fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
+            
+            row += 1
+    
+    # Set column widths
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 15
+    ws.column_dimensions["C"].width = 35
+    ws.column_dimensions["D"].width = 12
+    ws.column_dimensions["E"].width = 12
+    ws.column_dimensions["F"].width = 12
+    ws.column_dimensions["G"].width = 12
+    ws.column_dimensions["H"].width = 12
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"rm_shortage_report_{branch or 'all'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 @router.get("/cpc/schedule-suggestions")
 async def get_schedule_suggestions():
     """Get dispatch lots that need scheduling"""
