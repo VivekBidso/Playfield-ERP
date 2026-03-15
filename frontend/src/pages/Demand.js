@@ -394,6 +394,42 @@ const Demand = () => {
   const getBuyerName = (id) => buyers.find(b => b.id === id)?.name || id || '-';
   const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id || '-';
   const getSkuDescription = (skuId) => skus.find(s => s.sku_id === skuId)?.description || skuId;
+  
+  // Get vertical name - from forecast's vertical_id or from SKU's vertical
+  const getVerticalDisplay = (forecast) => {
+    if (forecast.vertical_id) {
+      const v = verticals.find(v => v.id === forecast.vertical_id);
+      if (v) return v.name;
+    }
+    // Fallback to SKU's vertical
+    if (forecast.sku_id) {
+      const sku = skus.find(s => s.sku_id === forecast.sku_id);
+      if (sku?.vertical) return sku.vertical;
+      if (sku?.vertical_id) {
+        const v = verticals.find(v => v.id === sku.vertical_id);
+        if (v) return v.name;
+      }
+    }
+    return '-';
+  };
+  
+  // Get brand name from SKU
+  const getBrandDisplay = (forecast) => {
+    if (forecast.sku_id) {
+      const sku = skus.find(s => s.sku_id === forecast.sku_id);
+      if (sku?.brand) return sku.brand;
+    }
+    return '-';
+  };
+  
+  // Get model name from SKU
+  const getModelDisplay = (forecast) => {
+    if (forecast.sku_id) {
+      const sku = skus.find(s => s.sku_id === forecast.sku_id);
+      if (sku?.model) return sku.model;
+    }
+    return '-';
+  };
 
   const getStatusColor = (status) => {
     const colors = {
