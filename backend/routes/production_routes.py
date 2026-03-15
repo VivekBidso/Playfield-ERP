@@ -612,8 +612,8 @@ async def bulk_upload_production_plan(
 ):
     """
     Upload production plan from Excel.
-    Format: Date, SKU_ID, Planned_Quantity, Branch (optional)
-    If Branch column exists, uses that. Otherwise uses query param.
+    Format: Date, SKU_ID, Planned_Quantity, Branch, Forecast_ID (optional)
+    Validates that total planned qty per forecast doesn't exceed forecast qty.
     """
     if not openpyxl:
         raise HTTPException(status_code=500, detail="openpyxl not installed")
@@ -626,15 +626,27 @@ async def bulk_upload_production_plan(
         workbook = openpyxl.load_workbook(io.BytesIO(contents))
         sheet = workbook.active
         
-        # Get headers to check for Branch column
+        # Get headers
         headers = [str(cell.value).strip().lower() if cell.value else "" for cell in sheet[1]]
         has_branch_col = 'branch' in headers
+        has_forecast_col = 'forecast_id' in headers or 'forecast id' in headers
+        
         branch_col_idx = headers.index('branch') if has_branch_col else -1
+        forecast_col_idx = -1
+        if 'forecast_id' in headers:
+            forecast_col_idx = headers.index('forecast_id')
+        elif 'forecast id' in headers:
+            forecast_col_idx = headers.index('forecast id')
+        
+        # Track planned quantities by forecast_id for validation
+        forecast_planned_qty = {}
         
         created_count = 0
         updated_count = 0
         errors = []
+        rows_to_process = []
         
+        # First pass: collect and validate all rows
         for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
             if not row[0] or not row[1]:
                 continue
@@ -650,12 +662,17 @@ async def bulk_upload_production_plan(
                 sku_id = str(row[1]).strip()
                 planned_qty = float(row[2]) if row[2] else 0
                 
-                # Get branch - from column or from query param
+                # Get branch
                 row_branch = None
                 if has_branch_col and branch_col_idx < len(row) and row[branch_col_idx]:
                     row_branch = str(row[branch_col_idx]).strip()
                 else:
                     row_branch = branch
+                
+                # Get forecast_id
+                forecast_id = None
+                if has_forecast_col and forecast_col_idx >= 0 and forecast_col_idx < len(row) and row[forecast_col_idx]:
+                    forecast_id = str(row[forecast_col_idx]).strip()
                 
                 if not row_branch:
                     errors.append(f"Row {idx}: No branch specified")
@@ -665,42 +682,102 @@ async def bulk_upload_production_plan(
                     errors.append(f"Row {idx}: Invalid quantity")
                     continue
                 
-                # Check if SKU exists
-                sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+                # Track for forecast validation
+                if forecast_id:
+                    if forecast_id not in forecast_planned_qty:
+                        forecast_planned_qty[forecast_id] = 0
+                    forecast_planned_qty[forecast_id] += planned_qty
+                
+                rows_to_process.append({
+                    "row_idx": idx,
+                    "date_obj": date_obj,
+                    "sku_id": sku_id,
+                    "planned_qty": planned_qty,
+                    "branch": row_branch,
+                    "forecast_id": forecast_id
+                })
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+        
+        # Validate forecast quantities
+        for forecast_id, total_planned in forecast_planned_qty.items():
+            # Get existing planned qty for this forecast
+            existing_plans = await db.production_plans.find(
+                {"forecast_id": forecast_id},
+                {"_id": 0, "planned_quantity": 1}
+            ).to_list(1000)
+            existing_total = sum(p.get("planned_quantity", 0) for p in existing_plans)
+            
+            # Get forecast qty
+            forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+            if not forecast:
+                # Try by forecast_code
+                forecast = await db.forecasts.find_one({"forecast_code": forecast_id}, {"_id": 0})
+            
+            if forecast:
+                forecast_qty = forecast.get("quantity", 0)
+                if existing_total + total_planned > forecast_qty:
+                    errors.append(f"Forecast {forecast_id}: Total planned ({existing_total + total_planned}) exceeds forecast qty ({forecast_qty})")
+        
+        if errors:
+            return {
+                "created": 0,
+                "updated": 0,
+                "errors": errors,
+                "message": "Validation failed. No records created."
+            }
+        
+        # Process valid rows
+        for row_data in rows_to_process:
+            try:
+                sku = await db.skus.find_one({"sku_id": row_data["sku_id"]}, {"_id": 0})
                 if not sku:
-                    errors.append(f"Row {idx}: SKU {sku_id} not found")
+                    errors.append(f"Row {row_data['row_idx']}: SKU {row_data['sku_id']} not found")
                     continue
                 
-                plan_month = date_obj.strftime("%Y-%m")
+                plan_month = row_data["date_obj"].strftime("%Y-%m")
                 
                 # Check if entry exists
                 existing = await db.production_plans.find_one({
-                    "branch": row_branch,
-                    "date": date_obj.isoformat(),
-                    "sku_id": sku_id
+                    "branch": row_data["branch"],
+                    "date": row_data["date_obj"].isoformat(),
+                    "sku_id": row_data["sku_id"]
                 })
                 
                 if existing:
                     await db.production_plans.update_one(
-                        {"branch": row_branch, "date": date_obj.isoformat(), "sku_id": sku_id},
-                        {"$set": {"planned_quantity": planned_qty, "plan_month": plan_month}}
+                        {"branch": row_data["branch"], "date": row_data["date_obj"].isoformat(), "sku_id": row_data["sku_id"]},
+                        {"$set": {
+                            "planned_quantity": row_data["planned_qty"],
+                            "plan_month": plan_month,
+                            "forecast_id": row_data["forecast_id"]
+                        }}
                     )
                     updated_count += 1
                 else:
                     plan_doc = {
                         "id": str(uuid.uuid4()),
-                        "branch": row_branch,
+                        "branch": row_data["branch"],
                         "plan_month": plan_month,
-                        "date": date_obj.isoformat(),
-                        "sku_id": sku_id,
-                        "planned_quantity": planned_qty,
+                        "date": row_data["date_obj"].isoformat(),
+                        "sku_id": row_data["sku_id"],
+                        "planned_quantity": row_data["planned_qty"],
+                        "forecast_id": row_data["forecast_id"],
                         "created_at": datetime.now(timezone.utc).isoformat()
                     }
                     await db.production_plans.insert_one(plan_doc)
                     created_count += 1
+                
+                # Update forecast planned_quantity
+                if row_data["forecast_id"]:
+                    await db.forecasts.update_one(
+                        {"$or": [{"id": row_data["forecast_id"]}, {"forecast_code": row_data["forecast_id"]}]},
+                        {"$inc": {"planned_quantity": row_data["planned_qty"]}}
+                    )
                     
             except Exception as e:
-                errors.append(f"Row {idx}: {str(e)}")
+                errors.append(f"Row {row_data['row_idx']}: {str(e)}")
         
         return {
             "created": created_count,
