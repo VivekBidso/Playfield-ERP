@@ -805,7 +805,7 @@ async def upload_branch_model_capacity(data: BranchModelCapacityBulkUpload):
         raise HTTPException(status_code=400, detail="No capacity data provided")
     
     # Validate branch exists
-    branch = await db.branch_capacity.find_one({"branch": data.branch})
+    branch = await db.branches.find_one({"name": data.branch, "is_active": True})
     if not branch:
         raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
     
