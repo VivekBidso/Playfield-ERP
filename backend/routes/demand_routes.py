@@ -47,9 +47,11 @@ class DispatchLotLineInput(BaseModel):
     brand_id: Optional[str] = None
     vertical_id: Optional[str] = None
     quantity: int
+    forecast_id: Optional[str] = None  # Track source forecast for each line
 
 class DispatchLotMultiCreate(BaseModel):
     buyer_id: str
+    forecast_id: Optional[str] = None  # Main forecast_id for the lot (if all from same forecast)
     target_date: datetime
     priority: str = "MEDIUM"
     notes: Optional[str] = ""
@@ -507,12 +509,22 @@ async def create_dispatch_lot_multi(data: DispatchLotMultiCreate):
     # Calculate total quantity
     total_quantity = sum(line.quantity for line in data.lines)
     
+    # Determine forecast_id: use the main one if provided, else try to derive from first line
+    forecast_id = data.forecast_id
+    if not forecast_id:
+        # Try to get forecast_id from the first line that has one
+        for line in data.lines:
+            if line.forecast_id:
+                forecast_id = line.forecast_id
+                break
+    
     # Create main dispatch lot record
     lot_id = str(uuid.uuid4())
     lot = {
         "id": lot_id,
         "lot_code": lot_code,
         "buyer_id": data.buyer_id,
+        "forecast_id": forecast_id,  # Link to source forecast
         "target_date": data.target_date,
         "priority": data.priority,
         "notes": data.notes or "",
@@ -537,6 +549,7 @@ async def create_dispatch_lot_multi(data: DispatchLotMultiCreate):
             "sku_id": line.sku_id,
             "brand_id": line.brand_id,
             "vertical_id": line.vertical_id,
+            "forecast_id": line.forecast_id,  # Track per-line forecast source
             "quantity": line.quantity,
             "produced_qty": 0,
             "dispatched_qty": 0,

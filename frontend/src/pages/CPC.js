@@ -13,7 +13,8 @@ import {
   RefreshCw,
   Factory,
   TrendingUp,
-  Package
+  Package,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -381,13 +382,28 @@ const CPC = () => {
           {/* Forecast Table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg font-bold flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Demand Forecasts from Demand Team
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                View confirmed forecasts, plan production, and see linked dispatch lots
-              </p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Demand Forecasts from Demand Team
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    View confirmed forecasts, plan production, and see linked dispatch lots
+                  </p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    window.open(`${API}/cpc/demand-forecasts/download`, '_blank');
+                  }}
+                  className="uppercase text-xs tracking-wide"
+                  data-testid="download-forecasts-btn"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Excel
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="border rounded-sm overflow-x-auto">
