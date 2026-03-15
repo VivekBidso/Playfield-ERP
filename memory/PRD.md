@@ -550,11 +550,19 @@ Example:
 - `DELETE /api/cpc/cleanup/unassigned-schedules` - Data cleanup
 - `POST /api/cpc/fix-draft-schedules` - Fix legacy DRAFT status
 
-### Removed:
-- **Production Planning page** - Removed from sidebar and routes
-- CPC is now the ONLY way to plan production
+### Navigation Changes (March 15, 2026):
+- **Production Planning page REMOVED** - No longer in sidebar/routes
+- **SKU Subscription moved under CPC** - Now visible to CPC_PLANNER role
+- CPC is the ONLY way to plan production
+
+### SKU Subscription Module (Restored):
+- `POST /api/sku-branch-assignments/upload` - Upload SKU IDs from Excel
+- `GET /api/sku-branch-assignments` - List assignments by branch
+- `DELETE /api/sku-branch-assignments/{sku_id}/{branch}` - Remove single assignment
+- `POST /api/sku-branch-assignments/bulk-subscribe` - Bulk subscribe by vertical/model
+- `DELETE /api/sku-branch-assignments/bulk-unsubscribe` - Bulk unsubscribe
 
 ---
 
 *Last updated: March 15, 2026*
-*CPC Module Complete - Forecast-driven planning with branch enforcement*
+*CPC Module Complete - SKU Subscription restored and moved under CPC menu*
