@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, Package, Trash2, Search, ChevronRight, Users, Layers, Box } from "lucide-react";
+import { Plus, Package, Trash2, Search, Users, Layers, Box, X, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,8 +19,13 @@ const DispatchLots = () => {
   const [dispatchLots, setDispatchLots] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Dialog state
+  // Create Dialog state
   const [showDialog, setShowDialog] = useState(false);
+  
+  // Detail Dialog state
+  const [showDetailDialog, setShowDetailDialog] = useState(false);
+  const [selectedLot, setSelectedLot] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   
   // Cascade filter data
   const [buyersWithForecasts, setBuyersWithForecasts] = useState([]);
@@ -60,7 +65,6 @@ const DispatchLots = () => {
     if (selectedBuyer) {
       fetchBrandsForBuyer(selectedBuyer);
       fetchVerticalsForBuyer(selectedBuyer);
-      // Reset lines and current line
       setLotLines([]);
       setCurrentLine({ brand_id: "", vertical_id: "", sku_id: "", quantity: 0 });
       setForecastedSkus([]);
@@ -84,10 +88,17 @@ const DispatchLots = () => {
 
   const fetchDispatchLots = async () => {
     try {
-      const res = await axios.get(`${API}/dispatch-lots`, { headers: getHeaders() });
+      const res = await axios.get(`${API}/dispatch-lots/with-readiness`, { headers: getHeaders() });
       setDispatchLots(res.data);
     } catch (error) {
       console.error("Failed to fetch dispatch lots:", error);
+      // Fallback to regular endpoint
+      try {
+        const res = await axios.get(`${API}/dispatch-lots`, { headers: getHeaders() });
+        setDispatchLots(res.data);
+      } catch (err) {
+        console.error("Fallback also failed:", err);
+      }
     }
   };
 
@@ -141,6 +152,20 @@ const DispatchLots = () => {
     }
   };
 
+  const fetchLotDetails = async (lotId) => {
+    setLoadingDetail(true);
+    try {
+      const res = await axios.get(`${API}/dispatch-lots/${lotId}/details`, { headers: getHeaders() });
+      setSelectedLot(res.data);
+      setShowDetailDialog(true);
+    } catch (error) {
+      console.error("Failed to fetch lot details:", error);
+      toast.error("Failed to load lot details");
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
   const handleAddLine = () => {
     if (!currentLine.sku_id || currentLine.quantity <= 0) {
       toast.error("Please select a SKU and enter quantity");
@@ -153,13 +178,11 @@ const DispatchLots = () => {
       return;
     }
 
-    // Check if SKU already exists in lines
     if (lotLines.some(l => l.sku_id === currentLine.sku_id)) {
       toast.error("This SKU is already added to the lot");
       return;
     }
 
-    // Check available quantity
     if (currentLine.quantity > selectedSku.available_qty) {
       toast.error(`Quantity exceeds available (${selectedSku.available_qty})`);
       return;
@@ -173,7 +196,6 @@ const DispatchLots = () => {
       available_qty: selectedSku.available_qty
     }]);
 
-    // Reset current line (keep brand/vertical for convenience)
     setCurrentLine({
       brand_id: currentLine.brand_id,
       vertical_id: currentLine.vertical_id,
@@ -237,11 +259,6 @@ const DispatchLots = () => {
     setForecastedSkus([]);
   };
 
-  const getBuyerName = (id) => {
-    const allBuyers = [...buyersWithForecasts];
-    return allBuyers.find(b => b.id === id)?.name || id || '-';
-  };
-
   const getStatusColor = (status) => {
     const colors = {
       'CREATED': 'bg-zinc-100 text-zinc-700 border-zinc-300',
@@ -254,6 +271,24 @@ const DispatchLots = () => {
       'DELIVERED': 'bg-green-200 text-green-800 border-green-400'
     };
     return colors[status] || 'bg-zinc-100 text-zinc-700 border-zinc-300';
+  };
+
+  const getReadinessIcon = (status) => {
+    switch (status) {
+      case 'READY': return <CheckCircle2 className="w-4 h-4 text-green-600" />;
+      case 'PARTIAL': return <Clock className="w-4 h-4 text-yellow-600" />;
+      case 'PENDING': return <AlertCircle className="w-4 h-4 text-red-500" />;
+      default: return <Clock className="w-4 h-4 text-zinc-400" />;
+    }
+  };
+
+  const getReadinessColor = (status) => {
+    switch (status) {
+      case 'READY': return 'bg-green-100 text-green-700 border-green-300';
+      case 'PARTIAL': return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+      case 'PENDING': return 'bg-red-100 text-red-600 border-red-300';
+      default: return 'bg-zinc-100 text-zinc-700 border-zinc-300';
+    }
   };
 
   const filteredLots = dispatchLots.filter(lot => 
@@ -315,7 +350,7 @@ const DispatchLots = () => {
                 </Select>
               </div>
 
-              {/* Step 2: Add Lines (only show if buyer selected) */}
+              {/* Step 2: Add Lines */}
               {selectedBuyer && (
                 <div className="p-4 border rounded-lg">
                   <div className="flex items-center justify-between mb-4">
@@ -333,7 +368,6 @@ const DispatchLots = () => {
                   {/* Line Input Form */}
                   <div className="space-y-3 p-3 bg-zinc-50 rounded-lg border border-dashed mb-4">
                     <div className="grid grid-cols-2 gap-3">
-                      {/* Brand Select */}
                       <div>
                         <Label className="text-xs text-zinc-500">Brand (optional filter)</Label>
                         <Select 
@@ -353,7 +387,6 @@ const DispatchLots = () => {
                         </Select>
                       </div>
 
-                      {/* Vertical Select */}
                       <div>
                         <Label className="text-xs text-zinc-500">Vertical (optional filter)</Label>
                         <Select 
@@ -374,7 +407,6 @@ const DispatchLots = () => {
                       </div>
                     </div>
 
-                    {/* SKU Select */}
                     <div>
                       <Label className="text-xs text-zinc-500">SKU (from forecasts)</Label>
                       <Select 
@@ -388,7 +420,7 @@ const DispatchLots = () => {
                         <SelectContent>
                           {forecastedSkus.length === 0 ? (
                             <div className="p-3 text-sm text-zinc-500 text-center">
-                              {loadingSkus ? "Loading..." : "No forecasted SKUs found for this filter"}
+                              {loadingSkus ? "Loading..." : "No forecasted SKUs found"}
                             </div>
                           ) : (
                             forecastedSkus.map(s => (
@@ -410,7 +442,6 @@ const DispatchLots = () => {
                       </Select>
                     </div>
 
-                    {/* Show selected SKU details */}
                     {currentLine.sku_id && (
                       <div className="p-2 bg-blue-50 rounded text-xs border border-blue-200">
                         {(() => {
@@ -422,18 +453,12 @@ const DispatchLots = () => {
                                 <span>Brand: {sku.brand || '-'}</span>
                                 <span>Vertical: {sku.vertical || '-'}</span>
                               </div>
-                              <div className="flex gap-4">
-                                <span>Forecast: {sku.forecast_qty?.toLocaleString()}</span>
-                                <span>Dispatched: {sku.dispatched_qty?.toLocaleString()}</span>
-                                <span className="font-bold text-green-700">Available: {sku.available_qty?.toLocaleString()}</span>
-                              </div>
                             </div>
                           ) : null;
                         })()}
                       </div>
                     )}
 
-                    {/* Quantity + Add Button */}
                     <div className="flex items-end gap-3">
                       <div className="flex-1">
                         <Label className="text-xs text-zinc-500">Quantity</Label>
@@ -486,7 +511,6 @@ const DispatchLots = () => {
                                   size="sm"
                                   onClick={() => handleRemoveLine(idx)}
                                   className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                  data-testid={`remove-line-${idx}`}
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
@@ -507,7 +531,7 @@ const DispatchLots = () => {
                 </div>
               )}
 
-              {/* Step 3: Lot Details (only show if buyer selected) */}
+              {/* Step 3: Lot Details */}
               {selectedBuyer && (
                 <div className="p-4 border rounded-lg">
                   <div className="flex items-center gap-2 mb-4">
@@ -593,17 +617,26 @@ const DispatchLots = () => {
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Target</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Total Qty</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
+              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Readiness</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
             </tr>
           </thead>
           <tbody>
             {filteredLots.map((lot) => (
               <tr key={lot.id} className="border-t hover:bg-zinc-50/50">
-                <td className="p-4 font-mono font-bold text-sm">{lot.lot_code}</td>
-                <td className="p-4 text-sm">{getBuyerName(lot.buyer_id)}</td>
+                <td className="p-4">
+                  <button
+                    onClick={() => fetchLotDetails(lot.id)}
+                    className="font-mono font-bold text-sm text-primary hover:underline cursor-pointer"
+                    data-testid={`lot-code-${lot.lot_code}`}
+                  >
+                    {lot.lot_code}
+                  </button>
+                </td>
+                <td className="p-4 text-sm">{lot.buyer_name || '-'}</td>
                 <td className="p-4 font-mono text-sm">
-                  {lot.line_count ? (
-                    <span className="text-primary font-medium">{lot.line_count} SKUs</span>
+                  {lot.line_count || lot.total_lines ? (
+                    <span className="text-primary font-medium">{lot.line_count || lot.total_lines} SKUs</span>
                   ) : lot.sku_id ? (
                     <span className="text-zinc-600">{lot.sku_id}</span>
                   ) : '-'}
@@ -621,6 +654,14 @@ const DispatchLots = () => {
                   }`}>{lot.priority}</span>
                 </td>
                 <td className="p-4">
+                  <div className="flex items-center gap-2">
+                    {getReadinessIcon(lot.readiness_status)}
+                    <span className={`text-xs font-mono px-2 py-1 rounded border ${getReadinessColor(lot.readiness_status)}`}>
+                      {lot.readiness_status || 'N/A'}
+                    </span>
+                  </div>
+                </td>
+                <td className="p-4">
                   <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(lot.status)}`}>
                     {lot.status?.replace(/_/g, ' ')}
                   </span>
@@ -629,7 +670,7 @@ const DispatchLots = () => {
             ))}
             {filteredLots.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                <td colSpan={8} className="p-8 text-center text-muted-foreground">
                   No dispatch lots yet. Create one from forecasted SKUs.
                 </td>
               </tr>
@@ -637,6 +678,146 @@ const DispatchLots = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Lot Detail Dialog */}
+      <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Dispatch Lot: {selectedLot?.lot_code}
+              </div>
+              {selectedLot?.readiness_status && (
+                <div className="flex items-center gap-2">
+                  {getReadinessIcon(selectedLot.readiness_status)}
+                  <span className={`text-sm font-mono px-3 py-1 rounded border ${getReadinessColor(selectedLot.readiness_status)}`}>
+                    {selectedLot.readiness_status === 'READY' ? 'DISPATCH READY' : 
+                     selectedLot.readiness_status === 'PARTIAL' ? 'PARTIALLY READY' : 
+                     'PENDING PRODUCTION'}
+                  </span>
+                </div>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {loadingDetail ? (
+            <div className="p-8 text-center">Loading lot details...</div>
+          ) : selectedLot ? (
+            <div className="space-y-6">
+              {/* Lot Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-zinc-50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase mb-1">Buyer</div>
+                  <div className="font-bold">{selectedLot.buyer_name || '-'}</div>
+                </div>
+                <div className="p-4 bg-zinc-50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase mb-1">Target Date</div>
+                  <div className="font-mono font-bold">{selectedLot.target_date?.slice(0, 10)}</div>
+                </div>
+                <div className="p-4 bg-zinc-50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase mb-1">Total Quantity</div>
+                  <div className="font-mono font-bold text-xl">{(selectedLot.total_quantity || selectedLot.required_quantity || 0).toLocaleString()}</div>
+                </div>
+                <div className="p-4 bg-zinc-50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase mb-1">Readiness</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xl">{selectedLot.ready_lines || 0}</span>
+                    <span className="text-zinc-500">/ {selectedLot.total_lines || 0} lines ready</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Readiness Progress Bar */}
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold uppercase">Dispatch Readiness</span>
+                  <span className="font-mono font-bold text-lg">{selectedLot.readiness_pct || 0}%</span>
+                </div>
+                <div className="h-3 bg-zinc-200 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all ${
+                      selectedLot.readiness_status === 'READY' ? 'bg-green-500' :
+                      selectedLot.readiness_status === 'PARTIAL' ? 'bg-yellow-500' :
+                      'bg-red-400'
+                    }`}
+                    style={{ width: `${selectedLot.readiness_pct || 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Line Items Table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="p-4 bg-zinc-50 border-b">
+                  <h3 className="font-bold uppercase text-sm">Line Items ({selectedLot.lines?.length || 0})</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-100">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">#</th>
+                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">SKU</th>
+                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">Description</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Required</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Available</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Pending</th>
+                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Readiness</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedLot.lines?.map((line, idx) => (
+                        <tr key={line.id || idx} className="border-t hover:bg-zinc-50">
+                          <td className="px-4 py-3 font-mono text-zinc-500">{line.line_number || idx + 1}</td>
+                          <td className="px-4 py-3 font-mono font-bold">{line.sku_id}</td>
+                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[200px]" title={line.sku_description}>
+                            {line.sku_description || '-'}
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-right">{(line.quantity || 0).toLocaleString()}</td>
+                          <td className="px-4 py-3 font-mono text-right">
+                            <span className={line.available_qty >= line.quantity ? 'text-green-600' : 'text-red-500'}>
+                              {(line.available_qty || 0).toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-right">
+                            {line.pending_qty > 0 ? (
+                              <span className="text-red-500 font-bold">{line.pending_qty.toLocaleString()}</span>
+                            ) : (
+                              <span className="text-green-600">0</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {getReadinessIcon(line.readiness_status)}
+                              <span className={`text-xs font-mono px-2 py-1 rounded border ${getReadinessColor(line.readiness_status)}`}>
+                                {line.readiness_status}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {(!selectedLot.lines || selectedLot.lines.length === 0) && (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                            No line items found
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {selectedLot.notes && (
+                <div className="p-4 border rounded-lg bg-zinc-50">
+                  <div className="text-xs text-zinc-500 uppercase mb-2">Notes</div>
+                  <div className="text-sm">{selectedLot.notes}</div>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
