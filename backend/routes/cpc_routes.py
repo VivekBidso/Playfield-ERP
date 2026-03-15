@@ -2003,7 +2003,13 @@ async def upload_model_capacity_excel(file: UploadFile = File(...)):
 
 @router.post("/cpc/schedule-from-forecast")
 async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
-    """Create a production schedule directly from a demand forecast"""
+    """Create a production schedule directly from a demand forecast.
+    Branch is REQUIRED - no production schedule can be created without a branch."""
+    
+    # VALIDATE BRANCH IS PROVIDED
+    if not data.branch or not data.branch.strip():
+        raise HTTPException(status_code=400, detail="Branch is required. All production schedules must be assigned to a branch.")
+    
     # Get the forecast
     forecast = await db.forecasts.find_one({"id": data.forecast_id}, {"_id": 0})
     if not forecast:
@@ -2022,32 +2028,29 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
     
-    # NEW: Validate branch if provided
-    branch_name = None
-    if data.branch:
-        # Check if branch exists
-        branch_cap = await db.branches.find_one({"name": data.branch, "is_active": True}, {"_id": 0})
-        if not branch_cap:
-            raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
-        
-        # Check if SKU is assigned to this branch
-        sku_assignments = await db.sku_branch_assignments.find(
-            {"sku_id": sku_id, "is_active": True},
-            {"_id": 0, "branch": 1}
-        ).to_list(100)
-        
-        assigned_branches = [a["branch"] for a in sku_assignments]
-        
-        # If there are specific assignments, verify the branch is in the list
-        if assigned_branches and data.branch not in assigned_branches:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"SKU {sku_id} is not assigned to branch '{data.branch}'. Assigned branches: {', '.join(assigned_branches)}"
-            )
-        
-        # Check branch capacity for the target date
-        target_date_obj = data.target_date
-        date_str = target_date_obj.strftime("%Y-%m-%d")
+    # VALIDATE BRANCH EXISTS
+    branch_cap = await db.branches.find_one({"name": data.branch, "is_active": True}, {"_id": 0})
+    if not branch_cap:
+        raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
+    
+    # Check if SKU is assigned to this branch
+    sku_assignments = await db.sku_branch_assignments.find(
+        {"sku_id": sku_id, "is_active": True},
+        {"_id": 0, "branch": 1}
+    ).to_list(100)
+    
+    assigned_branches = [a["branch"] for a in sku_assignments]
+    
+    # If there are specific assignments, verify the branch is in the list
+    if assigned_branches and data.branch not in assigned_branches:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"SKU {sku_id} is not assigned to branch '{data.branch}'. Assigned branches: {', '.join(assigned_branches)}"
+        )
+    
+    # Check branch capacity for the target date
+    target_date_obj = data.target_date
+    date_str = target_date_obj.strftime("%Y-%m-%d")
         month_str = target_date_obj.strftime("%Y-%m")
         day = target_date_obj.day
         
