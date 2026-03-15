@@ -504,7 +504,7 @@ async def get_demand_forecasts_for_cpc(
 ):
     """
     Get demand forecasts for CPC to view and schedule production.
-    Shows forecasts with planned production qty, dispatch lots linked.
+    Shows forecasts with scheduled production qty (from production_schedules), dispatch lots linked.
     """
     if include_draft:
         query = {"status": {"$in": ["DRAFT", "CONFIRMED", "CONVERTED"]}}
@@ -518,18 +518,19 @@ async def get_demand_forecasts_for_cpc(
     
     forecasts = await db.forecasts.find(query, {"_id": 0}).sort("forecast_month", 1).to_list(1000)
     
-    # Get all production plans to calculate planned quantities
-    all_plans = await db.production_plans.find(
-        {"forecast_id": {"$exists": True, "$ne": None}},
-        {"_id": 0, "forecast_id": 1, "planned_quantity": 1}
+    # Get all production SCHEDULES to calculate scheduled quantities (not plans)
+    # This aligns with the schedule-from-forecast validation
+    all_schedules = await db.production_schedules.find(
+        {"forecast_id": {"$exists": True, "$ne": None}, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "forecast_id": 1, "target_quantity": 1}
     ).to_list(10000)
     
-    # Sum planned qty by forecast_id
-    planned_by_forecast = {}
-    for p in all_plans:
-        fid = p.get("forecast_id")
+    # Sum scheduled qty by forecast_id
+    scheduled_by_forecast = {}
+    for s in all_schedules:
+        fid = s.get("forecast_id")
         if fid:
-            planned_by_forecast[fid] = planned_by_forecast.get(fid, 0) + p.get("planned_quantity", 0)
+            scheduled_by_forecast[fid] = scheduled_by_forecast.get(fid, 0) + s.get("target_quantity", 0)
     
     # Get all dispatch lots linked to forecasts
     all_lots = await db.dispatch_lots.find(
