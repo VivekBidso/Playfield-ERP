@@ -272,8 +272,26 @@ const Dashboard = () => {
     return <div className="p-8">Loading...</div>;
   }
 
-  // Demand Planner specific dashboard
-  if (isDemandPlanner && demandStats) {
+  // Demand Planner specific dashboard - always show this view for demand planners
+  if (isDemandPlanner) {
+    // Show loading state while demandStats is being fetched
+    if (!demandStats) {
+      return (
+        <div className="p-6 md:p-8" data-testid="dashboard-page">
+          <div className="mb-8">
+            <h1 className="text-4xl font-black tracking-tight uppercase">Demand Dashboard</h1>
+            <p className="text-sm text-muted-foreground mt-1 font-mono">Loading forecast data...</p>
+          </div>
+          <div className="animate-pulse space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[1,2,3,4].map(i => (
+                <div key={i} className="h-24 bg-zinc-100 rounded"></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
     const demandStatCards = [
       { label: "Draft Forecasts", value: demandStats.draft_forecasts, icon: TrendingUp, color: "text-zinc-700" },
       { label: "Confirmed Forecasts", value: demandStats.confirmed_forecasts, icon: Target, color: "text-blue-600" },
