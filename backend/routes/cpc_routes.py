@@ -1,5 +1,5 @@
 """CPC (Central Production Control) routes - Scheduling and Branch Allocation"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from datetime import datetime, timezone, date, timedelta
@@ -17,6 +17,12 @@ try:
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 except ImportError:
     openpyxl = None
+
+# Import pandas for Excel parsing
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 router = APIRouter(tags=["CPC - Central Production Control"])
 
