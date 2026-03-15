@@ -37,6 +37,20 @@ class DispatchLotCreate(BaseModel):
     priority: str = "MEDIUM"
     notes: Optional[str] = ""
 
+# New model for multi-line dispatch lots
+class DispatchLotLineInput(BaseModel):
+    sku_id: str
+    brand_id: Optional[str] = None
+    vertical_id: Optional[str] = None
+    quantity: int
+
+class DispatchLotMultiCreate(BaseModel):
+    buyer_id: str
+    target_date: datetime
+    priority: str = "MEDIUM"
+    notes: Optional[str] = ""
+    lines: List[DispatchLotLineInput]
+
 # --- Forecasts ---
 @router.get("/forecasts")
 async def get_forecasts(
