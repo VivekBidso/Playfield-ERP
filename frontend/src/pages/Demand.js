@@ -234,6 +234,74 @@ const Demand = () => {
     }
   };
 
+  // Bulk confirmation handlers
+  const handleSelectForecast = (id) => {
+    const newSelected = new Set(selectedForecasts);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedForecasts(newSelected);
+  };
+
+  const handleSelectAllDraft = () => {
+    const draftIds = forecasts.filter(f => f.status === 'DRAFT').map(f => f.id);
+    if (selectedForecasts.size === draftIds.length) {
+      setSelectedForecasts(new Set());
+    } else {
+      setSelectedForecasts(new Set(draftIds));
+    }
+  };
+
+  const handleBulkConfirm = async () => {
+    if (selectedForecasts.size === 0) {
+      toast.error("No forecasts selected");
+      return;
+    }
+    
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(
+        `${API}/forecasts/bulk-confirm`,
+        { forecast_ids: Array.from(selectedForecasts) },
+        { headers }
+      );
+      toast.success(`Confirmed ${response.data.confirmed_count} forecasts`);
+      setSelectedForecasts(new Set());
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to confirm forecasts");
+    }
+  };
+
+  const handleConfirmMonth = async (month) => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(
+        `${API}/forecasts/confirm-month?month=${month}`,
+        {},
+        { headers }
+      );
+      toast.success(`Confirmed ${response.data.confirmed_count} forecasts for ${month}`);
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to confirm month forecasts");
+    }
+  };
+
+  // Get dispatch lots for a forecast
+  const fetchForecastDispatchLots = async (forecastId) => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.get(`${API}/forecasts/${forecastId}/dispatch-lots`, { headers });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch dispatch lots:", error);
+      return [];
+    }
+  };
+
   // Bulk upload handlers
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
