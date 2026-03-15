@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package } from "lucide-react";
+import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
