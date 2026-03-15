@@ -592,7 +592,7 @@ const Demand = () => {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <Dialog open={showForecastDialog} onOpenChange={setShowForecastDialog}>
+              <Dialog open={showForecastDialog} onOpenChange={(open) => { setShowForecastDialog(open); if (!open) resetForecastForm(); }}>
                 <DialogTrigger asChild>
                   <Button className="uppercase text-xs tracking-wide" data-testid="add-forecast-btn">
                     <Plus className="w-4 h-4 mr-2" />
@@ -601,7 +601,7 @@ const Demand = () => {
                 </DialogTrigger>
                 <DialogContent className="max-w-lg">
                   <DialogHeader>
-                    <DialogTitle>Create Forecast</DialogTitle>
+                    <DialogTitle>{forecastForm.id ? 'Edit Forecast' : 'Create Forecast'}</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                     {/* Buyer - REQUIRED */}
@@ -717,12 +717,17 @@ const Demand = () => {
 
                     {/* Quantity */}
                     <div>
-                      <Label>Quantity *</Label>
+                      <Label>Quantity * (must be greater than 0)</Label>
                       <Input 
                         type="number"
+                        min="1"
                         value={forecastForm.quantity}
                         onChange={(e) => setForecastForm({...forecastForm, quantity: parseInt(e.target.value) || 0})}
+                        className={forecastForm.quantity <= 0 ? "border-red-300" : ""}
                       />
+                      {forecastForm.quantity <= 0 && (
+                        <p className="text-xs text-red-500 mt-1">Quantity must be greater than 0</p>
+                      )}
                     </div>
 
                     {/* Priority */}
@@ -739,7 +744,13 @@ const Demand = () => {
                       </Select>
                     </div>
 
-                    <Button onClick={handleCreateForecast} className="w-full">Create Forecast</Button>
+                    <Button 
+                      onClick={handleCreateForecast} 
+                      className="w-full"
+                      disabled={forecastForm.quantity <= 0 || !forecastForm.buyer_id}
+                    >
+                      {forecastForm.id ? 'Update Forecast' : 'Create Forecast'}
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
