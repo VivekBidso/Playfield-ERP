@@ -65,7 +65,7 @@ const Layout = () => {
     { path: "/skus", label: "SKUs", icon: Box, show: true },
     { path: "/sku-subscription", label: "SKU Subscription", icon: PackageCheck, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
-    { path: "/production-planning", label: "Production Planning", icon: ClipboardList, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('BRANCH_OPS_USER') },
+    // Production Planning removed - CPC handles all production planning from forecasts
     { path: "/production", label: "Production", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: isAdmin || hasRole('QUALITY_INSPECTOR') },
     { path: "/logistics", label: "Logistics", icon: Truck, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
