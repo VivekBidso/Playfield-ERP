@@ -745,7 +745,10 @@ const Demand = () => {
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Brand</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Model</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Quantity</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast Qty</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Dispatch Alloc</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Prod Scheduled</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Sched Pending</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Dispatch Lots</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
@@ -775,6 +778,21 @@ const Demand = () => {
                     <td className="p-4 text-sm">{getModelDisplay(f)}</td>
                     <td className="p-4 font-mono text-sm text-zinc-600">{f.sku_id || 'All in Vertical'}</td>
                     <td className="p-4 font-mono font-bold">{f.quantity?.toLocaleString()}</td>
+                    <td className="p-4 font-mono text-sm">
+                      <span className={f.dispatch_allocated > 0 ? 'text-blue-600 font-medium' : 'text-zinc-400'}>
+                        {(f.dispatch_allocated || 0).toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="p-4 font-mono text-sm">
+                      <span className={f.production_scheduled > 0 ? 'text-green-600 font-medium' : 'text-zinc-400'}>
+                        {(f.production_scheduled || 0).toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="p-4 font-mono text-sm">
+                      <span className={f.schedule_pending > 0 ? 'text-orange-600 font-medium' : 'text-green-600'}>
+                        {(f.schedule_pending || 0).toLocaleString()}
+                      </span>
+                    </td>
                     <td className="p-4">
                       <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(f.status)}`}>{f.status}</span>
                     </td>
@@ -786,6 +804,15 @@ const Demand = () => {
                         onClick={async () => {
                           const lots = await fetchForecastDispatchLots(f.id);
                           setSelectedForecastLots({ forecast: f, lots: lots });
+                          // Also fetch buyer's other lots for "Add to existing" option
+                          if (f.buyer_id) {
+                            try {
+                              const buyerLotsRes = await axios.get(`${API}/dispatch-lots/by-buyer/${f.buyer_id}`, { headers: getHeaders() });
+                              setBuyerExistingLots(buyerLotsRes.data || []);
+                            } catch (e) {
+                              setBuyerExistingLots([]);
+                            }
+                          }
                           setShowLotsDialog(true);
                         }}
                       >
@@ -811,7 +838,7 @@ const Demand = () => {
                   </tr>
                 ))}
                 {forecasts.length === 0 && (
-                  <tr><td colSpan={canConfirmForecasts ? 13 : 12} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
+                  <tr><td colSpan={canConfirmForecasts ? 17 : 16} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
                 )}
               </tbody>
             </table>
