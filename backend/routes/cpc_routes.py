@@ -1604,7 +1604,7 @@ class ScheduleFromForecastRequest(BaseModel):
     forecast_id: str
     quantity: int
     target_date: datetime
-    branch: Optional[str] = None  # NEW: Branch assignment
+    branch: str  # REQUIRED: Branch assignment is mandatory
     priority: Optional[str] = "MEDIUM"
     notes: Optional[str] = ""
 
