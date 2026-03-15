@@ -796,6 +796,189 @@ class BranchModelCapacityBulkUpload(BaseModel):
     capacities: List[BranchModelCapacityUpload]
 
 
+# ============ BRANCH MODEL CAPACITY ENDPOINTS ============
+
+@router.post("/branches/model-capacity/upload")
+async def upload_branch_model_capacity(data: BranchModelCapacityBulkUpload):
+    """Upload model-specific capacity for a branch (Month, Day, Model, Qty)"""
+    if not data.capacities:
+        raise HTTPException(status_code=400, detail="No capacity data provided")
+    
+    # Validate branch exists
+    branch = await db.branch_capacity.find_one({"branch": data.branch})
+    if not branch:
+        raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
+    
+    # Validate models exist
+    model_ids = list(set(c.model_id for c in data.capacities))
+    existing_models = await db.models.find(
+        {"id": {"$in": model_ids}},
+        {"_id": 0, "id": 1}
+    ).to_list(1000)
+    existing_model_ids = {m["id"] for m in existing_models}
+    
+    missing_models = set(model_ids) - existing_model_ids
+    if missing_models:
+        raise HTTPException(status_code=400, detail=f"Models not found: {', '.join(missing_models)}")
+    
+    # Insert or update capacities
+    inserted = 0
+    updated = 0
+    
+    for cap in data.capacities:
+        record = {
+            "branch": data.branch,
+            "month": cap.month,
+            "day": cap.day,
+            "model_id": cap.model_id,
+            "capacity_qty": cap.capacity_qty,
+            "updated_at": datetime.now(timezone.utc)
+        }
+        
+        result = await db.branch_model_capacity.update_one(
+            {
+                "branch": data.branch,
+                "month": cap.month,
+                "day": cap.day,
+                "model_id": cap.model_id
+            },
+            {"$set": record, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc)}},
+            upsert=True
+        )
+        
+        if result.upserted_id:
+            inserted += 1
+        else:
+            updated += 1
+    
+    return {
+        "message": f"Capacity uploaded for branch {data.branch}",
+        "inserted": inserted,
+        "updated": updated,
+        "total": len(data.capacities)
+    }
+
+
+@router.get("/branches/{branch}/model-capacity")
+async def get_branch_model_capacity(branch: str, month: Optional[str] = None):
+    """Get model-specific capacity for a branch"""
+    query = {"branch": branch}
+    if month:
+        query["month"] = month
+    
+    capacities = await db.branch_model_capacity.find(
+        query,
+        {"_id": 0}
+    ).to_list(5000)
+    
+    return capacities
+
+
+@router.get("/branches/{branch}/capacity-for-date")
+async def get_branch_capacity_for_date(branch: str, date: str, model_id: Optional[str] = None):
+    """Get available capacity for a branch on a specific date, optionally filtered by model"""
+    # Parse date
+    try:
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        month_str = date_obj.strftime("%Y-%m")
+        day = date_obj.day
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Get branch base capacity
+    branch_cap = await db.branch_capacity.find_one({"branch": branch}, {"_id": 0})
+    if not branch_cap:
+        raise HTTPException(status_code=404, detail=f"Branch '{branch}' not found")
+    
+    base_capacity = branch_cap.get("capacity_units_per_day", 0)
+    
+    # Check if there's model-specific capacity
+    model_query = {"branch": branch, "month": month_str, "day": day}
+    if model_id:
+        model_query["model_id"] = model_id
+    
+    model_capacities = await db.branch_model_capacity.find(
+        model_query,
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get already allocated for this date
+    allocated_query = {"branch": branch}
+    schedules_on_date = await db.production_schedules.find(
+        {
+            "target_date": {
+                "$gte": datetime(date_obj.year, date_obj.month, date_obj.day, tzinfo=timezone.utc),
+                "$lt": datetime(date_obj.year, date_obj.month, date_obj.day, 23, 59, 59, tzinfo=timezone.utc)
+            },
+            "status": {"$ne": "CANCELLED"}
+        },
+        {"_id": 0, "target_quantity": 1, "sku_id": 1, "branch": 1}
+    ).to_list(1000)
+    
+    # Filter schedules by branch if branch field exists
+    branch_schedules = [s for s in schedules_on_date if s.get("branch") == branch]
+    total_allocated = sum(s.get("target_quantity", 0) for s in branch_schedules)
+    
+    # Determine effective capacity
+    if model_capacities:
+        # Use model-specific capacity
+        total_model_capacity = sum(m.get("capacity_qty", 0) for m in model_capacities)
+        available = max(0, total_model_capacity - total_allocated)
+        capacity_type = "model_specific"
+    else:
+        # Use base capacity
+        available = max(0, base_capacity - total_allocated)
+        capacity_type = "base"
+    
+    return {
+        "branch": branch,
+        "date": date,
+        "base_capacity": base_capacity,
+        "model_capacities": model_capacities,
+        "allocated": total_allocated,
+        "available": available,
+        "capacity_type": capacity_type
+    }
+
+
+@router.get("/skus/{sku_id}/assigned-branches")
+async def get_sku_assigned_branches(sku_id: str):
+    """Get branches where a SKU is assigned/subscribed"""
+    # Check if SKU exists
+    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    if not sku:
+        raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
+    
+    # Get SKU-branch assignments
+    assignments = await db.sku_branch_assignments.find(
+        {"sku_id": sku_id, "is_active": True},
+        {"_id": 0, "branch": 1}
+    ).to_list(100)
+    
+    assigned_branches = [a["branch"] for a in assignments]
+    
+    # If no specific assignments, return all branches (for flexibility)
+    if not assigned_branches:
+        all_branches = await db.branch_capacity.find(
+            {},
+            {"_id": 0, "branch": 1, "capacity_units_per_day": 1}
+        ).to_list(100)
+        return {
+            "sku_id": sku_id,
+            "assignment_type": "all",
+            "branches": [b["branch"] for b in all_branches if b.get("capacity_units_per_day", 0) > 0]
+        }
+    
+    return {
+        "sku_id": sku_id,
+        "assignment_type": "specific",
+        "branches": assigned_branches
+    }
+
+
+# ============ END BRANCH MODEL CAPACITY ============
+
+
 @router.post("/cpc/schedule-from-forecast")
 async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
     """Create a production schedule directly from a demand forecast"""
