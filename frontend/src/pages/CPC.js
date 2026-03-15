@@ -735,23 +735,23 @@ const CPC = () => {
 
         {/* Branch Capacity Tab */}
         <TabsContent value="capacity">
-          {/* Model Capacity Upload Section */}
+          {/* Day-wise Capacity Upload Section */}
           <Card className="mb-6">
             <CardHeader className="pb-2">
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Upload className="w-5 h-5" />
-                    Model-Specific Capacity Upload
+                    Day-wise Capacity Upload
                   </CardTitle>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Upload capacity by Month, Day, Model to override base capacity for specific days
+                    Upload daily capacity by Branch and Date. Re-uploading same date will overwrite existing data.
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <Button 
                     variant="outline"
-                    onClick={() => window.open(`${API}/branches/model-capacity/template`, '_blank')}
+                    onClick={() => window.open(`${API}/branches/daily-capacity/template`, '_blank')}
                     className="uppercase text-xs"
                     data-testid="download-capacity-template"
                   >
@@ -780,14 +780,14 @@ const CPC = () => {
                       formData.append('file', file);
                       
                       try {
-                        const res = await axios.post(`${API}/branches/model-capacity/upload-excel`, formData, {
+                        const res = await axios.post(`${API}/branches/daily-capacity/upload-excel`, formData, {
                           headers: { 'Content-Type': 'multipart/form-data' }
                         });
                         
                         if (res.data.total_errors > 0) {
-                          toast.warning(`Uploaded ${res.data.total_processed} records with ${res.data.total_errors} errors`);
+                          toast.warning(`Uploaded ${res.data.total} records with ${res.data.total_errors} errors`);
                         } else {
-                          toast.success(`Successfully uploaded ${res.data.total_processed} capacity records`);
+                          toast.success(`Successfully uploaded ${res.data.total} capacity records (${res.data.inserted} new, ${res.data.updated} updated)`);
                         }
                         fetchAllData();
                       } catch (error) {
@@ -796,14 +796,6 @@ const CPC = () => {
                       e.target.value = '';
                     }}
                   />
-                  <Button 
-                    onClick={() => setShowModelCapacityDialog(true)}
-                    className="uppercase text-xs"
-                    data-testid="open-model-capacity-upload"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Manual Entry
-                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -816,9 +808,9 @@ const CPC = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <CardTitle className="text-sm font-mono">{b.branch}</CardTitle>
-                      {b.capacity_source === 'model_specific' && (
+                      {b.capacity_source === 'daily_override' && (
                         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded mt-1 inline-block">
-                          {b.model_capacity_count} model(s) today
+                          Daily override active
                         </span>
                       )}
                     </div>
