@@ -54,6 +54,7 @@ const Demand = () => {
   
   // Cascading filter state for forecast form
   const [forecastForm, setForecastForm] = useState({
+    id: null, // null for new forecast, set for edit
     buyer_id: "",
     vertical_id: "",
     model_id: "",
