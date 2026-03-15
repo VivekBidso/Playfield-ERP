@@ -90,7 +90,70 @@ async def get_forecasts(
     if status:
         query["status"] = status
     forecasts = await db.forecasts.find(query, {"_id": 0}).to_list(1000)
-    return [serialize_doc(f) for f in forecasts]
+    
+    if not forecasts:
+        return []
+    
+    # Get all forecast IDs
+    forecast_ids = [f["id"] for f in forecasts]
+    
+    # Get production schedules for these forecasts
+    schedules = await db.production_schedules.find(
+        {"forecast_id": {"$in": forecast_ids}, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "forecast_id": 1, "target_quantity": 1}
+    ).to_list(5000)
+    
+    # Group scheduled quantities by forecast_id
+    scheduled_by_forecast = {}
+    for s in schedules:
+        fid = s.get("forecast_id")
+        if fid:
+            scheduled_by_forecast[fid] = scheduled_by_forecast.get(fid, 0) + s.get("target_quantity", 0)
+    
+    # Get dispatch lot lines linked to these forecasts
+    lot_lines = await db.dispatch_lot_lines.find(
+        {"forecast_id": {"$in": forecast_ids}},
+        {"_id": 0, "forecast_id": 1, "quantity": 1}
+    ).to_list(5000)
+    
+    # Group dispatch quantities by forecast_id
+    dispatch_by_forecast = {}
+    for line in lot_lines:
+        fid = line.get("forecast_id")
+        if fid:
+            dispatch_by_forecast[fid] = dispatch_by_forecast.get(fid, 0) + line.get("quantity", 0)
+    
+    # Also check dispatch_lots with forecast_id (for lots created before line-level tracking)
+    lots_with_forecast = await db.dispatch_lots.find(
+        {"forecast_id": {"$in": forecast_ids}},
+        {"_id": 0, "forecast_id": 1, "total_quantity": 1}
+    ).to_list(5000)
+    
+    for lot in lots_with_forecast:
+        fid = lot.get("forecast_id")
+        if fid:
+            # Only add if not already counted in lines
+            if fid not in dispatch_by_forecast:
+                dispatch_by_forecast[fid] = lot.get("total_quantity", 0)
+    
+    # Enrich forecasts with calculated fields
+    result = []
+    for f in forecasts:
+        fid = f["id"]
+        forecast_qty = f.get("quantity", 0)
+        dispatch_allocated = dispatch_by_forecast.get(fid, 0)
+        production_scheduled = scheduled_by_forecast.get(fid, 0)
+        schedule_pending = max(0, forecast_qty - production_scheduled)
+        
+        enriched = {
+            **f,
+            "dispatch_allocated": dispatch_allocated,
+            "production_scheduled": production_scheduled,
+            "schedule_pending": schedule_pending
+        }
+        result.append(serialize_doc(enriched))
+    
+    return result
 
 @router.post("/forecasts")
 async def create_forecast(data: ForecastCreate):
