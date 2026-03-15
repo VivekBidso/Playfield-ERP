@@ -129,7 +129,8 @@ const Layout = () => {
           </div>
         </div>
 
-        <BranchSelector />
+        {/* Branch Selector - Hidden for CPC_PLANNER (they work across all branches) */}
+        {!isCPCPlanner && <BranchSelector />}
         
         <nav className="flex-1 p-4 overflow-y-auto">
           {navItems.filter(item => item.show).map((item) => (
