@@ -360,8 +360,24 @@ All test accounts use password: `bidso123`
 ### CPC Branch Capacity (March 15, 2026)
 - `GET /api/skus/{sku_id}/assigned-branches` - Get branches where SKU is assigned (NEW)
 - `GET /api/branches/{branch}/capacity-for-date?date_str=YYYY-MM-DD` - Get available capacity for date (NEW)
-- `POST /api/branches/model-capacity/upload` - Upload model-specific capacity (Month, Day, Model, Qty) (NEW)
-- `GET /api/branches/{branch}/model-capacity` - Get model-specific capacity for branch (NEW)
+- `POST /api/branches/model-capacity/upload` - Upload model-specific capacity (Month, Day, Model, Qty) (HIDDEN - Code retained)
+- `GET /api/branches/{branch}/model-capacity` - Get model-specific capacity for branch (HIDDEN - Code retained)
+- `POST /api/branches/daily-capacity/upload-excel` - Bulk upload day-wise branch capacity (NEW)
+- `GET /api/branches/daily-capacity/template` - Download day-wise capacity template (NEW)
+- `GET /api/branches/daily-capacity` - Get daily capacity overrides (NEW)
+
+### CPC Module Restructure (March 15, 2026)
+- **Standalone schedule creation removed** - All production planning now starts from confirmed forecasts
+- **Schedule Pending formula updated**: `Schedule Pending = Forecast Qty - Inventory - Already Scheduled`
+- **Summary calculations fixed**: Only counts forecast-linked schedules (not orphaned schedules)
+- **New CPC Menu Structure**:
+  1. **Production Planning**: Forecasts table with Export, Plan Template, Upload Plan buttons
+  2. **Branch Capacity**: Day-wise capacity upload with branch cards showing utilization
+  3. **Production Schedule**: Branch-wise per-day schedule view with date/branch filters
+- **Branch Required**: Creating production schedule from forecast requires selecting a branch
+- `GET /api/cpc/branch-schedules` - Branch-wise per-day production schedule view (NEW)
+- `GET /api/cpc/production-plan/template` - Download bulk plan template (NEW)
+- `POST /api/cpc/production-plan/upload-excel` - Bulk upload production plans from Excel (NEW)
 
 ---
-*Last updated: March 15, 2026 - CPC Branch Planning & Forecast Enhancements*
+*Last updated: March 15, 2026 - CPC Module Restructure (Forecast-driven planning, Inventory in Schedule Pending)*
