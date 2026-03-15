@@ -957,16 +957,16 @@ async def get_sku_assigned_branches(sku_id: str):
     
     assigned_branches = [a["branch"] for a in assignments]
     
-    # If no specific assignments, return all branches (for flexibility)
+    # If no specific assignments, return all branches with capacity (for flexibility)
     if not assigned_branches:
-        all_branches = await db.branch_capacity.find(
-            {},
-            {"_id": 0, "branch": 1, "capacity_units_per_day": 1}
+        all_branches = await db.branches.find(
+            {"is_active": True},
+            {"_id": 0, "name": 1, "capacity_units_per_day": 1}
         ).to_list(100)
         return {
             "sku_id": sku_id,
             "assignment_type": "all",
-            "branches": [b["branch"] for b in all_branches if b.get("capacity_units_per_day", 0) > 0]
+            "branches": [b["name"] for b in all_branches if b.get("capacity_units_per_day", 0) > 0]
         }
     
     return {
