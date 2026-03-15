@@ -886,7 +886,7 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     # Get branch base capacity
-    branch_cap = await db.branch_capacity.find_one({"branch": branch}, {"_id": 0})
+    branch_cap = await db.branches.find_one({"name": branch, "is_active": True}, {"_id": 0})
     if not branch_cap:
         raise HTTPException(status_code=404, detail=f"Branch '{branch}' not found")
     
