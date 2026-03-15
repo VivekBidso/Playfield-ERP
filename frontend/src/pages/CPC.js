@@ -735,6 +735,31 @@ const CPC = () => {
 
         {/* Branch Capacity Tab */}
         <TabsContent value="capacity">
+          {/* Model Capacity Upload Section */}
+          <Card className="mb-6">
+            <CardHeader className="pb-2">
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Upload className="w-5 h-5" />
+                    Model-Specific Capacity Upload
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Upload capacity by Month, Day, Model to override base capacity for specific days
+                  </p>
+                </div>
+                <Button 
+                  onClick={() => setShowModelCapacityDialog(true)}
+                  className="uppercase text-xs"
+                  data-testid="open-model-capacity-upload"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Upload Capacity
+                </Button>
+              </div>
+            </CardHeader>
+          </Card>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {branchCapacities.map((b) => (
               <Card key={b.branch} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => fetchBranchForecast(b.branch)}>
