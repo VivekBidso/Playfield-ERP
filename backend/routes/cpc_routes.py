@@ -491,3 +491,208 @@ async def get_schedule_suggestions():
         })
     
     return suggestions
+
+
+
+# ===== Demand Forecasts Visibility for CPC =====
+
+@router.get("/cpc/demand-forecasts")
+async def get_demand_forecasts_for_cpc(
+    status: Optional[str] = None,
+    buyer_id: Optional[str] = None
+):
+    """
+    Get confirmed demand forecasts for CPC to view and schedule production.
+    Shows forecasts with scheduled vs remaining quantities.
+    """
+    query = {"status": {"$in": ["CONFIRMED", "CONVERTED"]}}
+    if status:
+        query["status"] = status
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    
+    forecasts = await db.forecasts.find(query, {"_id": 0}).sort("forecast_month", 1).to_list(1000)
+    
+    # Get all production schedules to calculate scheduled quantities
+    all_schedules = await db.production_schedules.find(
+        {"status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "sku_id": 1, "target_quantity": 1, "forecast_id": 1}
+    ).to_list(5000)
+    
+    # Sum scheduled qty by forecast_id and sku_id
+    scheduled_by_forecast = {}
+    scheduled_by_sku = {}
+    for s in all_schedules:
+        if s.get("forecast_id"):
+            scheduled_by_forecast[s["forecast_id"]] = scheduled_by_forecast.get(s["forecast_id"], 0) + s.get("target_quantity", 0)
+        if s.get("sku_id"):
+            scheduled_by_sku[s["sku_id"]] = scheduled_by_sku.get(s["sku_id"], 0) + s.get("target_quantity", 0)
+    
+    # Get buyer names
+    buyer_ids = list(set(f.get("buyer_id") for f in forecasts if f.get("buyer_id")))
+    buyers = await db.buyers.find({"id": {"$in": buyer_ids}}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(100)
+    buyer_map = {b["id"]: b for b in buyers}
+    
+    # Get SKU details
+    sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1, "vertical": 1, "brand": 1}).to_list(1000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    # Get vertical details
+    vertical_ids = list(set(f.get("vertical_id") for f in forecasts if f.get("vertical_id")))
+    verticals = await db.verticals.find({"id": {"$in": vertical_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    vertical_map = {v["id"]: v["name"] for v in verticals}
+    
+    result = []
+    for f in forecasts:
+        forecast_qty = f.get("quantity", 0)
+        
+        # Calculate scheduled quantity
+        scheduled_qty = 0
+        if f.get("id"):
+            scheduled_qty = scheduled_by_forecast.get(f["id"], 0)
+        elif f.get("sku_id"):
+            # For SKU-level forecasts without direct link
+            scheduled_qty = scheduled_by_sku.get(f["sku_id"], 0)
+        
+        remaining_qty = max(0, forecast_qty - scheduled_qty)
+        
+        buyer = buyer_map.get(f.get("buyer_id"), {})
+        sku = sku_map.get(f.get("sku_id"), {})
+        
+        result.append({
+            "id": f.get("id"),
+            "forecast_code": f.get("forecast_code"),
+            "buyer_id": f.get("buyer_id"),
+            "buyer_name": buyer.get("name"),
+            "buyer_code": buyer.get("code"),
+            "vertical_id": f.get("vertical_id"),
+            "vertical_name": vertical_map.get(f.get("vertical_id"), f.get("vertical_id")),
+            "sku_id": f.get("sku_id"),
+            "sku_description": sku.get("description", ""),
+            "brand": sku.get("brand", ""),
+            "forecast_month": f.get("forecast_month"),
+            "forecast_qty": forecast_qty,
+            "scheduled_qty": scheduled_qty,
+            "remaining_qty": remaining_qty,
+            "is_fully_scheduled": remaining_qty == 0,
+            "priority": f.get("priority", "MEDIUM"),
+            "status": f.get("status"),
+            "notes": f.get("notes", "")
+        })
+    
+    # Sort by remaining quantity (highest first) then by forecast month
+    result.sort(key=lambda x: (-x["remaining_qty"], x.get("forecast_month", "")))
+    
+    return result
+
+
+@router.get("/cpc/demand-forecasts/summary")
+async def get_demand_forecasts_summary():
+    """Get summary of demand forecasts for CPC dashboard"""
+    forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"_id": 0, "quantity": 1, "status": 1, "id": 1, "sku_id": 1}
+    ).to_list(5000)
+    
+    total_forecast_qty = sum(f.get("quantity", 0) for f in forecasts)
+    
+    # Get scheduled quantities
+    schedules = await db.production_schedules.find(
+        {"status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "target_quantity": 1}
+    ).to_list(5000)
+    
+    total_scheduled_qty = sum(s.get("target_quantity", 0) for s in schedules)
+    
+    return {
+        "total_forecasts": len(forecasts),
+        "total_forecast_qty": total_forecast_qty,
+        "total_scheduled_qty": total_scheduled_qty,
+        "remaining_to_schedule": max(0, total_forecast_qty - total_scheduled_qty),
+        "scheduling_percent": round(total_scheduled_qty / total_forecast_qty * 100, 1) if total_forecast_qty > 0 else 0
+    }
+
+
+class ScheduleFromForecastRequest(BaseModel):
+    forecast_id: str
+    quantity: int
+    target_date: datetime
+    priority: Optional[str] = "MEDIUM"
+    notes: Optional[str] = ""
+
+
+@router.post("/cpc/schedule-from-forecast")
+async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
+    """Create a production schedule directly from a demand forecast"""
+    # Get the forecast
+    forecast = await db.forecasts.find_one({"id": data.forecast_id}, {"_id": 0})
+    if not forecast:
+        raise HTTPException(status_code=404, detail="Forecast not found")
+    
+    if forecast.get("status") not in ["CONFIRMED", "CONVERTED"]:
+        raise HTTPException(status_code=400, detail="Can only schedule from confirmed forecasts")
+    
+    # Get SKU from forecast
+    sku_id = forecast.get("sku_id")
+    if not sku_id:
+        raise HTTPException(status_code=400, detail="Forecast has no SKU linked")
+    
+    # Verify SKU exists
+    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    if not sku:
+        raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
+    
+    # Check remaining quantity
+    existing_schedules = await db.production_schedules.find(
+        {"forecast_id": data.forecast_id, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "target_quantity": 1}
+    ).to_list(100)
+    
+    already_scheduled = sum(s.get("target_quantity", 0) for s in existing_schedules)
+    forecast_qty = forecast.get("quantity", 0)
+    remaining = forecast_qty - already_scheduled
+    
+    if data.quantity > remaining:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Quantity exceeds remaining. Forecast: {forecast_qty}, Already scheduled: {already_scheduled}, Remaining: {remaining}"
+        )
+    
+    # Create production schedule
+    count = await db.production_schedules.count_documents({})
+    schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    schedule = {
+        "id": str(uuid.uuid4()),
+        "schedule_code": schedule_code,
+        "forecast_id": data.forecast_id,
+        "dispatch_lot_id": None,
+        "sku_id": sku_id,
+        "sku_description": sku.get("description", ""),
+        "target_quantity": data.quantity,
+        "allocated_quantity": 0,
+        "completed_quantity": 0,
+        "target_date": data.target_date,
+        "priority": data.priority or forecast.get("priority", "MEDIUM"),
+        "status": "DRAFT",
+        "notes": data.notes or f"Scheduled from forecast {forecast.get('forecast_code', '')}",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.production_schedules.insert_one(schedule)
+    
+    # Update forecast status if fully scheduled
+    new_scheduled_total = already_scheduled + data.quantity
+    if new_scheduled_total >= forecast_qty:
+        await db.forecasts.update_one(
+            {"id": data.forecast_id},
+            {"$set": {"status": "CONVERTED"}}
+        )
+    
+    del schedule["_id"]
+    return {
+        "message": "Production schedule created from forecast",
+        "schedule": serialize_doc(schedule),
+        "remaining_forecast_qty": remaining - data.quantity
+    }
