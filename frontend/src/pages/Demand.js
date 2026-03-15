@@ -362,10 +362,10 @@ const Demand = () => {
                   </div>
                   <div>
                     <Label>SKU (Optional - for SKU-level forecast)</Label>
-                    <Select value={forecastForm.sku_id} onValueChange={(v) => setForecastForm({...forecastForm, sku_id: v})}>
+                    <Select value={forecastForm.sku_id || "_all"} onValueChange={(v) => setForecastForm({...forecastForm, sku_id: v === "_all" ? "" : v})}>
                       <SelectTrigger><SelectValue placeholder="All SKUs in vertical" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All SKUs in Vertical</SelectItem>
+                        <SelectItem value="_all">All SKUs in Vertical</SelectItem>
                         {filteredSkusForForecast.slice(0, 200).map(s => (
                           <SelectItem key={s.sku_id} value={s.sku_id}>
                             {s.sku_id} - {s.description?.slice(0, 30)}
