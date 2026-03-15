@@ -821,6 +821,44 @@ async def get_unassigned_schedules():
     }
 
 
+@router.post("/cpc/fix-draft-schedules")
+async def fix_draft_schedules_with_branch():
+    """
+    Fix DRAFT schedules that have branch assigned - update to SCHEDULED.
+    Status workflow:
+    - SCHEDULED: Has branch, ready for production
+    - IN_PROGRESS: Production started
+    - COMPLETED: Production finished
+    - CANCELLED: Schedule cancelled
+    """
+    # Find DRAFT schedules with branch assigned
+    drafts_with_branch = await db.production_schedules.find(
+        {
+            "status": "DRAFT",
+            "branch": {"$exists": True, "$ne": None, "$ne": ""}
+        },
+        {"_id": 0, "schedule_code": 1, "id": 1, "branch": 1}
+    ).to_list(1000)
+    
+    if not drafts_with_branch:
+        return {"message": "No DRAFT schedules with branches found", "updated": 0}
+    
+    # Update to SCHEDULED
+    result = await db.production_schedules.update_many(
+        {
+            "status": "DRAFT",
+            "branch": {"$exists": True, "$ne": None, "$ne": ""}
+        },
+        {"$set": {"status": "SCHEDULED"}}
+    )
+    
+    return {
+        "message": f"Updated {result.modified_count} schedules from DRAFT to SCHEDULED",
+        "updated": result.modified_count,
+        "schedules": [s.get("schedule_code") for s in drafts_with_branch]
+    }
+
+
 # ===== RM Shortage Report =====
 
 @router.get("/cpc/rm-shortage-report")
