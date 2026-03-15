@@ -35,6 +35,10 @@ const Demand = () => {
   // Dispatch Lots popup state
   const [showLotsDialog, setShowLotsDialog] = useState(false);
   const [selectedForecastLots, setSelectedForecastLots] = useState({ forecast: null, lots: [] });
+  const [buyerExistingLots, setBuyerExistingLots] = useState([]);
+  const [addToLotQty, setAddToLotQty] = useState(0);
+  const [selectedLotForAdd, setSelectedLotForAdd] = useState("");
+  const [addingToLot, setAddingToLot] = useState(false);
   
   // Check if user can confirm forecasts
   const canConfirmForecasts = hasRole && (hasRole('MASTER_ADMIN') || hasRole('DEMAND_PLANNER'));
