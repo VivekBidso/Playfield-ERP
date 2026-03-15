@@ -179,17 +179,23 @@ const Demand = () => {
   };
 
   const handleCreateForecast = async () => {
+    // Validate buyer is required
+    if (!forecastForm.buyer_id) {
+      toast.error("Buyer is required for creating a forecast");
+      return;
+    }
+    
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       
       const payload = {
+        buyer_id: forecastForm.buyer_id,  // REQUIRED
         forecast_month: new Date(forecastForm.forecast_month + "-01").toISOString(),
         quantity: forecastForm.quantity,
         priority: forecastForm.priority,
         notes: forecastForm.notes || ""
       };
       
-      if (forecastForm.buyer_id) payload.buyer_id = forecastForm.buyer_id;
       if (forecastForm.vertical_id) payload.vertical_id = forecastForm.vertical_id;
       if (forecastForm.sku_id) payload.sku_id = forecastForm.sku_id;
       
