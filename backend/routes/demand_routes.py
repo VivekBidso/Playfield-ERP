@@ -57,6 +57,24 @@ class DispatchLotMultiCreate(BaseModel):
     notes: Optional[str] = ""
     lines: List[DispatchLotLineInput]
 
+
+# Model for updating dispatch lot line
+class DispatchLotLineUpdate(BaseModel):
+    id: Optional[str] = None  # None for new lines, existing id for updates
+    sku_id: str
+    brand_id: Optional[str] = None
+    vertical_id: Optional[str] = None
+    quantity: int
+    forecast_id: Optional[str] = None
+
+
+# Model for updating dispatch lot
+class DispatchLotUpdate(BaseModel):
+    target_date: Optional[datetime] = None
+    priority: Optional[str] = None
+    notes: Optional[str] = None
+    lines: Optional[List[DispatchLotLineUpdate]] = None  # If provided, replaces all lines
+
 # --- Forecasts ---
 @router.get("/forecasts")
 async def get_forecasts(
