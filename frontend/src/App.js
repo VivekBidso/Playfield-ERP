@@ -13,6 +13,7 @@ import VendorManagement from "@/pages/VendorManagement";
 import ProductionPlanning from "@/pages/ProductionPlanning";
 import Production from "@/pages/Production";
 import Dispatch from "@/pages/Dispatch";
+import DispatchLots from "@/pages/DispatchLots";
 import Reports from "@/pages/Reports";
 import UserManagement from "@/pages/UserManagement";
 import TechOps from "@/pages/TechOps";
