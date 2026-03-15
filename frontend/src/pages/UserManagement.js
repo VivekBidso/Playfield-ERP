@@ -226,7 +226,14 @@ const UserManagement = () => {
   };
 
   const resetForm = () => {
-    setFormData({ email: "", password: "", name: "", role: "branch_user", assigned_branches: [] });
+    setFormData({ 
+      email: "", 
+      password: "", 
+      name: "", 
+      role: "branch_user", 
+      rbac_role: "BRANCH_OPS_USER",
+      assigned_branches: [] 
+    });
     setEditMode(false);
     setSelectedUser(null);
   };
