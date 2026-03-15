@@ -1,0 +1,80 @@
+{
+  "summary": "Completed testing of CPC and Demand module enhancements. All 21 backend API tests passed (100%). Frontend UI verified - all new features working correctly including forecast table new columns, CPC Plan dialog with branch selector and capacity validation, and View Lots dialog with Add to Existing Lot and Create New Lot options.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cpc_demand_enhancements.py",
+    "/app/test_reports/pytest/pytest_cpc_demand_enhancements.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fixed missing getHeaders() function in Demand.js - was causing errors when using Add to Lot or Create New Lot features"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cpc_demand_enhancements.py",
+    "/app/frontend/src/pages/Demand.js"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@factory.com",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "Created new dispatch lot with 10 units during UI testing via Create New Lot feature",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "CPC and Demand module enhancements fully tested. All new endpoints working: GET /api/forecasts returns dispatch_allocated, production_scheduled, schedule_pending columns; GET /api/skus/{sku_id}/assigned-branches returns branches for SKU; GET /api/branches/{branch}/capacity-for-date returns capacity info; POST /api/cpc/schedule-from-forecast accepts branch parameter with capacity validation; POST /api/dispatch-lots/{lot_id}/add-line adds line to existing lot; GET /api/dispatch-lots/by-buyer/{buyer_id} returns buyer's lots; POST /api/branches/model-capacity/upload uploads model-specific capacity. Frontend: Demand page shows new columns (Forecast Qty, Dispatch Alloc, Prod Scheduled, Sched Pending), View Lots dialog has Add to Existing Lot and Create New Lot options. CPC Plan dialog has Branch selector with capacity info display.",
+  "features_tested": {
+    "backend_api": {
+      "GET /api/forecasts - dispatch_allocated column": "PASS",
+      "GET /api/forecasts - production_scheduled column": "PASS",
+      "GET /api/forecasts - schedule_pending column": "PASS",
+      "GET /api/forecasts - schedule_pending calculation": "PASS",
+      "GET /api/skus/{sku_id}/assigned-branches - success": "PASS",
+      "GET /api/skus/{sku_id}/assigned-branches - invalid SKU": "PASS - returns 404",
+      "GET /api/branches/{branch}/capacity-for-date - success": "PASS",
+      "GET /api/branches/{branch}/capacity-for-date - invalid date": "PASS - returns 400",
+      "GET /api/branches/{branch}/capacity-for-date - invalid branch": "PASS - returns 404",
+      "POST /api/cpc/schedule-from-forecast - with branch": "PASS",
+      "POST /api/cpc/schedule-from-forecast - invalid branch": "PASS - returns 404",
+      "POST /api/dispatch-lots/{lot_id}/add-line - success": "PASS",
+      "POST /api/dispatch-lots/{lot_id}/add-line - nonexistent lot": "PASS - returns 404",
+      "GET /api/dispatch-lots/by-buyer/{buyer_id}": "PASS",
+      "GET /api/dispatch-lots/by-buyer - excludes completed": "PASS",
+      "POST /api/branches/model-capacity/upload - success": "PASS",
+      "POST /api/branches/model-capacity/upload - invalid branch": "PASS - returns 404",
+      "POST /api/branches/model-capacity/upload - invalid model": "PASS - returns 400",
+      "POST /api/branches/model-capacity/upload - empty data": "PASS - returns 400",
+      "GET /api/cpc/demand-forecasts": "PASS",
+      "GET /api/branches/{branch}/model-capacity": "PASS"
+    },
+    "frontend_ui": {
+      "demand_page_forecast_qty_column": "PASS - Column visible in table header",
+      "demand_page_dispatch_alloc_column": "PASS - Column visible in table header",
+      "demand_page_prod_scheduled_column": "PASS - Column visible in table header",
+      "demand_page_sched_pending_column": "PASS - Column visible in table header",
+      "demand_page_view_lots_button": "PASS - 9 View Lots buttons found",
+      "demand_page_view_lots_dialog": "PASS - Shows linked dispatch lots",
+      "demand_page_add_to_existing_lot": "PASS - Option visible in dialog",
+      "demand_page_create_new_lot": "PASS - Button visible and functional",
+      "cpc_page_forecasts_tab": "PASS - Shows demand forecasts with Plan button",
+      "cpc_page_plan_dialog": "PASS - Opens with forecast details",
+      "cpc_page_plan_dialog_branch_selector": "PASS - Shows available branches for SKU",
+      "cpc_page_plan_dialog_capacity_info": "PASS - Shows capacity when branch and date selected"
+    }
+  },
+  "bug_fixed": {
+    "file": "/app/frontend/src/pages/Demand.js",
+    "issue": "Missing getHeaders() function causing errors in Add to Lot and Create New Lot features",
+    "fix": "Added getHeaders() helper function that returns auth headers from token"
+  }
+}
