@@ -24,6 +24,7 @@ import {
   Activity,
   Shield
 } from "lucide-react";
+import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 
