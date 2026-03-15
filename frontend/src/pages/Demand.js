@@ -596,7 +596,7 @@ const Demand = () => {
                 <DialogTrigger asChild>
                   <Button className="uppercase text-xs tracking-wide" data-testid="add-forecast-btn">
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Forecast
+                    New Forecast
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-lg">
