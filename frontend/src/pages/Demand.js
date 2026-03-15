@@ -344,6 +344,42 @@ const Demand = () => {
     }
   };
 
+  // Edit forecast - open dialog with existing data
+  const handleEditForecast = (forecast) => {
+    setForecastForm({
+      buyer_id: forecast.buyer_id || "",
+      vertical_id: forecast.vertical_id || "",
+      model_id: "",
+      brand_id: "",
+      sku_id: forecast.sku_id || "",
+      forecast_month: forecast.forecast_month ? 
+        (typeof forecast.forecast_month === 'string' ? forecast.forecast_month.slice(0, 7) : forecast.forecast_month.toISOString().slice(0, 7)) 
+        : new Date().toISOString().slice(0, 7),
+      quantity: forecast.quantity || 0,
+      priority: forecast.priority || "MEDIUM",
+      notes: forecast.notes || "",
+      // Store ID for update
+      id: forecast.id
+    });
+    setShowForecastDialog(true);
+  };
+
+  // Delete forecast
+  const handleDeleteForecast = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this forecast?")) {
+      return;
+    }
+    
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.delete(`${API}/forecasts/${id}`, { headers });
+      toast.success("Forecast deleted");
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete forecast");
+    }
+  };
+
   // Get dispatch lots for a forecast
   const fetchForecastDispatchLots = async (forecastId) => {
     try {
