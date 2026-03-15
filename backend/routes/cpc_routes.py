@@ -2120,7 +2120,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
             detail=f"Quantity exceeds remaining. Forecast: {forecast_qty}, Already scheduled: {already_scheduled}, Remaining: {remaining}"
         )
     
-    # Create production schedule
+    # Create production schedule - status SCHEDULED (not DRAFT since branch is assigned)
     count = await db.production_schedules.count_documents({})
     schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
     
@@ -2129,7 +2129,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
         "schedule_code": schedule_code,
         "forecast_id": data.forecast_id,
         "dispatch_lot_id": None,
-        "branch": branch_name,  # NEW: Include branch in schedule
+        "branch": data.branch,  # Branch is REQUIRED
         "sku_id": sku_id,
         "sku_description": sku.get("description", ""),
         "target_quantity": data.quantity,
@@ -2137,7 +2137,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
         "completed_quantity": 0,
         "target_date": data.target_date,
         "priority": data.priority or forecast.get("priority", "MEDIUM"),
-        "status": "DRAFT",
+        "status": "SCHEDULED",  # SCHEDULED since branch is assigned
         "notes": data.notes or f"Scheduled from forecast {forecast.get('forecast_code', '')}",
         "created_at": datetime.now(timezone.utc)
     }
