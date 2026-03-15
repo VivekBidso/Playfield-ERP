@@ -208,7 +208,7 @@ const CPC = () => {
       return;
     }
     try {
-      const res = await axios.get(`${API}/branches/${encodeURIComponent(branch)}/capacity-for-date?date=${date}`);
+      const res = await axios.get(`${API}/branches/${encodeURIComponent(branch)}/capacity-for-date?date_str=${date}`);
       setBranchCapacityInfo(res.data);
     } catch (error) {
       console.error("Failed to fetch capacity:", error);
