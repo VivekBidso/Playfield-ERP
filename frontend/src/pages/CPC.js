@@ -47,6 +47,13 @@ const CPC = () => {
   const [demandForecasts, setDemandForecasts] = useState([]);
   const [forecastSummary, setForecastSummary] = useState(null);
   
+  // NEW: Model Capacity Upload
+  const [showModelCapacityDialog, setShowModelCapacityDialog] = useState(false);
+  const [modelCapacityBranch, setModelCapacityBranch] = useState("");
+  const [modelCapacityRows, setModelCapacityRows] = useState([{ month: "", day: 1, model_id: "", capacity_qty: 0 }]);
+  const [models, setModels] = useState([]);
+  const [uploadingCapacity, setUploadingCapacity] = useState(false);
+  
   // Dialogs
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showCapacityDialog, setShowCapacityDialog] = useState(false);
