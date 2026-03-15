@@ -813,9 +813,10 @@ const DispatchLots = () => {
                       {selectedLot.readiness_status === 'READY' ? 'DISPATCH READY' : 
                        selectedLot.readiness_status === 'PARTIAL' ? 'PARTIALLY READY' : 
                        'PENDING PRODUCTION'}
-                  </span>
-                </div>
-              )}
+                    </span>
+                  </div>
+                )}
+              </div>
             </DialogTitle>
           </DialogHeader>
 
