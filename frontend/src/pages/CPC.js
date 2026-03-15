@@ -337,6 +337,138 @@ const CPC = () => {
           </Card>
         </TabsContent>
 
+        {/* Demand Forecasts Tab */}
+        <TabsContent value="forecasts" data-testid="forecasts-content">
+          {/* Forecast Summary */}
+          {forecastSummary && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Total Forecasts</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-black">{forecastSummary.total_forecasts}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Forecast Qty</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-black text-blue-600">{forecastSummary.total_forecast_qty?.toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Scheduled</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-black text-green-600">{forecastSummary.total_scheduled_qty?.toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Remaining</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-black text-orange-600">{forecastSummary.remaining_to_schedule?.toLocaleString()}</div>
+                  <Progress value={forecastSummary.scheduling_percent || 0} className="h-2 mt-2" />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Forecast Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-bold flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" />
+                Demand Forecasts from Demand Team
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                View confirmed forecasts and schedule production directly
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-sm overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-50">
+                    <tr>
+                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast</th>
+                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
+                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
+                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
+                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Forecast</th>
+                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Scheduled</th>
+                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Remaining</th>
+                      <th className="h-10 px-4 text-center font-mono text-xs uppercase">Status</th>
+                      <th className="h-10 px-4 text-center font-mono text-xs uppercase">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {demandForecasts.map((f) => (
+                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_scheduled ? 'opacity-50' : ''}`}>
+                        <td className="p-4 font-mono text-sm font-bold">{f.forecast_code}</td>
+                        <td className="p-4 text-sm">{f.buyer_name || '-'}</td>
+                        <td className="p-4">
+                          <div className="font-mono text-sm font-bold">{f.sku_id || f.vertical_name}</div>
+                          <div className="text-xs text-zinc-500 truncate max-w-[200px]">{f.sku_description}</div>
+                        </td>
+                        <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
+                        <td className="p-4 font-mono font-bold text-right">{f.forecast_qty?.toLocaleString()}</td>
+                        <td className="p-4 font-mono text-right text-green-600">{f.scheduled_qty?.toLocaleString()}</td>
+                        <td className="p-4 font-mono font-bold text-right">
+                          <span className={f.remaining_qty > 0 ? 'text-orange-600' : 'text-green-600'}>
+                            {f.remaining_qty?.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {f.is_fully_scheduled ? (
+                            <Badge className="bg-green-100 text-green-700">Scheduled</Badge>
+                          ) : (
+                            <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          {!f.is_fully_scheduled && f.sku_id && (
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setForecastScheduleForm({
+                                  forecast_id: f.id,
+                                  forecast_code: f.forecast_code,
+                                  sku_id: f.sku_id,
+                                  remaining_qty: f.remaining_qty,
+                                  quantity: f.remaining_qty,
+                                  target_date: "",
+                                  priority: f.priority || "MEDIUM"
+                                });
+                                setShowScheduleFromForecastDialog(true);
+                              }}
+                              className="uppercase text-xs"
+                              data-testid={`schedule-forecast-${f.forecast_code}`}
+                            >
+                              <Factory className="w-3 h-3 mr-1" />
+                              Schedule
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {demandForecasts.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                          No confirmed demand forecasts yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Schedules Tab */}
         <TabsContent value="schedules">
           <div className="border rounded-sm">
