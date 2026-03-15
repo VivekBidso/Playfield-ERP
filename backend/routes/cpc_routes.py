@@ -649,6 +649,131 @@ async def get_demand_forecasts_summary():
     }
 
 
+@router.get("/cpc/demand-forecasts/download")
+async def download_demand_forecasts():
+    """Download confirmed demand forecasts as Excel file for CPC"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    # Get confirmed forecasts
+    forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"_id": 0}
+    ).sort("forecast_month", 1).to_list(5000)
+    
+    # Get all production schedules for remaining qty calculation
+    all_schedules = await db.production_schedules.find(
+        {"forecast_id": {"$exists": True, "$ne": None}, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "forecast_id": 1, "target_quantity": 1}
+    ).to_list(10000)
+    
+    scheduled_by_forecast = {}
+    for s in all_schedules:
+        fid = s.get("forecast_id")
+        if fid:
+            scheduled_by_forecast[fid] = scheduled_by_forecast.get(fid, 0) + s.get("target_quantity", 0)
+    
+    # Get buyer, vertical, SKU details
+    buyer_ids = list(set(f.get("buyer_id") for f in forecasts if f.get("buyer_id")))
+    buyers = await db.buyers.find({"id": {"$in": buyer_ids}}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(100)
+    buyer_map = {b["id"]: b for b in buyers}
+    
+    sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(5000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    vertical_ids = list(set(f.get("vertical_id") for f in forecasts if f.get("vertical_id")))
+    verticals = await db.verticals.find({"id": {"$in": vertical_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    vertical_map = {v["id"]: v["name"] for v in verticals}
+    
+    # Create Excel workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Demand Forecasts"
+    
+    # Define styles
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Headers
+    headers = [
+        "Forecast ID", "Buyer Code", "Buyer Name", "Vertical", "Brand", "Model",
+        "SKU ID", "SKU Description", "Forecast Month", "Forecast Qty",
+        "Scheduled Qty", "Remaining Qty", "Priority", "Status"
+    ]
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+    
+    # Data rows
+    for row_num, f in enumerate(forecasts, 2):
+        buyer = buyer_map.get(f.get("buyer_id"), {})
+        sku = sku_map.get(f.get("sku_id"), {})
+        forecast_qty = f.get("quantity", 0)
+        scheduled_qty = scheduled_by_forecast.get(f.get("id"), 0)
+        remaining_qty = max(0, forecast_qty - scheduled_qty)
+        
+        row_data = [
+            f.get("forecast_code", ""),
+            buyer.get("code", ""),
+            buyer.get("name", ""),
+            vertical_map.get(f.get("vertical_id"), sku.get("vertical", "")),
+            sku.get("brand", ""),
+            sku.get("model", ""),
+            f.get("sku_id", ""),
+            sku.get("description", ""),
+            f.get("forecast_month", "")[:7] if f.get("forecast_month") else "",
+            forecast_qty,
+            scheduled_qty,
+            remaining_qty,
+            f.get("priority", "MEDIUM"),
+            f.get("status", "")
+        ]
+        
+        for col, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col, value=value)
+            cell.border = thin_border
+            if col in [10, 11, 12]:  # Numeric columns
+                cell.alignment = Alignment(horizontal="right")
+    
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[column].width = adjusted_width
+    
+    # Save to bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"demand_forecasts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 class ScheduleFromForecastRequest(BaseModel):
     forecast_id: str
     quantity: int
