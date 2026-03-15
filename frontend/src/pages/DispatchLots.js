@@ -914,6 +914,154 @@ const DispatchLots = () => {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* Edit Lot Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5" />
+              Edit Dispatch Lot: {editingLot?.lot_code}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Lot Details Section */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center gap-2 mb-4">
+                <Box className="w-4 h-4 text-primary" />
+                <Label className="text-sm font-bold uppercase tracking-wide">Lot Details</Label>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-zinc-500">Target Date *</Label>
+                  <Input
+                    type="date"
+                    value={editTargetDate}
+                    onChange={(e) => setEditTargetDate(e.target.value)}
+                    data-testid="edit-target-date"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-zinc-500">Priority</Label>
+                  <Select value={editPriority} onValueChange={setEditPriority}>
+                    <SelectTrigger data-testid="edit-priority">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LOW">Low</SelectItem>
+                      <SelectItem value="MEDIUM">Medium</SelectItem>
+                      <SelectItem value="HIGH">High</SelectItem>
+                      <SelectItem value="CRITICAL">Critical</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="mt-4">
+                <Label className="text-xs text-zinc-500">Notes</Label>
+                <Input
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Optional notes for this lot"
+                  data-testid="edit-notes"
+                />
+              </div>
+            </div>
+
+            {/* Line Items Section */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-primary" />
+                  <Label className="text-sm font-bold uppercase tracking-wide">Line Items</Label>
+                </div>
+                <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded">
+                  {editLines.length} lines | {editLines.reduce((sum, l) => sum + (l.quantity || 0), 0).toLocaleString()} units
+                </span>
+              </div>
+
+              <div className="border rounded overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-mono text-xs uppercase">#</th>
+                      <th className="px-3 py-2 text-left font-mono text-xs uppercase">SKU</th>
+                      <th className="px-3 py-2 text-left font-mono text-xs uppercase">Description</th>
+                      <th className="px-3 py-2 text-right font-mono text-xs uppercase">Quantity</th>
+                      <th className="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editLines.map((line, idx) => (
+                      <tr key={line.id || idx} className="border-t hover:bg-zinc-50">
+                        <td className="px-3 py-2 font-mono text-zinc-500">{idx + 1}</td>
+                        <td className="px-3 py-2 font-mono font-medium">{line.sku_id}</td>
+                        <td className="px-3 py-2 text-zinc-600 truncate max-w-[150px]">{line.sku_description || '-'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <Input
+                            type="number"
+                            value={line.quantity}
+                            onChange={(e) => handleEditLineQuantity(idx, e.target.value)}
+                            className="w-24 text-right font-mono"
+                            min={1}
+                            data-testid={`edit-line-qty-${idx}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleRemoveEditLine(idx)}
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            disabled={editLines.length <= 1}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-zinc-50 border-t">
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2 text-right font-bold uppercase text-xs">Total</td>
+                      <td className="px-3 py-2 font-mono font-bold text-right text-primary">
+                        {editLines.reduce((sum, l) => sum + (l.quantity || 0), 0).toLocaleString()}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              
+              <p className="text-xs text-zinc-500 mt-2">
+                Note: You can adjust quantities or remove lines. Adding new SKUs requires creating a new lot.
+              </p>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex gap-3">
+              <Button 
+                variant="outline"
+                onClick={() => setShowEditDialog(false)}
+                className="flex-1"
+                disabled={savingEdit}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSaveEdit} 
+                className="flex-1 uppercase tracking-wide"
+                disabled={savingEdit || editLines.length === 0 || !editTargetDate}
+                data-testid="save-edit-btn"
+              >
+                {savingEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
