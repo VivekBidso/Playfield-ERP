@@ -142,7 +142,7 @@ const TechOps = () => {
         toast.success("Brand created");
       }
       setShowBrandDialog(false);
-      setBrandForm({ code: "", name: "", buyer_id: "" });
+      setBrandForm({ code: "", name: "" });
       setEditingItem(null);
       fetchAllData();
     } catch (error) {
@@ -215,7 +215,7 @@ const TechOps = () => {
       setModelForm({ vertical_id: "", code: "", name: "", description: "" });
       setShowModelDialog(true);
     } else if (type === 'brand') {
-      setBrandForm({ code: "", name: "", buyer_id: "" });
+      setBrandForm({ code: "", name: "" });
       setShowBrandDialog(true);
     } else if (type === 'buyer') {
       setBuyerForm({ code: "", name: "", country: "", contact_email: "", payment_terms_days: 30 });
