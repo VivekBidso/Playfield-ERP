@@ -733,7 +733,7 @@ async def download_demand_forecasts():
             sku.get("model", ""),
             f.get("sku_id", ""),
             sku.get("description", ""),
-            f.get("forecast_month", "")[:7] if f.get("forecast_month") else "",
+            f.get("forecast_month").strftime("%Y-%m") if isinstance(f.get("forecast_month"), datetime) else str(f.get("forecast_month", ""))[:7],
             forecast_qty,
             scheduled_qty,
             remaining_qty,
