@@ -1235,6 +1235,145 @@ const CPC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Model Capacity Upload Dialog */}
+      <Dialog open={showModelCapacityDialog} onOpenChange={setShowModelCapacityDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Upload Model-Specific Capacity
+            </DialogTitle>
+            <DialogDescription>
+              Upload capacity limits by Month, Day, and Model. This overrides the base branch capacity for specific days.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Branch Selection */}
+            <div>
+              <Label className="text-sm font-bold">Select Branch *</Label>
+              <Select value={modelCapacityBranch} onValueChange={setModelCapacityBranch}>
+                <SelectTrigger data-testid="model-capacity-branch">
+                  <SelectValue placeholder="Select a branch..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {branchCapacities.map(b => (
+                    <SelectItem key={b.branch} value={b.branch}>{b.branch}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Capacity Rows */}
+            <div className="border rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <Label className="text-sm font-bold">Capacity Entries</Label>
+                <Button size="sm" variant="outline" onClick={addModelCapacityRow}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Row
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-2 text-xs font-mono uppercase text-muted-foreground">
+                  <div className="col-span-3">Month (YYYY-MM)</div>
+                  <div className="col-span-2">Day</div>
+                  <div className="col-span-4">Model</div>
+                  <div className="col-span-2">Capacity</div>
+                  <div className="col-span-1"></div>
+                </div>
+                
+                {modelCapacityRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-3">
+                      <Input 
+                        type="month" 
+                        value={row.month} 
+                        onChange={(e) => updateModelCapacityRow(idx, 'month', e.target.value)}
+                        className="text-sm"
+                        data-testid={`cap-month-${idx}`}
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Input 
+                        type="number" 
+                        min={1} 
+                        max={31}
+                        value={row.day} 
+                        onChange={(e) => updateModelCapacityRow(idx, 'day', parseInt(e.target.value) || 1)}
+                        className="text-sm font-mono"
+                        data-testid={`cap-day-${idx}`}
+                      />
+                    </div>
+                    <div className="col-span-4">
+                      <Select 
+                        value={row.model_id} 
+                        onValueChange={(v) => updateModelCapacityRow(idx, 'model_id', v)}
+                      >
+                        <SelectTrigger className="text-sm" data-testid={`cap-model-${idx}`}>
+                          <SelectValue placeholder="Select model..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {models.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2">
+                      <Input 
+                        type="number" 
+                        min={0}
+                        value={row.capacity_qty} 
+                        onChange={(e) => updateModelCapacityRow(idx, 'capacity_qty', parseInt(e.target.value) || 0)}
+                        className="text-sm font-mono"
+                        data-testid={`cap-qty-${idx}`}
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => removeModelCapacityRow(idx)}
+                        disabled={modelCapacityRows.length <= 1}
+                        className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Info */}
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+              <p className="font-medium text-blue-800">How it works:</p>
+              <ul className="text-blue-700 mt-1 space-y-1 list-disc list-inside">
+                <li>Model-specific capacity overrides base branch capacity for the specified day</li>
+                <li>If no model capacity is set, the base capacity (units/day) is used</li>
+                <li>Capacity validation happens when scheduling production</li>
+              </ul>
+            </div>
+            
+            {/* Submit */}
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setShowModelCapacityDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleUploadModelCapacity} 
+                disabled={uploadingCapacity || !modelCapacityBranch}
+                className="flex-1 uppercase text-xs"
+                data-testid="submit-model-capacity"
+              >
+                {uploadingCapacity ? "Uploading..." : "Upload Capacity"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
