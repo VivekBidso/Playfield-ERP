@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Package, Box, AlertTriangle, TrendingUp, ArrowRightLeft, Filter, X } from "lucide-react";
+import { Package, Box, AlertTriangle, TrendingUp, ArrowRightLeft, Filter, X, Calendar, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import useBranchStore from "@/store/branchStore";
+import useAuthStore from "@/store/authStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -24,11 +25,19 @@ const BRANCHES = [
 
 const Dashboard = () => {
   const { selectedBranch } = useBranchStore();
+  const { hasRole, token } = useAuthStore();
+  const isDemandPlanner = hasRole('DEMAND_PLANNER') && !hasRole('MASTER_ADMIN');
+  
   const [stats, setStats] = useState(null);
   const [productionData, setProductionData] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [transferSummary, setTransferSummary] = useState(null);
+  
+  // Demand-specific data
+  const [demandStats, setDemandStats] = useState(null);
+  const [forecasts, setForecasts] = useState([]);
+  const [dispatchLots, setDispatchLots] = useState([]);
   
   // Transfer dialog state
   const [showTransferDialog, setShowTransferDialog] = useState(false);
@@ -51,8 +60,12 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [selectedBranch]);
+    if (isDemandPlanner) {
+      fetchDemandDashboardData();
+    } else {
+      fetchDashboardData();
+    }
+  }, [selectedBranch, isDemandPlanner]);
 
   // Set from_branch when selected branch changes
   useEffect(() => {
@@ -74,14 +87,54 @@ const Dashboard = () => {
     applyFilters();
   }, [selectedVertical, selectedModel, searchQuery, skus]);
 
+  const fetchDemandDashboardData = async () => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      
+      const [forecastsRes, lotsRes, skusRes] = await Promise.all([
+        axios.get(`${API}/forecasts`, { headers }),
+        axios.get(`${API}/dispatch-lots`, { headers }),
+        axios.get(`${API}/skus`, { headers })
+      ]);
+      
+      setForecasts(forecastsRes.data);
+      setDispatchLots(lotsRes.data);
+      
+      // Calculate demand-specific stats
+      const draftForecasts = forecastsRes.data.filter(f => f.status === 'DRAFT').length;
+      const confirmedForecasts = forecastsRes.data.filter(f => f.status === 'CONFIRMED').length;
+      const totalForecastQty = forecastsRes.data.reduce((sum, f) => sum + (f.quantity || 0), 0);
+      const pendingLots = lotsRes.data.filter(l => l.status === 'CREATED').length;
+      const inProductionLots = lotsRes.data.filter(l => 
+        ['PRODUCTION_ASSIGNED', 'PARTIALLY_PRODUCED'].includes(l.status)
+      ).length;
+      
+      setDemandStats({
+        draft_forecasts: draftForecasts,
+        confirmed_forecasts: confirmedForecasts,
+        total_forecast_qty: totalForecastQty,
+        pending_lots: pendingLots,
+        in_production_lots: inProductionLots,
+        total_skus: skusRes.data.length
+      });
+      
+      setStats({ loaded: true }); // Mark as loaded for the loading check
+    } catch (error) {
+      console.error('Error fetching demand dashboard data:', error);
+      setStats({ loaded: true, error: true });
+    }
+  };
+
   const fetchDashboardData = async () => {
     try {
+      const branchParam = selectedBranch ? `?branch=${encodeURIComponent(selectedBranch)}` : '';
+      
       const [statsRes, prodRes, dispatchRes, transferRes, summaryRes] = await Promise.all([
-        axios.get(`${API}/dashboard/stats?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/production-entries?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/dispatch-entries?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/sku-transfers?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/sku-transfers/summary?branch=${encodeURIComponent(selectedBranch)}`)
+        axios.get(`${API}/dashboard/stats${branchParam}`),
+        axios.get(`${API}/production-entries${branchParam}`),
+        axios.get(`${API}/dispatch-entries${branchParam}`),
+        axios.get(`${API}/sku-transfers${branchParam}`),
+        axios.get(`${API}/sku-transfers/summary${branchParam}`)
       ]);
 
       setStats(statsRes.data);
@@ -115,6 +168,7 @@ const Dashboard = () => {
       setRecentActivity(activity);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      setStats({ loaded: true, error: true });
     }
   };
 
