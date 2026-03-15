@@ -355,8 +355,7 @@ const TechOps = () => {
               <thead className="bg-zinc-50">
                 <tr>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Code</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Name</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Brand Name</th>
                   <th className="h-10 px-4 text-right font-mono text-xs uppercase">Actions</th>
                 </tr>
               </thead>
@@ -365,7 +364,6 @@ const TechOps = () => {
                   <tr key={b.id} className="border-t">
                     <td className="p-4 font-mono font-bold">{b.code}</td>
                     <td className="p-4">{b.name}</td>
-                    <td className="p-4 text-sm">{b.buyer_id ? getBuyerName(b.buyer_id) : '-'}</td>
                     <td className="p-4 text-right">
                       <Button variant="ghost" size="sm" onClick={() => handleEditBrand(b)}>
                         <Pencil className="w-4 h-4" />
@@ -377,7 +375,7 @@ const TechOps = () => {
                   </tr>
                 ))}
                 {brands.length === 0 && (
-                  <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">No brands defined</td></tr>
+                  <tr><td colSpan={3} className="p-8 text-center text-muted-foreground">No brands defined</td></tr>
                 )}
               </tbody>
             </table>
