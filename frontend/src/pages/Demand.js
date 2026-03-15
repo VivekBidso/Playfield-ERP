@@ -446,6 +446,9 @@ const Demand = () => {
   const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id || '-';
   const getSkuDescription = (skuId) => skus.find(s => s.sku_id === skuId)?.description || skuId;
   
+  // Helper function to get auth headers
+  const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
+  
   // Get vertical name - from forecast's vertical_id or from SKU's vertical
   const getVerticalDisplay = (forecast) => {
     if (forecast.vertical_id) {
