@@ -1,11 +1,22 @@
 """CPC (Central Production Control) routes - Scheduling and Branch Allocation"""
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional, List
 import uuid
+import io
 
 from database import db, BRANCHES
+
+router = APIRouter(tags=["CPC - Central Production Control"])
+
+# Import openpyxl for Excel export
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+except ImportError:
+    openpyxl = None
 
 router = APIRouter(tags=["CPC - Central Production Control"])
 
