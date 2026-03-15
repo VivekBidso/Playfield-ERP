@@ -61,31 +61,29 @@ class AutoAllocateRequest(BaseModel):
 # ===== Branch Capacity Management =====
 @router.get("/branches/capacity")
 async def get_branch_capacities():
-    """Get all branch capacities, including model-specific overrides for today"""
+    """Get all branch capacities, including daily overrides for today"""
     branches = await db.branches.find({"is_active": True}, {"_id": 0}).to_list(100)
     result = []
     
-    # Get today's date info for model capacity lookup
+    # Get today's date info
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
-    month_str = today.strftime("%Y-%m")
-    day_of_month = today.day
+    today_str = today.strftime("%Y-%m-%d")
     
     for b in branches:
         branch_name = b["name"]
         base_capacity = b.get("capacity_units_per_day", 0)
         
-        # Check for model-specific capacity for today
-        model_capacities = await db.branch_model_capacity.find({
+        # Check for day-specific capacity override for today
+        daily_capacity = await db.branch_daily_capacity.find_one({
             "branch": branch_name,
-            "month": month_str,
-            "day": day_of_month
-        }, {"_id": 0}).to_list(100)
+            "date": today_str
+        }, {"_id": 0})
         
-        # If model-specific capacities exist for today, use their sum
-        if model_capacities:
-            effective_capacity = sum(mc.get("capacity_qty", 0) for mc in model_capacities)
-            capacity_source = "model_specific"
+        # Use daily capacity if exists, otherwise base capacity
+        if daily_capacity:
+            effective_capacity = daily_capacity.get("capacity", base_capacity)
+            capacity_source = "daily_override"
         else:
             effective_capacity = base_capacity
             capacity_source = "base"
@@ -114,10 +112,11 @@ async def get_branch_capacities():
             "capacity_units_per_day": effective_capacity,
             "base_capacity": base_capacity,
             "capacity_source": capacity_source,
-            "model_capacity_count": len(model_capacities),
             "allocated_today": allocated_today,
             "available_today": max(0, effective_capacity - allocated_today),
             "utilization_percent": round((allocated_today / effective_capacity * 100), 1) if effective_capacity > 0 else 0
+        })
+    return result
         })
     return result
 
