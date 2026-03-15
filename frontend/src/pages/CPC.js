@@ -187,6 +187,69 @@ const CPC = () => {
     }
   };
 
+  // Fetch models for capacity upload
+  const fetchModels = async () => {
+    try {
+      const res = await axios.get(`${API}/models`);
+      setModels(res.data || []);
+    } catch (error) {
+      console.error("Failed to fetch models:", error);
+    }
+  };
+
+  // Handle model capacity upload
+  const handleUploadModelCapacity = async () => {
+    if (!modelCapacityBranch) {
+      toast.error("Please select a branch");
+      return;
+    }
+    
+    const validRows = modelCapacityRows.filter(r => r.month && r.model_id && r.capacity_qty > 0);
+    if (validRows.length === 0) {
+      toast.error("Please add at least one valid capacity row");
+      return;
+    }
+    
+    setUploadingCapacity(true);
+    try {
+      const payload = {
+        branch: modelCapacityBranch,
+        capacities: validRows.map(r => ({
+          month: r.month,
+          day: parseInt(r.day),
+          model_id: r.model_id,
+          capacity_qty: parseInt(r.capacity_qty)
+        }))
+      };
+      
+      const res = await axios.post(`${API}/branches/model-capacity/upload`, payload);
+      toast.success(`Uploaded ${res.data.total} capacity records (${res.data.inserted} new, ${res.data.updated} updated)`);
+      setShowModelCapacityDialog(false);
+      setModelCapacityRows([{ month: "", day: 1, model_id: "", capacity_qty: 0 }]);
+      setModelCapacityBranch("");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to upload capacity");
+    } finally {
+      setUploadingCapacity(false);
+    }
+  };
+
+  const addModelCapacityRow = () => {
+    setModelCapacityRows([...modelCapacityRows, { month: "", day: 1, model_id: "", capacity_qty: 0 }]);
+  };
+
+  const removeModelCapacityRow = (index) => {
+    if (modelCapacityRows.length > 1) {
+      setModelCapacityRows(modelCapacityRows.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateModelCapacityRow = (index, field, value) => {
+    const updated = [...modelCapacityRows];
+    updated[index][field] = value;
+    setModelCapacityRows(updated);
+  };
+
   const fetchBranchForecast = async (branchName) => {
     try {
       const res = await axios.get(`${API}/branches/${encodeURIComponent(branchName)}/capacity-forecast?days=7`);
