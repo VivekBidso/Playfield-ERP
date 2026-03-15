@@ -117,8 +117,6 @@ async def get_branch_capacities():
             "utilization_percent": round((allocated_today / effective_capacity * 100), 1) if effective_capacity > 0 else 0
         })
     return result
-        })
-    return result
 
 @router.put("/branches/{branch_name}/capacity")
 async def update_branch_capacity(branch_name: str, data: BranchCapacityUpdate):
