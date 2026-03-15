@@ -8,6 +8,7 @@ import io
 
 from database import db
 from models import User, SKU, SKUCreate, SKUMapping, SKUMappingCreate, ActivateItemRequest
+from models.core import SKUBranchAssignment, BranchSKUInventory, BranchRMInventory
 from services.utils import get_current_user, serialize_doc
 from services.rbac_service import require_permission, check_user_permission
 
