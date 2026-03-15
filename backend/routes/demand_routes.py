@@ -1,9 +1,10 @@
 """Demand routes - Forecasts, Dispatch Lots"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 import uuid
+import io
 
 from database import db
 
@@ -30,10 +31,11 @@ class ForecastCreate(BaseModel):
 class DispatchLotCreate(BaseModel):
     forecast_id: Optional[str] = None
     sku_id: str
-    buyer_id: str
+    buyer_id: Optional[str] = None
     required_quantity: int
     target_date: datetime
     priority: str = "MEDIUM"
+    notes: Optional[str] = ""
 
 # --- Forecasts ---
 @router.get("/forecasts")
