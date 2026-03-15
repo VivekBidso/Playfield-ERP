@@ -150,10 +150,21 @@ const Demand = () => {
   const handleCreateForecast = async () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      await axios.post(`${API}/forecasts`, {
-        ...forecastForm,
-        forecast_month: new Date(forecastForm.forecast_month + "-01").toISOString()
-      }, { headers });
+      
+      // Build payload - exclude empty fields
+      const payload = {
+        forecast_month: new Date(forecastForm.forecast_month + "-01").toISOString(),
+        quantity: forecastForm.quantity,
+        priority: forecastForm.priority,
+        notes: forecastForm.notes || ""
+      };
+      
+      // Only include non-empty IDs
+      if (forecastForm.buyer_id) payload.buyer_id = forecastForm.buyer_id;
+      if (forecastForm.vertical_id) payload.vertical_id = forecastForm.vertical_id;
+      if (forecastForm.sku_id) payload.sku_id = forecastForm.sku_id;
+      
+      await axios.post(`${API}/forecasts`, payload, { headers });
       toast.success("Forecast created");
       setShowForecastDialog(false);
       setForecastForm({
