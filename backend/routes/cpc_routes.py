@@ -932,7 +932,7 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
     
     return {
         "branch": branch,
-        "date": date,
+        "date": date_str,
         "base_capacity": base_capacity,
         "model_capacities": model_capacities,
         "allocated": total_allocated,
