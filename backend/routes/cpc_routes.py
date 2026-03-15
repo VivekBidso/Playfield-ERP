@@ -819,7 +819,8 @@ async def get_demand_forecasts_for_cpc(
 ):
     """
     Get demand forecasts for CPC to view and schedule production.
-    Shows forecasts with scheduled production qty (from production_schedules), dispatch lots linked.
+    Shows forecasts with scheduled production qty, inventory available, and schedule pending.
+    Rule: Schedule Pending = Forecast Qty - Inventory - Already Scheduled
     """
     if include_draft:
         query = {"status": {"$in": ["DRAFT", "CONFIRMED", "CONVERTED"]}}
@@ -833,8 +834,8 @@ async def get_demand_forecasts_for_cpc(
     
     forecasts = await db.forecasts.find(query, {"_id": 0}).sort("forecast_month", 1).to_list(1000)
     
-    # Get all production SCHEDULES to calculate scheduled quantities (not plans)
-    # This aligns with the schedule-from-forecast validation
+    # Get all production SCHEDULES to calculate scheduled quantities
+    # ONLY count schedules that are linked to forecasts
     all_schedules = await db.production_schedules.find(
         {"forecast_id": {"$exists": True, "$ne": None}, "status": {"$ne": "CANCELLED"}},
         {"_id": 0, "forecast_id": 1, "target_quantity": 1}
@@ -870,10 +871,31 @@ async def get_demand_forecasts_for_cpc(
     buyers = await db.buyers.find({"id": {"$in": buyer_ids}}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(100)
     buyer_map = {b["id"]: b for b in buyers}
     
-    # Get SKU details
+    # Get SKU details including current_stock
     sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1, "vertical": 1, "brand": 1}).to_list(1000)
+    skus = await db.skus.find(
+        {"sku_id": {"$in": sku_ids}}, 
+        {"_id": 0, "sku_id": 1, "description": 1, "vertical": 1, "brand": 1, "current_stock": 1}
+    ).to_list(1000)
     sku_map = {s["sku_id"]: s for s in skus}
+    
+    # Get FG inventory by SKU
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}},
+        {"_id": 0, "sku_id": 1, "quantity": 1}
+    ).to_list(5000)
+    
+    # Sum inventory by SKU
+    inventory_by_sku = {}
+    for inv in fg_inventory:
+        sku = inv.get("sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+    
+    # Add SKU current_stock if no FG inventory
+    for sku_id in sku_ids:
+        if sku_id not in inventory_by_sku or inventory_by_sku[sku_id] == 0:
+            sku_data = sku_map.get(sku_id, {})
+            inventory_by_sku[sku_id] = sku_data.get("current_stock", 0)
     
     # Get vertical details
     vertical_ids = list(set(f.get("vertical_id") for f in forecasts if f.get("vertical_id")))
@@ -884,18 +906,29 @@ async def get_demand_forecasts_for_cpc(
     for f in forecasts:
         forecast_qty = f.get("quantity", 0)
         forecast_id = f.get("id")
+        sku_id = f.get("sku_id")
         
         # Get scheduled production qty (from production_schedules)
         scheduled_qty = scheduled_by_forecast.get(forecast_id, 0)
         
-        remaining_qty = max(0, forecast_qty - scheduled_qty)
+        # Cap scheduled_qty at forecast_qty (rule: scheduled cannot exceed forecast)
+        scheduled_qty = min(scheduled_qty, forecast_qty)
+        
+        # Get inventory available for this SKU
+        inventory_qty = inventory_by_sku.get(sku_id, 0) if sku_id else 0
+        
+        # Calculate schedule pending: Forecast - Inventory - Scheduled
+        schedule_pending = max(0, forecast_qty - inventory_qty - scheduled_qty)
+        
+        # Remaining qty (for backward compatibility, same as schedule_pending)
+        remaining_qty = schedule_pending
         
         # Get linked dispatch lots
         dispatch_lots = lots_by_forecast.get(forecast_id, [])
         dispatch_qty = sum(l.get("quantity", 0) for l in dispatch_lots)
         
         buyer = buyer_map.get(f.get("buyer_id"), {})
-        sku = sku_map.get(f.get("sku_id"), {})
+        sku = sku_map.get(sku_id, {})
         
         result.append({
             "id": forecast_id,
@@ -905,23 +938,25 @@ async def get_demand_forecasts_for_cpc(
             "buyer_code": buyer.get("code"),
             "vertical_id": f.get("vertical_id"),
             "vertical_name": vertical_map.get(f.get("vertical_id"), f.get("vertical_id")),
-            "sku_id": f.get("sku_id"),
+            "sku_id": sku_id,
             "sku_description": sku.get("description", ""),
             "brand": sku.get("brand", ""),
             "forecast_month": f.get("forecast_month"),
             "forecast_qty": forecast_qty,
+            "inventory_qty": inventory_qty,
             "scheduled_qty": scheduled_qty,
+            "schedule_pending": schedule_pending,
             "remaining_qty": remaining_qty,
             "dispatch_qty": dispatch_qty,
             "dispatch_lots": dispatch_lots,
-            "is_fully_scheduled": remaining_qty == 0,
+            "is_fully_scheduled": schedule_pending == 0,
             "priority": f.get("priority", "MEDIUM"),
             "status": f.get("status"),
             "notes": f.get("notes", "")
         })
     
-    # Sort by remaining quantity (highest first) then by forecast month
-    result.sort(key=lambda x: (-x["remaining_qty"], x.get("forecast_month", "")))
+    # Sort by schedule_pending (highest first) then by forecast month
+    result.sort(key=lambda x: (-x["schedule_pending"], x.get("forecast_month", "")))
     
     return result
 
