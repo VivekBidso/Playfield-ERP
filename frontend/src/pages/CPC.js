@@ -125,6 +125,9 @@ const CPC = () => {
       setDispatchLots(lotsRes.data.filter(l => l.status === 'CREATED'));
       setDemandForecasts(forecastRes.data);
       setForecastSummary(forecastSumRes.data);
+      
+      // Fetch models for capacity upload
+      fetchModels();
     } catch (error) {
       toast.error("Failed to fetch CPC data");
     }
