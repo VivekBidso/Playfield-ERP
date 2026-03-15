@@ -27,6 +27,15 @@ const DispatchLots = () => {
   const [selectedLot, setSelectedLot] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   
+  // Edit Dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingLot, setEditingLot] = useState(null);
+  const [editTargetDate, setEditTargetDate] = useState("");
+  const [editPriority, setEditPriority] = useState("MEDIUM");
+  const [editNotes, setEditNotes] = useState("");
+  const [editLines, setEditLines] = useState([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+  
   // Cascade filter data
   const [buyersWithForecasts, setBuyersWithForecasts] = useState([]);
   const [brandsForBuyer, setBrandsForBuyer] = useState([]);
