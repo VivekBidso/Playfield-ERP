@@ -76,6 +76,60 @@ async def get_skus(
     return skus
 
 
+@router.get("/skus/filter-options")
+async def get_sku_filter_options():
+    """Get all distinct verticals, models, and brands for filter dropdowns"""
+    all_skus = await db.skus.find({}, {"_id": 0, "vertical": 1, "model": 1, "brand": 1}).to_list(10000)
+    
+    verticals = sorted(list(set(s.get('vertical', '') for s in all_skus if s.get('vertical'))))
+    models = sorted(list(set(s.get('model', '') for s in all_skus if s.get('model'))))
+    brands = sorted(list(set(s.get('brand', '') for s in all_skus if s.get('brand'))))
+    
+    return {
+        "verticals": verticals,
+        "models": models,
+        "brands": brands
+    }
+
+
+@router.get("/skus/models-by-vertical")
+async def get_models_by_vertical(vertical: str):
+    """Get distinct models for a specific vertical"""
+    skus = await db.skus.find({"vertical": vertical}, {"_id": 0, "model": 1}).to_list(10000)
+    models = sorted(list(set(s.get('model', '') for s in skus if s.get('model'))))
+    return {"models": models}
+
+
+@router.get("/skus/brands-by-vertical-model")
+async def get_brands_by_vertical_model(vertical: str, model: Optional[str] = None):
+    """Get distinct brands for a specific vertical and optionally model"""
+    query = {"vertical": vertical}
+    if model:
+        query["model"] = model
+    skus = await db.skus.find(query, {"_id": 0, "brand": 1}).to_list(10000)
+    brands = sorted(list(set(s.get('brand', '') for s in skus if s.get('brand'))))
+    return {"brands": brands}
+
+
+@router.get("/skus/filtered")
+async def get_filtered_skus(
+    vertical: Optional[str] = None,
+    model: Optional[str] = None,
+    brand: Optional[str] = None
+):
+    """Get SKUs filtered by vertical, model, and/or brand"""
+    query = {}
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    if brand:
+        query["brand"] = brand
+    
+    skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
+    return skus
+
+
 @router.get("/skus/unmapped")
 async def get_skus_without_rm_mapping():
     """Get SKUs that don't have RM mappings"""
