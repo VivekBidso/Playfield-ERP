@@ -927,6 +927,78 @@ const Demand = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dispatch Lots Popup Dialog */}
+      <Dialog open={showLotsDialog} onOpenChange={setShowLotsDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Dispatch Lots - {selectedForecastLots.forecast?.forecast_code}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {selectedForecastLots.forecast && (
+              <div className="p-3 bg-zinc-50 rounded-lg text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div><span className="text-zinc-500">SKU:</span> <span className="font-mono font-bold">{selectedForecastLots.forecast.sku_id}</span></div>
+                  <div><span className="text-zinc-500">Qty:</span> <span className="font-mono font-bold">{selectedForecastLots.forecast.quantity?.toLocaleString()}</span></div>
+                  <div><span className="text-zinc-500">Buyer:</span> {getBuyerName(selectedForecastLots.forecast.buyer_id)}</div>
+                  <div><span className="text-zinc-500">Month:</span> {selectedForecastLots.forecast.forecast_month?.slice(0, 7)}</div>
+                </div>
+              </div>
+            )}
+            
+            {selectedForecastLots.lots.length > 0 ? (
+              <div className="border rounded overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-100">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-mono text-xs uppercase">Lot Code</th>
+                      <th className="px-4 py-2 text-right font-mono text-xs uppercase">Quantity</th>
+                      <th className="px-4 py-2 text-center font-mono text-xs uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedForecastLots.lots.map((lot, i) => (
+                      <tr key={i} className="border-t hover:bg-zinc-50">
+                        <td className="px-4 py-3 font-mono font-bold text-primary">{lot.lot_code}</td>
+                        <td className="px-4 py-3 font-mono text-right">{(lot.total_quantity || lot.required_quantity)?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-xs font-mono px-2 py-1 rounded border ${
+                            lot.status === 'DISPATCHED' || lot.status === 'DELIVERED' ? 'bg-green-100 text-green-700 border-green-300' :
+                            lot.status === 'CREATED' ? 'bg-zinc-100 border-zinc-300' :
+                            'bg-yellow-100 text-yellow-700 border-yellow-300'
+                          }`}>{lot.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-zinc-50 border-t">
+                    <tr>
+                      <td className="px-4 py-2 font-bold text-right">Total:</td>
+                      <td className="px-4 py-2 font-mono font-bold text-right">
+                        {selectedForecastLots.lots.reduce((sum, l) => sum + (l.total_quantity || l.required_quantity || 0), 0).toLocaleString()}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-zinc-500 border rounded-lg bg-zinc-50">
+                <Package className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No dispatch lots linked to this forecast yet.</p>
+                <p className="text-xs mt-1">Dispatch lots can be created from the Dispatch Lots page.</p>
+              </div>
+            )}
+            
+            <Button variant="outline" onClick={() => setShowLotsDialog(false)} className="w-full">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
