@@ -703,9 +703,9 @@ const Demand = () => {
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Model</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Quantity</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Dispatch Lots</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Actions</th>
                 </tr>
               </thead>
@@ -733,46 +733,30 @@ const Demand = () => {
                     <td className="p-4 font-mono text-sm text-zinc-600">{f.sku_id || 'All in Vertical'}</td>
                     <td className="p-4 font-mono font-bold">{f.quantity?.toLocaleString()}</td>
                     <td className="p-4">
+                      <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(f.status)}`}>{f.status}</span>
+                    </td>
+                    <td className="p-4">
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={async () => {
+                          const lots = await fetchForecastDispatchLots(f.id);
+                          setSelectedForecastLots({ forecast: f, lots: lots });
+                          setShowLotsDialog(true);
+                        }}
+                      >
+                        <Package className="w-3 h-3 mr-1" />
+                        View Lots
+                      </Button>
+                    </td>
+                    <td className="p-4">
                       <span className={`text-xs font-mono px-2 py-1 rounded border ${
                         f.priority === 'CRITICAL' ? 'bg-red-100 text-red-700 border-red-300' :
                         f.priority === 'HIGH' ? 'bg-orange-100 text-orange-700 border-orange-300' :
                         f.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
                         'bg-zinc-100 border-zinc-300'
                       }`}>{f.priority}</span>
-                    </td>
-                    <td className="p-4">
-                      <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(f.status)}`}>{f.status}</span>
-                    </td>
-                    <td className="p-4">
-                      <button 
-                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                        onClick={async () => {
-                          if (expandedForecast === f.id) {
-                            setExpandedForecast(null);
-                          } else {
-                            const lots = await fetchForecastDispatchLots(f.id);
-                            f._dispatchLots = lots;
-                            setExpandedForecast(f.id);
-                          }
-                        }}
-                      >
-                        <Package className="w-3 h-3" />
-                        View Lots
-                      </button>
-                      {expandedForecast === f.id && f._dispatchLots && (
-                        <div className="mt-2 p-2 bg-zinc-50 rounded text-xs">
-                          {f._dispatchLots.length > 0 ? (
-                            f._dispatchLots.map((lot, i) => (
-                              <div key={i} className="flex justify-between py-1 border-b border-zinc-200 last:border-0">
-                                <span className="font-mono">{lot.lot_code}</span>
-                                <span>{lot.total_quantity || lot.required_quantity} units</span>
-                              </div>
-                            ))
-                          ) : (
-                            <span className="text-zinc-400">No dispatch lots linked</span>
-                          )}
-                        </div>
-                      )}
                     </td>
                     <td className="p-4">
                       {f.status === 'DRAFT' && canConfirmForecasts && (
