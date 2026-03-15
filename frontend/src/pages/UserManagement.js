@@ -306,20 +306,51 @@ const UserManagement = () => {
                 />
               </div>
               <div>
-                <Label>Base Role *</Label>
+                <Label>Role *</Label>
                 <select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value, assigned_branches: e.target.value === 'master_admin' ? [] : formData.assigned_branches })}
-                  className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm"
+                  value={formData.rbac_role}
+                  onChange={(e) => {
+                    const newRole = e.target.value;
+                    const isMasterAdmin = newRole === 'MASTER_ADMIN';
+                    setFormData({ 
+                      ...formData, 
+                      rbac_role: newRole,
+                      role: isMasterAdmin ? 'master_admin' : 'branch_user',
+                      assigned_branches: isMasterAdmin ? [] : formData.assigned_branches 
+                    });
+                  }}
+                  className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
                   data-testid="user-role-select"
                 >
-                  <option value="branch_user">Branch User</option>
-                  <option value="master_admin">Master Admin</option>
+                  {availableRoles.length > 0 ? (
+                    availableRoles.map((role) => (
+                      <option key={role.id} value={role.code}>
+                        {role.code} - {ROLE_DESCRIPTIONS[role.code] || role.description}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="MASTER_ADMIN">MASTER_ADMIN - Full system access</option>
+                      <option value="DEMAND_PLANNER">DEMAND_PLANNER - Forecasts & dispatch lots</option>
+                      <option value="TECH_OPS_ENGINEER">TECH_OPS_ENGINEER - Master data & BOMs</option>
+                      <option value="CPC_PLANNER">CPC_PLANNER - Production scheduling</option>
+                      <option value="PROCUREMENT_OFFICER">PROCUREMENT_OFFICER - Vendors & POs</option>
+                      <option value="BRANCH_OPS_USER">BRANCH_OPS_USER - Branch operations</option>
+                      <option value="QUALITY_INSPECTOR">QUALITY_INSPECTOR - QC management</option>
+                      <option value="LOGISTICS_COORDINATOR">LOGISTICS_COORDINATOR - Dispatch & IBT</option>
+                      <option value="FINANCE_VIEWER">FINANCE_VIEWER - Finance read-only</option>
+                      <option value="AUDITOR_READONLY">AUDITOR_READONLY - Audit read-only</option>
+                    </>
+                  )}
                 </select>
-                <p className="text-xs text-zinc-500 mt-1">Use "Manage Roles" after creation to assign specific RBAC roles</p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {formData.rbac_role === 'MASTER_ADMIN' 
+                    ? 'Full access to all branches and features' 
+                    : ROLE_DESCRIPTIONS[formData.rbac_role] || 'Select a role for this user'}
+                </p>
               </div>
 
-              {formData.role === "branch_user" && (
+              {formData.rbac_role !== "MASTER_ADMIN" && (
                 <div>
                   <Label className="block mb-2">Assigned Branches *</Label>
                   <div className="border border-border rounded-sm p-4 space-y-2 max-h-48 overflow-y-auto">
