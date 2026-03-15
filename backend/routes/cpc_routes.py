@@ -1283,6 +1283,323 @@ async def download_demand_forecasts():
     )
 
 
+@router.get("/cpc/production-plan/template")
+async def download_production_plan_template():
+    """Download Excel template for bulk production plan upload"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Production Plan"
+    
+    # Headers
+    headers = ["Forecast Code", "Branch", "Target Date (YYYY-MM-DD)", "Quantity", "Priority"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 22
+    
+    # Get sample forecasts and branches for reference
+    forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"_id": 0, "forecast_code": 1, "sku_id": 1, "quantity": 1}
+    ).to_list(20)
+    
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    
+    # Add sample rows
+    row = 2
+    sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    for f in forecasts[:5]:
+        ws.cell(row=row, column=1, value=f.get("forecast_code", ""))
+        ws.cell(row=row, column=2, value=branches[0]["name"] if branches else "")
+        ws.cell(row=row, column=3, value=sample_date)
+        ws.cell(row=row, column=4, value=min(100, f.get("quantity", 100)))
+        ws.cell(row=row, column=5, value="MEDIUM")
+        row += 1
+    
+    # Forecasts reference sheet
+    ws_forecasts = wb.create_sheet("Forecasts Reference")
+    ws_forecasts.cell(row=1, column=1, value="Forecast Code")
+    ws_forecasts.cell(row=1, column=2, value="SKU ID")
+    ws_forecasts.cell(row=1, column=3, value="Forecast Qty")
+    ws_forecasts.cell(row=1, column=4, value="Status")
+    ws_forecasts["A1"].font = Font(bold=True)
+    ws_forecasts["B1"].font = Font(bold=True)
+    ws_forecasts["C1"].font = Font(bold=True)
+    ws_forecasts["D1"].font = Font(bold=True)
+    
+    all_forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"_id": 0, "forecast_code": 1, "sku_id": 1, "quantity": 1, "status": 1}
+    ).to_list(500)
+    
+    for i, f in enumerate(all_forecasts, 2):
+        ws_forecasts.cell(row=i, column=1, value=f.get("forecast_code", ""))
+        ws_forecasts.cell(row=i, column=2, value=f.get("sku_id", ""))
+        ws_forecasts.cell(row=i, column=3, value=f.get("quantity", 0))
+        ws_forecasts.cell(row=i, column=4, value=f.get("status", ""))
+    
+    ws_forecasts.column_dimensions["A"].width = 20
+    ws_forecasts.column_dimensions["B"].width = 20
+    ws_forecasts.column_dimensions["C"].width = 15
+    ws_forecasts.column_dimensions["D"].width = 15
+    
+    # Branches reference sheet
+    ws_branches = wb.create_sheet("Branches Reference")
+    ws_branches.cell(row=1, column=1, value="Branch Name")
+    ws_branches.cell(row=1, column=2, value="Capacity/Day")
+    ws_branches["A1"].font = Font(bold=True)
+    ws_branches["B1"].font = Font(bold=True)
+    
+    all_branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    for i, b in enumerate(all_branches, 2):
+        ws_branches.cell(row=i, column=1, value=b.get("name", ""))
+        ws_branches.cell(row=i, column=2, value=b.get("capacity_units_per_day", 0))
+    
+    ws_branches.column_dimensions["A"].width = 25
+    ws_branches.column_dimensions["B"].width = 15
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=production_plan_template.xlsx"}
+    )
+
+
+@router.post("/cpc/production-plan/upload-excel")
+async def upload_production_plan_excel(file: UploadFile = File(...)):
+    """
+    Bulk upload production plans from Excel.
+    Creates production schedules linked to forecasts.
+    Validates: forecast exists, branch valid, capacity available, qty doesn't exceed remaining.
+    """
+    if not pd:
+        raise HTTPException(status_code=500, detail="pandas not installed")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+    
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
+    
+    # Map columns
+    col_map = {}
+    forecast_opts = ["forecast_code", "forecast", "forecast_id"]
+    branch_opts = ["branch", "branch_name", "unit"]
+    date_opts = ["target_date", "date", "target_date_yyyy_mm_dd"]
+    qty_opts = ["quantity", "qty", "plan_qty"]
+    priority_opts = ["priority"]
+    
+    for opt in forecast_opts:
+        if opt in df.columns:
+            col_map["forecast"] = opt
+            break
+    for opt in branch_opts:
+        if opt in df.columns:
+            col_map["branch"] = opt
+            break
+    for opt in date_opts:
+        if opt in df.columns:
+            col_map["date"] = opt
+            break
+    for opt in qty_opts:
+        if opt in df.columns:
+            col_map["qty"] = opt
+            break
+    for opt in priority_opts:
+        if opt in df.columns:
+            col_map["priority"] = opt
+            break
+    
+    required = ["forecast", "branch", "date", "qty"]
+    missing = [r for r in required if r not in col_map]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}. Found: {list(df.columns)}")
+    
+    # Load lookup data
+    forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"_id": 0, "id": 1, "forecast_code": 1, "sku_id": 1, "quantity": 1}
+    ).to_list(5000)
+    forecast_map = {f["forecast_code"]: f for f in forecasts}
+    
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    valid_branches = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
+    
+    # Get existing schedules to calculate remaining qty
+    all_schedules = await db.production_schedules.find(
+        {"forecast_id": {"$exists": True, "$ne": None}, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0, "forecast_id": 1, "target_quantity": 1}
+    ).to_list(10000)
+    
+    scheduled_by_forecast = {}
+    for s in all_schedules:
+        fid = s.get("forecast_id")
+        if fid:
+            scheduled_by_forecast[fid] = scheduled_by_forecast.get(fid, 0) + s.get("target_quantity", 0)
+    
+    # Get SKU info
+    sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1}).to_list(5000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    # Track capacity usage for validation
+    date_branch_usage = {}  # {date|branch: allocated_qty}
+    
+    # Process rows
+    results = {"created": 0, "errors": [], "schedules": []}
+    
+    for idx, row in df.iterrows():
+        try:
+            forecast_code = str(row[col_map["forecast"]]).strip()
+            branch = str(row[col_map["branch"]]).strip()
+            date_val = row[col_map["date"]]
+            qty = int(row[col_map["qty"]])
+            priority = str(row.get(col_map.get("priority"), "MEDIUM")).strip().upper() if "priority" in col_map else "MEDIUM"
+            
+            # Parse date
+            if isinstance(date_val, str):
+                date_str = date_val.strip()
+                try:
+                    target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except:
+                    target_date = pd.to_datetime(date_val).to_pydatetime().replace(tzinfo=timezone.utc)
+            else:
+                target_date = pd.to_datetime(date_val).to_pydatetime().replace(tzinfo=timezone.utc)
+            
+            date_str = target_date.strftime("%Y-%m-%d")
+            
+            # Validate forecast
+            if forecast_code not in forecast_map:
+                results["errors"].append(f"Row {idx+2}: Forecast '{forecast_code}' not found")
+                continue
+            
+            forecast = forecast_map[forecast_code]
+            forecast_id = forecast["id"]
+            forecast_qty = forecast.get("quantity", 0)
+            sku_id = forecast.get("sku_id")
+            
+            # Validate branch
+            if branch not in valid_branches:
+                results["errors"].append(f"Row {idx+2}: Branch '{branch}' not found")
+                continue
+            
+            # Validate qty > 0
+            if qty <= 0:
+                results["errors"].append(f"Row {idx+2}: Invalid quantity {qty}")
+                continue
+            
+            # Check remaining qty
+            already_scheduled = scheduled_by_forecast.get(forecast_id, 0)
+            remaining = forecast_qty - already_scheduled
+            if qty > remaining:
+                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds remaining {remaining} for {forecast_code}")
+                continue
+            
+            # Validate priority
+            if priority not in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
+                priority = "MEDIUM"
+            
+            # Check branch capacity (considering other rows in this upload)
+            usage_key = f"{date_str}|{branch}"
+            current_usage = date_branch_usage.get(usage_key, 0)
+            branch_capacity = valid_branches[branch]
+            
+            # Get daily override if exists
+            daily_cap = await db.branch_daily_capacity.find_one(
+                {"branch": branch, "date": date_str},
+                {"_id": 0, "capacity": 1}
+            )
+            if daily_cap:
+                branch_capacity = daily_cap.get("capacity", branch_capacity)
+            
+            # Get existing schedules for this date/branch
+            day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+            day_end = day_start + timedelta(days=1)
+            existing_on_date = await db.production_schedules.find(
+                {
+                    "branch": branch,
+                    "target_date": {"$gte": day_start, "$lt": day_end},
+                    "status": {"$ne": "CANCELLED"}
+                },
+                {"_id": 0, "target_quantity": 1}
+            ).to_list(1000)
+            existing_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
+            
+            available = branch_capacity - existing_allocated - current_usage
+            if qty > available:
+                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds available capacity {available} for {branch} on {date_str}")
+                continue
+            
+            # Create schedule
+            count = await db.production_schedules.count_documents({})
+            schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+            
+            sku = sku_map.get(sku_id, {})
+            
+            schedule = {
+                "id": str(uuid.uuid4()),
+                "schedule_code": schedule_code,
+                "forecast_id": forecast_id,
+                "dispatch_lot_id": None,
+                "branch": branch,
+                "sku_id": sku_id,
+                "sku_description": sku.get("description", ""),
+                "target_quantity": qty,
+                "allocated_quantity": 0,
+                "completed_quantity": 0,
+                "target_date": target_date,
+                "priority": priority,
+                "status": "DRAFT",
+                "notes": f"Bulk upload from {forecast_code}",
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.production_schedules.insert_one(schedule)
+            
+            # Update tracking
+            scheduled_by_forecast[forecast_id] = scheduled_by_forecast.get(forecast_id, 0) + qty
+            date_branch_usage[usage_key] = current_usage + qty
+            
+            results["created"] += 1
+            results["schedules"].append({
+                "schedule_code": schedule_code,
+                "forecast_code": forecast_code,
+                "branch": branch,
+                "date": date_str,
+                "qty": qty
+            })
+            
+        except Exception as e:
+            results["errors"].append(f"Row {idx+2}: {str(e)}")
+    
+    return {
+        "message": f"Bulk upload complete. Created {results['created']} schedules.",
+        "created": results["created"],
+        "schedules": results["schedules"][:20],
+        "errors": results["errors"][:20],
+        "total_errors": len(results["errors"])
+    }
+
+
 class ScheduleFromForecastRequest(BaseModel):
     forecast_id: str
     quantity: int
