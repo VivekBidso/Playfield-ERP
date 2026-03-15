@@ -686,44 +686,77 @@ const Demand = () => {
               <div>
                 <Label className="mb-2 block">Select SKUs for Dispatch Lot(s)</Label>
                 <div className="border rounded-sm max-h-60 overflow-y-auto">
-                  {(selectedForecast.sku_id 
-                    ? skus.filter(s => s.sku_id === selectedForecast.sku_id)
-                    : skus.filter(s => s.vertical_id === selectedForecast.vertical_id || s.vertical === getVerticalName(selectedForecast.vertical_id))
-                  ).slice(0, 50).map(sku => {
-                    const isSelected = lotForm.selected_skus.some(s => s.sku_id === sku.sku_id);
-                    const selectedItem = lotForm.selected_skus.find(s => s.sku_id === sku.sku_id);
-                    const branches = skuBranchMap[sku.sku_id] || [];
+                  {(() => {
+                    // Determine which SKUs to show
+                    let skuList = [];
+                    if (selectedForecast.sku_id) {
+                      // Specific SKU forecast - show only that SKU
+                      skuList = skus.filter(s => s.sku_id === selectedForecast.sku_id);
+                    } else if (selectedForecast.vertical_id) {
+                      // Vertical-level forecast - show SKUs in that vertical
+                      const verticalName = getVerticalName(selectedForecast.vertical_id);
+                      skuList = skus.filter(s => 
+                        s.vertical_id === selectedForecast.vertical_id || 
+                        s.vertical === verticalName
+                      );
+                      // If no match by vertical_id, show all SKUs
+                      if (skuList.length === 0) {
+                        skuList = skus;
+                      }
+                    } else {
+                      // No vertical specified - show all SKUs
+                      skuList = skus;
+                    }
                     
-                    return (
-                      <div 
-                        key={sku.sku_id} 
-                        className={`flex items-center gap-3 p-3 border-b last:border-b-0 ${isSelected ? 'bg-primary/5' : 'hover:bg-zinc-50'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSkuSelection(sku, Math.floor(selectedForecast.quantity / 10))}
-                          className="w-4 h-4"
-                        />
-                        <div className="flex-1">
-                          <div className="font-mono text-sm font-bold">{sku.sku_id}</div>
-                          <div className="text-xs text-zinc-500">{sku.description?.slice(0, 50)}</div>
-                          {branches.length > 0 && (
-                            <div className="text-xs text-zinc-400 mt-1">
-                              Branches: {branches.join(', ')}
+                    if (skuList.length === 0) {
+                      return (
+                        <div className="p-4 text-center text-zinc-500 text-sm">
+                          No SKUs available. Create SKUs first in Tech Ops.
+                        </div>
+                      );
+                    }
+                    
+                    return skuList.slice(0, 100).map(sku => {
+                      const isSelected = lotForm.selected_skus.some(s => s.sku_id === sku.sku_id);
+                      const selectedItem = lotForm.selected_skus.find(s => s.sku_id === sku.sku_id);
+                      const branches = skuBranchMap[sku.sku_id] || [];
+                      
+                      return (
+                        <div 
+                          key={sku.sku_id} 
+                          className={`flex items-center gap-3 p-3 border-b last:border-b-0 ${isSelected ? 'bg-primary/5' : 'hover:bg-zinc-50'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSkuSelection(sku, Math.floor(selectedForecast.quantity / 10))}
+                            className="w-4 h-4"
+                          />
+                          <div className="flex-1">
+                            <div className="font-mono text-sm font-bold">{sku.sku_id}</div>
+                            <div className="text-xs text-zinc-500">{sku.description?.slice(0, 50)}</div>
+                            {branches.length > 0 && (
+                              <div className="text-xs text-zinc-400 mt-1">
+                                Branches: {branches.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                          {isSelected && (
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs">Qty:</Label>
+                              <Input
+                                type="number"
+                                value={selectedItem?.quantity || 0}
+                                onChange={(e) => updateSkuQuantity(sku.sku_id, e.target.value)}
+                                className="w-24 h-8 text-sm"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             </div>
                           )}
                         </div>
-                        {isSelected && (
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs">Qty:</Label>
-                            <Input
-                              type="number"
-                              value={selectedItem?.quantity || 0}
-                              onChange={(e) => updateSkuQuantity(sku.sku_id, e.target.value)}
-                              className="w-24 h-8 text-sm"
-                              onClick={(e) => e.stopPropagation()}
-                            />
+                      );
+                    });
+                  })()}
                           </div>
                         )}
                       </div>
