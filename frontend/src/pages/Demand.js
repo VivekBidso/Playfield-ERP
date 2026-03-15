@@ -459,19 +459,23 @@ const Demand = () => {
                     <DialogTitle>Create Forecast</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    {/* Buyer */}
+                    {/* Buyer - REQUIRED */}
                     <div>
-                      <Label>Buyer</Label>
+                      <Label>Buyer *</Label>
                       <Select 
                         value={forecastForm.buyer_id || "_none"} 
                         onValueChange={(v) => setForecastForm({...forecastForm, buyer_id: v === "_none" ? "" : v})}
                       >
-                        <SelectTrigger><SelectValue placeholder="Select buyer (optional)" /></SelectTrigger>
+                        <SelectTrigger className={!forecastForm.buyer_id ? "border-red-300" : ""}>
+                          <SelectValue placeholder="Select buyer (required)" />
+                        </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="_none">All Buyers</SelectItem>
                           {buyers.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
+                      {!forecastForm.buyer_id && (
+                        <p className="text-xs text-red-500 mt-1">Buyer is required</p>
+                      )}
                     </div>
 
                     {/* Vertical */}
