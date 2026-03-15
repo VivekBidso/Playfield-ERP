@@ -349,6 +349,7 @@ All test accounts use password: `bidso123`
 - `GET /api/dispatch-lots/forecasted-skus` - SKUs with available forecast quantities
 - `GET /api/dispatch-lots/{lot_id}/details` - Lot details with readiness status
 - `GET /api/dispatch-lots/with-readiness` - All lots with readiness calculations
+- `PUT /api/dispatch-lots/{lot_id}` - Edit dispatch lot (target date, priority, notes, line quantities) (NEW)
 
 ---
-*Last updated: March 15, 2026 - CPC Excel Download & Dispatch Lot Forecast Linking*
+*Last updated: March 15, 2026 - Dispatch Lot Edit Functionality*
