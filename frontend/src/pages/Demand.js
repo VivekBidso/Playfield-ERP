@@ -1004,7 +1004,7 @@ const Demand = () => {
 
       {/* Dispatch Lots Popup Dialog */}
       <Dialog open={showLotsDialog} onOpenChange={setShowLotsDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5" />
@@ -1016,17 +1016,26 @@ const Demand = () => {
               <div className="p-3 bg-zinc-50 rounded-lg text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <div><span className="text-zinc-500">SKU:</span> <span className="font-mono font-bold">{selectedForecastLots.forecast.sku_id}</span></div>
-                  <div><span className="text-zinc-500">Qty:</span> <span className="font-mono font-bold">{selectedForecastLots.forecast.quantity?.toLocaleString()}</span></div>
+                  <div><span className="text-zinc-500">Forecast Qty:</span> <span className="font-mono font-bold">{selectedForecastLots.forecast.quantity?.toLocaleString()}</span></div>
                   <div><span className="text-zinc-500">Buyer:</span> {getBuyerName(selectedForecastLots.forecast.buyer_id)}</div>
                   <div><span className="text-zinc-500">Month:</span> {selectedForecastLots.forecast.forecast_month?.slice(0, 7)}</div>
+                  <div><span className="text-zinc-500">Dispatch Allocated:</span> <span className="font-mono text-blue-600">{(selectedForecastLots.forecast.dispatch_allocated || 0).toLocaleString()}</span></div>
+                  <div>
+                    <span className="text-zinc-500">Available to Allocate:</span> 
+                    <span className="font-mono font-bold text-green-600 ml-1">
+                      {Math.max(0, (selectedForecastLots.forecast.quantity || 0) - (selectedForecastLots.forecast.dispatch_allocated || 0)).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
             
+            {/* Linked Dispatch Lots */}
             {selectedForecastLots.lots.length > 0 ? (
               <div className="border rounded overflow-hidden">
+                <div className="bg-zinc-100 px-4 py-2 text-xs font-bold uppercase">Linked Dispatch Lots</div>
                 <table className="w-full text-sm">
-                  <thead className="bg-zinc-100">
+                  <thead className="bg-zinc-50">
                     <tr>
                       <th className="px-4 py-2 text-left font-mono text-xs uppercase">Lot Code</th>
                       <th className="px-4 py-2 text-right font-mono text-xs uppercase">Quantity</th>
@@ -1060,10 +1069,142 @@ const Demand = () => {
                 </table>
               </div>
             ) : (
-              <div className="p-8 text-center text-zinc-500 border rounded-lg bg-zinc-50">
-                <Package className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>No dispatch lots linked to this forecast yet.</p>
-                <p className="text-xs mt-1">Dispatch lots can be created from the Dispatch Lots page.</p>
+              <div className="p-4 text-center text-zinc-500 border rounded-lg bg-zinc-50">
+                <Package className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No dispatch lots linked to this forecast yet.</p>
+              </div>
+            )}
+            
+            {/* Add to Dispatch Lot Section - Only show if there's quantity available */}
+            {selectedForecastLots.forecast && 
+             selectedForecastLots.forecast.status !== 'DRAFT' &&
+             (selectedForecastLots.forecast.quantity - (selectedForecastLots.forecast.dispatch_allocated || 0)) > 0 && (
+              <div className="border rounded-lg p-4 bg-blue-50 border-blue-200">
+                <div className="text-sm font-bold text-blue-800 mb-3 flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Allocate to Dispatch Lot
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Quantity to Allocate</Label>
+                    <Input
+                      type="number"
+                      value={addToLotQty}
+                      onChange={(e) => setAddToLotQty(parseInt(e.target.value) || 0)}
+                      max={selectedForecastLots.forecast.quantity - (selectedForecastLots.forecast.dispatch_allocated || 0)}
+                      className="font-mono"
+                      placeholder="Enter quantity"
+                    />
+                    <p className="text-xs text-blue-600 mt-1">
+                      Max: {(selectedForecastLots.forecast.quantity - (selectedForecastLots.forecast.dispatch_allocated || 0)).toLocaleString()}
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Add to Existing Lot */}
+                    <div className="space-y-2">
+                      <Label className="text-xs">Add to Existing Lot (Same Buyer)</Label>
+                      <Select value={selectedLotForAdd} onValueChange={setSelectedLotForAdd}>
+                        <SelectTrigger className="text-sm">
+                          <SelectValue placeholder="Select lot..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {buyerExistingLots.length === 0 ? (
+                            <SelectItem value="_none" disabled>No existing lots for this buyer</SelectItem>
+                          ) : (
+                            buyerExistingLots.map(lot => (
+                              <SelectItem key={lot.id} value={lot.id}>
+                                {lot.lot_code} ({(lot.total_quantity || 0).toLocaleString()} units)
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs"
+                        disabled={!selectedLotForAdd || addToLotQty <= 0 || addingToLot}
+                        onClick={async () => {
+                          if (!selectedLotForAdd || addToLotQty <= 0) return;
+                          setAddingToLot(true);
+                          try {
+                            await axios.post(
+                              `${API}/dispatch-lots/${selectedLotForAdd}/add-line`,
+                              {
+                                sku_id: selectedForecastLots.forecast.sku_id,
+                                quantity: addToLotQty,
+                                forecast_id: selectedForecastLots.forecast.id
+                              },
+                              { headers: getHeaders() }
+                            );
+                            toast.success(`Added ${addToLotQty} units to dispatch lot`);
+                            setShowLotsDialog(false);
+                            setAddToLotQty(0);
+                            setSelectedLotForAdd("");
+                            fetchAllData();
+                          } catch (error) {
+                            toast.error(error.response?.data?.detail || "Failed to add to lot");
+                          } finally {
+                            setAddingToLot(false);
+                          }
+                        }}
+                      >
+                        {addingToLot ? "Adding..." : "Add to Lot"}
+                      </Button>
+                    </div>
+                    
+                    {/* Create New Lot */}
+                    <div className="space-y-2">
+                      <Label className="text-xs">Or Create New Dispatch Lot</Label>
+                      <p className="text-xs text-zinc-500">
+                        Create a new lot for {getBuyerName(selectedForecastLots.forecast.buyer_id)}
+                      </p>
+                      <Button
+                        size="sm"
+                        className="w-full text-xs"
+                        disabled={addToLotQty <= 0 || addingToLot}
+                        onClick={async () => {
+                          if (addToLotQty <= 0) {
+                            toast.error("Enter a quantity first");
+                            return;
+                          }
+                          setAddingToLot(true);
+                          try {
+                            // Create new dispatch lot with this forecast's SKU
+                            await axios.post(
+                              `${API}/dispatch-lots/multi`,
+                              {
+                                buyer_id: selectedForecastLots.forecast.buyer_id,
+                                forecast_id: selectedForecastLots.forecast.id,
+                                target_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // Default: 7 days from now
+                                priority: selectedForecastLots.forecast.priority || "MEDIUM",
+                                notes: `Created from forecast ${selectedForecastLots.forecast.forecast_code}`,
+                                lines: [{
+                                  sku_id: selectedForecastLots.forecast.sku_id,
+                                  quantity: addToLotQty,
+                                  forecast_id: selectedForecastLots.forecast.id
+                                }]
+                              },
+                              { headers: getHeaders() }
+                            );
+                            toast.success(`Created new dispatch lot with ${addToLotQty} units`);
+                            setShowLotsDialog(false);
+                            setAddToLotQty(0);
+                            fetchAllData();
+                          } catch (error) {
+                            toast.error(error.response?.data?.detail || "Failed to create lot");
+                          } finally {
+                            setAddingToLot(false);
+                          }
+                        }}
+                      >
+                        {addingToLot ? "Creating..." : "Create New Lot"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             
