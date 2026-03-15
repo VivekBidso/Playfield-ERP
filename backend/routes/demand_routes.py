@@ -20,13 +20,17 @@ def serialize_doc(doc):
     return doc
 
 class ForecastCreate(BaseModel):
-    buyer_id: Optional[str] = None
+    buyer_id: str  # REQUIRED - no "All Buyers" option
     vertical_id: Optional[str] = None
     sku_id: Optional[str] = None
     forecast_month: datetime
     quantity: int
     priority: str = "MEDIUM"
     notes: str = ""
+
+
+class BulkConfirmRequest(BaseModel):
+    forecast_ids: List[str]
 
 class DispatchLotCreate(BaseModel):
     forecast_id: Optional[str] = None
