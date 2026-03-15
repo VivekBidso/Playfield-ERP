@@ -272,11 +272,155 @@ const Dashboard = () => {
     return <div className="p-8">Loading...</div>;
   }
 
+  // Demand Planner specific dashboard
+  if (isDemandPlanner && demandStats) {
+    const demandStatCards = [
+      { label: "Draft Forecasts", value: demandStats.draft_forecasts, icon: TrendingUp, color: "text-zinc-700" },
+      { label: "Confirmed Forecasts", value: demandStats.confirmed_forecasts, icon: Target, color: "text-blue-600" },
+      { label: "Pending Lots", value: demandStats.pending_lots, icon: Package, color: "text-orange-600" },
+      { label: "In Production", value: demandStats.in_production_lots, icon: Box, color: "text-green-600" },
+    ];
+
+    return (
+      <div className="p-6 md:p-8" data-testid="dashboard-page">
+        <div className="mb-8">
+          <h1 className="text-4xl font-black tracking-tight uppercase">Demand Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">Forecast & Dispatch Overview</p>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-border border border-border mb-8">
+          {demandStatCards.map((stat, idx) => (
+            <div key={idx} className="bg-white p-6" data-testid={`stat-card-${idx}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-2">
+                    {stat.label}
+                  </div>
+                  <div className={`text-4xl font-black font-mono ${stat.color}`}>
+                    {stat.value}
+                  </div>
+                </div>
+                <stat.icon className={`w-8 h-8 ${stat.color}`} strokeWidth={1.5} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="border border-border bg-white rounded-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Calendar className="w-5 h-5 text-primary" />
+              <h3 className="font-bold uppercase">Total Forecast Volume</h3>
+            </div>
+            <div className="text-4xl font-black font-mono text-primary">
+              {demandStats.total_forecast_qty.toLocaleString()}
+            </div>
+            <p className="text-xs text-zinc-500 mt-2">units across all forecasts</p>
+          </div>
+          
+          <div className="border border-border bg-white rounded-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Box className="w-5 h-5 text-primary" />
+              <h3 className="font-bold uppercase">SKU Master Count</h3>
+            </div>
+            <div className="text-4xl font-black font-mono text-zinc-700">
+              {demandStats.total_skus.toLocaleString()}
+            </div>
+            <p className="text-xs text-zinc-500 mt-2">active SKUs in system</p>
+          </div>
+        </div>
+
+        {/* Recent Forecasts */}
+        <div className="border border-border bg-white rounded-sm mb-8">
+          <div className="p-6 border-b border-border">
+            <h2 className="text-lg font-bold uppercase tracking-tight">Recent Forecasts</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-zinc-50 border-b">
+                <tr>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Code</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Qty</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {forecasts.slice(0, 5).map((f) => (
+                  <tr key={f.id} className="border-b hover:bg-zinc-50/50">
+                    <td className="p-4 font-mono font-bold text-sm">{f.forecast_code}</td>
+                    <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
+                    <td className="p-4 font-mono text-sm text-zinc-600">{f.sku_id || 'Vertical-level'}</td>
+                    <td className="p-4 font-mono font-bold">{f.quantity?.toLocaleString()}</td>
+                    <td className="p-4">
+                      <span className={`text-xs font-mono px-2 py-1 rounded border ${
+                        f.status === 'CONFIRMED' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                        f.status === 'CONVERTED' ? 'bg-green-100 text-green-700 border-green-300' :
+                        'bg-zinc-100 text-zinc-700 border-zinc-300'
+                      }`}>{f.status}</span>
+                    </td>
+                  </tr>
+                ))}
+                {forecasts.length === 0 && (
+                  <tr><td colSpan={5} className="p-8 text-center text-zinc-500">No forecasts yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Recent Dispatch Lots */}
+        <div className="border border-border bg-white rounded-sm">
+          <div className="p-6 border-b border-border">
+            <h2 className="text-lg font-bold uppercase tracking-tight">Recent Dispatch Lots</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-zinc-50 border-b">
+                <tr>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Lot Code</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Required</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Produced</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dispatchLots.slice(0, 5).map((lot) => (
+                  <tr key={lot.id} className="border-b hover:bg-zinc-50/50">
+                    <td className="p-4 font-mono font-bold text-sm">{lot.lot_code}</td>
+                    <td className="p-4 font-mono text-sm">{lot.sku_id}</td>
+                    <td className="p-4 font-mono font-bold">{lot.required_quantity?.toLocaleString()}</td>
+                    <td className="p-4 font-mono">{lot.produced_quantity?.toLocaleString() || 0}</td>
+                    <td className="p-4">
+                      <span className={`text-xs font-mono px-2 py-1 rounded border ${
+                        lot.status === 'FULLY_PRODUCED' ? 'bg-green-100 text-green-700 border-green-300' :
+                        lot.status === 'PRODUCTION_ASSIGNED' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                        'bg-zinc-100 text-zinc-700 border-zinc-300'
+                      }`}>{lot.status?.replace(/_/g, ' ')}</span>
+                    </td>
+                  </tr>
+                ))}
+                {dispatchLots.length === 0 && (
+                  <tr><td colSpan={5} className="p-8 text-center text-zinc-500">No dispatch lots yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular dashboard for other roles
   const statCards = [
-    { label: "Total Raw Materials", value: stats.total_rm_value, icon: Package, color: "text-zinc-700" },
-    { label: "Total SKUs", value: stats.total_sku_value, icon: Box, color: "text-zinc-700" },
-    { label: "Low Stock Items", value: stats.low_stock_items, icon: AlertTriangle, color: "text-red-600" },
-    { label: "Today's Production", value: stats.today_production, icon: TrendingUp, color: "text-primary" },
+    { label: "Total Raw Materials", value: stats.total_rm_value || 0, icon: Package, color: "text-zinc-700" },
+    { label: "Total SKUs", value: stats.total_sku_value || 0, icon: Box, color: "text-zinc-700" },
+    { label: "Low Stock Items", value: stats.low_stock_items || 0, icon: AlertTriangle, color: "text-red-600" },
+    { label: "Today's Production", value: stats.today_production || 0, icon: TrendingUp, color: "text-primary" },
   ];
 
   const hasActiveFilters = selectedVertical || selectedModel || searchQuery;
