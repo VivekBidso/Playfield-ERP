@@ -187,6 +187,35 @@ const CPC = () => {
     }
   };
 
+  // NEW: Fetch available branches for a SKU
+  const fetchAvailableBranches = async (skuId) => {
+    setLoadingBranches(true);
+    try {
+      const res = await axios.get(`${API}/skus/${skuId}/assigned-branches`);
+      setAvailableBranches(res.data.branches || []);
+    } catch (error) {
+      console.error("Failed to fetch branches:", error);
+      setAvailableBranches([]);
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
+
+  // NEW: Fetch capacity info for a branch on a specific date
+  const fetchBranchCapacityForDate = async (branch, date) => {
+    if (!branch || !date) {
+      setBranchCapacityInfo(null);
+      return;
+    }
+    try {
+      const res = await axios.get(`${API}/branches/${encodeURIComponent(branch)}/capacity-for-date?date=${date}`);
+      setBranchCapacityInfo(res.data);
+    } catch (error) {
+      console.error("Failed to fetch capacity:", error);
+      setBranchCapacityInfo(null);
+    }
+  };
+
   const openCapacityDialog = (branch) => {
     setCapacityForm({
       branch: branch.branch,
