@@ -408,7 +408,7 @@ const CPC = () => {
                   </thead>
                   <tbody>
                     {demandForecasts.map((f) => (
-                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_planned ? 'opacity-50' : ''}`}>
+                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_scheduled ? 'opacity-50' : ''}`}>
                         <td className="p-4 font-mono text-sm font-bold text-primary">{f.forecast_code}</td>
                         <td className="p-4 text-sm">{f.buyer_name || '-'}</td>
                         <td className="p-4">
