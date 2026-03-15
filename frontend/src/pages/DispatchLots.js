@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, Package, Calendar, AlertTriangle, Search } from "lucide-react";
+import { Plus, Package, Trash2, Search, ChevronRight, Users, Layers, Box } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,128 +17,230 @@ const DispatchLots = () => {
   
   // Data
   const [dispatchLots, setDispatchLots] = useState([]);
-  const [forecasts, setForecasts] = useState([]);
-  const [forecastedSkus, setForecastedSkus] = useState([]); // SKUs that have forecasts
-  const [buyers, setBuyers] = useState([]);
-  const [skuBranchMap, setSkuBranchMap] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Dialog
+  // Dialog state
   const [showDialog, setShowDialog] = useState(false);
-  const [lotForm, setLotForm] = useState({
+  
+  // Cascade filter data
+  const [buyersWithForecasts, setBuyersWithForecasts] = useState([]);
+  const [brandsForBuyer, setBrandsForBuyer] = useState([]);
+  const [verticalsForBuyer, setVerticalsForBuyer] = useState([]);
+  const [forecastedSkus, setForecastedSkus] = useState([]);
+  
+  // Form state
+  const [selectedBuyer, setSelectedBuyer] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+  const [priority, setPriority] = useState("MEDIUM");
+  const [notes, setNotes] = useState("");
+  
+  // Lines state
+  const [lotLines, setLotLines] = useState([]);
+  
+  // Current line being edited
+  const [currentLine, setCurrentLine] = useState({
+    brand_id: "",
+    vertical_id: "",
     sku_id: "",
-    buyer_id: "",
-    required_quantity: 0,
-    target_date: "",
-    priority: "MEDIUM",
-    notes: ""
+    quantity: 0
   });
+  
+  // Loading states
+  const [loadingBrands, setLoadingBrands] = useState(false);
+  const [loadingVerticals, setLoadingVerticals] = useState(false);
+  const [loadingSkus, setLoadingSkus] = useState(false);
 
   useEffect(() => {
-    fetchAllData();
+    fetchDispatchLots();
+    fetchBuyersWithForecasts();
   }, []);
 
-  const fetchAllData = async () => {
+  // When buyer changes, fetch brands and verticals
+  useEffect(() => {
+    if (selectedBuyer) {
+      fetchBrandsForBuyer(selectedBuyer);
+      fetchVerticalsForBuyer(selectedBuyer);
+      // Reset lines and current line
+      setLotLines([]);
+      setCurrentLine({ brand_id: "", vertical_id: "", sku_id: "", quantity: 0 });
+      setForecastedSkus([]);
+    } else {
+      setBrandsForBuyer([]);
+      setVerticalsForBuyer([]);
+      setForecastedSkus([]);
+    }
+  }, [selectedBuyer]);
+
+  // When brand or vertical changes, fetch SKUs
+  useEffect(() => {
+    if (selectedBuyer && (currentLine.brand_id || currentLine.vertical_id)) {
+      fetchForecastedSkus(selectedBuyer, currentLine.vertical_id, currentLine.brand_id);
+    } else {
+      setForecastedSkus([]);
+    }
+  }, [selectedBuyer, currentLine.brand_id, currentLine.vertical_id]);
+
+  const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
+
+  const fetchDispatchLots = async () => {
     try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
-      const [lotsRes, forecastsRes, buyersRes] = await Promise.all([
-        axios.get(`${API}/dispatch-lots`, { headers }),
-        axios.get(`${API}/forecasts`, { headers }),
-        axios.get(`${API}/buyers`, { headers })
-      ]);
-      
-      setDispatchLots(lotsRes.data);
-      setForecasts(forecastsRes.data);
-      setBuyers(buyersRes.data);
-      
-      // Extract unique SKUs from confirmed forecasts
-      const confirmedForecasts = forecastsRes.data.filter(f => 
-        f.status === 'CONFIRMED' || f.status === 'CONVERTED'
-      );
-      
-      const skuSet = new Set();
-      confirmedForecasts.forEach(f => {
-        if (f.sku_id) {
-          skuSet.add(f.sku_id);
-        }
-      });
-      
-      // Also get SKUs from existing forecasts for reference
-      const skusWithForecasts = Array.from(skuSet).map(sku_id => {
-        const forecast = confirmedForecasts.find(f => f.sku_id === sku_id);
-        return {
-          sku_id,
-          forecast_qty: forecast?.quantity || 0,
-          buyer_id: forecast?.buyer_id,
-          vertical: forecast?.vertical_id
-        };
-      });
-      
-      setForecastedSkus(skusWithForecasts);
-      
-      // Fetch branch assignments
-      await fetchBranchAssignments(headers);
-      
+      const res = await axios.get(`${API}/dispatch-lots`, { headers: getHeaders() });
+      setDispatchLots(res.data);
     } catch (error) {
-      console.error("Failed to fetch data:", error);
-      toast.error("Failed to fetch data");
+      console.error("Failed to fetch dispatch lots:", error);
     }
   };
 
-  const fetchBranchAssignments = async (headers) => {
+  const fetchBuyersWithForecasts = async () => {
     try {
-      const res = await axios.get(`${API}/sku-branch-assignments/all`, { headers });
-      const branchMap = {};
-      res.data?.forEach(assignment => {
-        if (!branchMap[assignment.sku_id]) {
-          branchMap[assignment.sku_id] = [];
-        }
-        if (!branchMap[assignment.sku_id].includes(assignment.branch)) {
-          branchMap[assignment.sku_id].push(assignment.branch);
-        }
-      });
-      setSkuBranchMap(branchMap);
+      const res = await axios.get(`${API}/dispatch-lots/buyers-with-forecasts`, { headers: getHeaders() });
+      setBuyersWithForecasts(res.data);
     } catch (error) {
-      console.error("Failed to fetch branch assignments:", error);
+      console.error("Failed to fetch buyers:", error);
     }
+  };
+
+  const fetchBrandsForBuyer = async (buyerId) => {
+    setLoadingBrands(true);
+    try {
+      const res = await axios.get(`${API}/dispatch-lots/brands-by-buyer?buyer_id=${buyerId}`, { headers: getHeaders() });
+      setBrandsForBuyer(res.data);
+    } catch (error) {
+      console.error("Failed to fetch brands:", error);
+    } finally {
+      setLoadingBrands(false);
+    }
+  };
+
+  const fetchVerticalsForBuyer = async (buyerId, brandId = null) => {
+    setLoadingVerticals(true);
+    try {
+      let url = `${API}/dispatch-lots/verticals-by-buyer?buyer_id=${buyerId}`;
+      if (brandId) url += `&brand_id=${brandId}`;
+      const res = await axios.get(url, { headers: getHeaders() });
+      setVerticalsForBuyer(res.data);
+    } catch (error) {
+      console.error("Failed to fetch verticals:", error);
+    } finally {
+      setLoadingVerticals(false);
+    }
+  };
+
+  const fetchForecastedSkus = async (buyerId, verticalId, brandId) => {
+    setLoadingSkus(true);
+    try {
+      let url = `${API}/dispatch-lots/forecasted-skus?buyer_id=${buyerId}`;
+      if (verticalId) url += `&vertical_id=${verticalId}`;
+      if (brandId) url += `&brand_id=${brandId}`;
+      const res = await axios.get(url, { headers: getHeaders() });
+      setForecastedSkus(res.data);
+    } catch (error) {
+      console.error("Failed to fetch SKUs:", error);
+    } finally {
+      setLoadingSkus(false);
+    }
+  };
+
+  const handleAddLine = () => {
+    if (!currentLine.sku_id || currentLine.quantity <= 0) {
+      toast.error("Please select a SKU and enter quantity");
+      return;
+    }
+
+    const selectedSku = forecastedSkus.find(s => s.sku_id === currentLine.sku_id);
+    if (!selectedSku) {
+      toast.error("Invalid SKU selected");
+      return;
+    }
+
+    // Check if SKU already exists in lines
+    if (lotLines.some(l => l.sku_id === currentLine.sku_id)) {
+      toast.error("This SKU is already added to the lot");
+      return;
+    }
+
+    // Check available quantity
+    if (currentLine.quantity > selectedSku.available_qty) {
+      toast.error(`Quantity exceeds available (${selectedSku.available_qty})`);
+      return;
+    }
+
+    setLotLines([...lotLines, {
+      ...currentLine,
+      sku_description: selectedSku.description,
+      brand_name: selectedSku.brand,
+      vertical_name: selectedSku.vertical,
+      available_qty: selectedSku.available_qty
+    }]);
+
+    // Reset current line (keep brand/vertical for convenience)
+    setCurrentLine({
+      brand_id: currentLine.brand_id,
+      vertical_id: currentLine.vertical_id,
+      sku_id: "",
+      quantity: 0
+    });
+  };
+
+  const handleRemoveLine = (index) => {
+    setLotLines(lotLines.filter((_, i) => i !== index));
   };
 
   const handleCreateLot = async () => {
-    if (!lotForm.sku_id || !lotForm.target_date || !lotForm.required_quantity) {
-      toast.error("Please fill all required fields");
+    if (!selectedBuyer) {
+      toast.error("Please select a buyer");
       return;
     }
-    
+    if (!targetDate) {
+      toast.error("Please select a target date");
+      return;
+    }
+    if (lotLines.length === 0) {
+      toast.error("Please add at least one line item");
+      return;
+    }
+
     try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const payload = {
+        buyer_id: selectedBuyer,
+        target_date: new Date(targetDate).toISOString(),
+        priority,
+        notes,
+        lines: lotLines.map(l => ({
+          sku_id: l.sku_id,
+          brand_id: l.brand_id || null,
+          vertical_id: l.vertical_id || null,
+          quantity: l.quantity
+        }))
+      };
+
+      await axios.post(`${API}/dispatch-lots/multi`, payload, { headers: getHeaders() });
       
-      await axios.post(`${API}/dispatch-lots`, {
-        sku_id: lotForm.sku_id,
-        buyer_id: lotForm.buyer_id || null,
-        required_quantity: lotForm.required_quantity,
-        target_date: new Date(lotForm.target_date).toISOString(),
-        priority: lotForm.priority,
-        notes: lotForm.notes
-      }, { headers });
-      
-      toast.success("Dispatch lot created");
+      toast.success("Dispatch lot created successfully");
       setShowDialog(false);
-      setLotForm({
-        sku_id: "",
-        buyer_id: "",
-        required_quantity: 0,
-        target_date: "",
-        priority: "MEDIUM",
-        notes: ""
-      });
-      fetchAllData();
+      resetForm();
+      fetchDispatchLots();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to create dispatch lot");
     }
   };
 
-  const getBuyerName = (id) => buyers.find(b => b.id === id)?.name || id || '-';
+  const resetForm = () => {
+    setSelectedBuyer("");
+    setTargetDate("");
+    setPriority("MEDIUM");
+    setNotes("");
+    setLotLines([]);
+    setCurrentLine({ brand_id: "", vertical_id: "", sku_id: "", quantity: 0 });
+    setBrandsForBuyer([]);
+    setVerticalsForBuyer([]);
+    setForecastedSkus([]);
+  };
+
+  const getBuyerName = (id) => {
+    const allBuyers = [...buyersWithForecasts];
+    return allBuyers.find(b => b.id === id)?.name || id || '-';
+  };
 
   const getStatusColor = (status) => {
     const colors = {
@@ -154,26 +256,12 @@ const DispatchLots = () => {
     return colors[status] || 'bg-zinc-100 text-zinc-700 border-zinc-300';
   };
 
-  // Get forecasted quantity for an SKU
-  const getForecastedQty = (skuId) => {
-    const totalQty = forecasts
-      .filter(f => f.sku_id === skuId && (f.status === 'CONFIRMED' || f.status === 'CONVERTED'))
-      .reduce((sum, f) => sum + (f.quantity || 0), 0);
-    return totalQty;
-  };
-
-  // Get total dispatched quantity for an SKU
-  const getDispatchedQty = (skuId) => {
-    return dispatchLots
-      .filter(lot => lot.sku_id === skuId)
-      .reduce((sum, lot) => sum + (lot.required_quantity || 0), 0);
-  };
-
-  // Filter dispatch lots based on search
   const filteredLots = dispatchLots.filter(lot => 
     lot.lot_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     lot.sku_id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const totalLinesQty = lotLines.reduce((sum, l) => sum + l.quantity, 0);
 
   return (
     <div className="p-6 md:p-8" data-testid="dispatch-lots-page">
@@ -181,123 +269,302 @@ const DispatchLots = () => {
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Dispatch Lots</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            Create lots for forecasted SKUs
+            Create multi-line lots for forecasted SKUs
           </p>
         </div>
-        <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button className="uppercase text-xs tracking-wide" data-testid="add-lot-btn">
               <Plus className="w-4 h-4 mr-2" />
               Create Dispatch Lot
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Package className="w-5 h-5" />
                 Create Dispatch Lot
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label>SKU (From Forecasts Only) *</Label>
-                <Select value={lotForm.sku_id} onValueChange={(v) => setLotForm({...lotForm, sku_id: v})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select forecasted SKU" />
+            
+            <div className="space-y-6">
+              {/* Step 1: Select Buyer */}
+              <div className="p-4 border rounded-lg bg-zinc-50">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="w-4 h-4 text-primary" />
+                  <Label className="text-sm font-bold uppercase tracking-wide">Step 1: Select Buyer</Label>
+                </div>
+                <Select value={selectedBuyer} onValueChange={setSelectedBuyer}>
+                  <SelectTrigger data-testid="buyer-select">
+                    <SelectValue placeholder="Select a buyer with forecasts..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {forecastedSkus.length === 0 ? (
-                      <div className="p-2 text-sm text-zinc-500">No confirmed forecasts available</div>
+                    {buyersWithForecasts.length === 0 ? (
+                      <div className="p-3 text-sm text-zinc-500 text-center">
+                        No buyers with confirmed forecasts
+                      </div>
                     ) : (
-                      forecastedSkus.map(sku => {
-                        const forecastQty = getForecastedQty(sku.sku_id);
-                        const dispatchedQty = getDispatchedQty(sku.sku_id);
-                        const remaining = forecastQty - dispatchedQty;
-                        
-                        return (
-                          <SelectItem key={sku.sku_id} value={sku.sku_id}>
-                            <div className="flex items-center justify-between w-full">
-                              <span className="font-mono">{sku.sku_id}</span>
-                              <span className="text-xs text-zinc-500 ml-2">
-                                (Remaining: {remaining.toLocaleString()})
-                              </span>
-                            </div>
-                          </SelectItem>
-                        );
-                      })
+                      buyersWithForecasts.map(b => (
+                        <SelectItem key={b.id} value={b.id}>
+                          <span className="font-medium">{b.name}</span>
+                          <span className="text-xs text-zinc-500 ml-2">({b.code})</span>
+                        </SelectItem>
+                      ))
                     )}
                   </SelectContent>
                 </Select>
-                {lotForm.sku_id && (
-                  <div className="mt-2 p-2 bg-zinc-100 rounded text-xs font-mono">
-                    Forecasted: {getForecastedQty(lotForm.sku_id).toLocaleString()} | 
-                    Already in Lots: {getDispatchedQty(lotForm.sku_id).toLocaleString()} | 
-                    <span className="font-bold text-primary">
-                      Remaining: {(getForecastedQty(lotForm.sku_id) - getDispatchedQty(lotForm.sku_id)).toLocaleString()}
-                    </span>
+              </div>
+
+              {/* Step 2: Add Lines (only show if buyer selected) */}
+              {selectedBuyer && (
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-primary" />
+                      <Label className="text-sm font-bold uppercase tracking-wide">Step 2: Add Lot Lines</Label>
+                    </div>
+                    {lotLines.length > 0 && (
+                      <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded">
+                        {lotLines.length} lines | {totalLinesQty.toLocaleString()} units
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <div>
-                <Label>Buyer</Label>
-                <Select value={lotForm.buyer_id || "_none"} onValueChange={(v) => setLotForm({...lotForm, buyer_id: v === "_none" ? "" : v})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select buyer (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_none">No specific buyer</SelectItem>
-                    {buyers.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Line Input Form */}
+                  <div className="space-y-3 p-3 bg-zinc-50 rounded-lg border border-dashed mb-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Brand Select */}
+                      <div>
+                        <Label className="text-xs text-zinc-500">Brand (optional filter)</Label>
+                        <Select 
+                          value={currentLine.brand_id || "_all"} 
+                          onValueChange={(v) => setCurrentLine({...currentLine, brand_id: v === "_all" ? "" : v, sku_id: ""})}
+                          disabled={loadingBrands}
+                        >
+                          <SelectTrigger data-testid="brand-select">
+                            <SelectValue placeholder="All brands" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_all">All Brands</SelectItem>
+                            {brandsForBuyer.map(b => (
+                              <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-              <div>
-                <Label>Quantity *</Label>
-                <Input
-                  type="number"
-                  value={lotForm.required_quantity}
-                  onChange={(e) => setLotForm({...lotForm, required_quantity: parseInt(e.target.value) || 0})}
-                  placeholder="Enter quantity"
-                />
-              </div>
+                      {/* Vertical Select */}
+                      <div>
+                        <Label className="text-xs text-zinc-500">Vertical (optional filter)</Label>
+                        <Select 
+                          value={currentLine.vertical_id || "_all"} 
+                          onValueChange={(v) => setCurrentLine({...currentLine, vertical_id: v === "_all" ? "" : v, sku_id: ""})}
+                          disabled={loadingVerticals}
+                        >
+                          <SelectTrigger data-testid="vertical-select">
+                            <SelectValue placeholder="All verticals" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_all">All Verticals</SelectItem>
+                            {verticalsForBuyer.map(v => (
+                              <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
 
-              <div>
-                <Label>Target Date *</Label>
-                <Input
-                  type="date"
-                  value={lotForm.target_date}
-                  onChange={(e) => setLotForm({...lotForm, target_date: e.target.value})}
-                />
-              </div>
+                    {/* SKU Select */}
+                    <div>
+                      <Label className="text-xs text-zinc-500">SKU (from forecasts)</Label>
+                      <Select 
+                        value={currentLine.sku_id || "_none"} 
+                        onValueChange={(v) => setCurrentLine({...currentLine, sku_id: v === "_none" ? "" : v})}
+                        disabled={loadingSkus || forecastedSkus.length === 0}
+                      >
+                        <SelectTrigger data-testid="sku-select">
+                          <SelectValue placeholder={loadingSkus ? "Loading SKUs..." : "Select forecasted SKU"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {forecastedSkus.length === 0 ? (
+                            <div className="p-3 text-sm text-zinc-500 text-center">
+                              {loadingSkus ? "Loading..." : "No forecasted SKUs found for this filter"}
+                            </div>
+                          ) : (
+                            forecastedSkus.map(s => (
+                              <SelectItem 
+                                key={s.sku_id} 
+                                value={s.sku_id}
+                                disabled={lotLines.some(l => l.sku_id === s.sku_id) || s.available_qty <= 0}
+                              >
+                                <div className="flex items-center justify-between w-full gap-2">
+                                  <span className="font-mono text-sm">{s.sku_id}</span>
+                                  <span className={`text-xs ${s.available_qty > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    Avail: {s.available_qty.toLocaleString()}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-              <div>
-                <Label>Priority</Label>
-                <Select value={lotForm.priority} onValueChange={(v) => setLotForm({...lotForm, priority: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="LOW">Low</SelectItem>
-                    <SelectItem value="MEDIUM">Medium</SelectItem>
-                    <SelectItem value="HIGH">High</SelectItem>
-                    <SelectItem value="CRITICAL">Critical</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                    {/* Show selected SKU details */}
+                    {currentLine.sku_id && (
+                      <div className="p-2 bg-blue-50 rounded text-xs border border-blue-200">
+                        {(() => {
+                          const sku = forecastedSkus.find(s => s.sku_id === currentLine.sku_id);
+                          return sku ? (
+                            <div className="space-y-1">
+                              <div className="font-medium text-blue-800">{sku.description || sku.sku_id}</div>
+                              <div className="flex gap-4 text-blue-600">
+                                <span>Brand: {sku.brand || '-'}</span>
+                                <span>Vertical: {sku.vertical || '-'}</span>
+                              </div>
+                              <div className="flex gap-4">
+                                <span>Forecast: {sku.forecast_qty?.toLocaleString()}</span>
+                                <span>Dispatched: {sku.dispatched_qty?.toLocaleString()}</span>
+                                <span className="font-bold text-green-700">Available: {sku.available_qty?.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                    )}
 
-              <div>
-                <Label>Notes</Label>
-                <Input
-                  value={lotForm.notes}
-                  onChange={(e) => setLotForm({...lotForm, notes: e.target.value})}
-                  placeholder="Optional notes"
-                />
-              </div>
+                    {/* Quantity + Add Button */}
+                    <div className="flex items-end gap-3">
+                      <div className="flex-1">
+                        <Label className="text-xs text-zinc-500">Quantity</Label>
+                        <Input
+                          type="number"
+                          value={currentLine.quantity || ""}
+                          onChange={(e) => setCurrentLine({...currentLine, quantity: parseInt(e.target.value) || 0})}
+                          placeholder="Enter quantity"
+                          className="font-mono"
+                          data-testid="quantity-input"
+                        />
+                      </div>
+                      <Button 
+                        onClick={handleAddLine}
+                        disabled={!currentLine.sku_id || currentLine.quantity <= 0}
+                        className="uppercase text-xs"
+                        data-testid="add-line-btn"
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Line
+                      </Button>
+                    </div>
+                  </div>
 
-              <Button onClick={handleCreateLot} className="w-full">
-                Create Dispatch Lot
-              </Button>
+                  {/* Added Lines List */}
+                  {lotLines.length > 0 && (
+                    <div className="border rounded overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-zinc-100">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-mono text-xs uppercase">#</th>
+                            <th className="px-3 py-2 text-left font-mono text-xs uppercase">SKU</th>
+                            <th className="px-3 py-2 text-left font-mono text-xs uppercase">Brand</th>
+                            <th className="px-3 py-2 text-left font-mono text-xs uppercase">Vertical</th>
+                            <th className="px-3 py-2 text-right font-mono text-xs uppercase">Qty</th>
+                            <th className="px-3 py-2 w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lotLines.map((line, idx) => (
+                            <tr key={idx} className="border-t hover:bg-zinc-50">
+                              <td className="px-3 py-2 font-mono text-zinc-500">{idx + 1}</td>
+                              <td className="px-3 py-2 font-mono font-medium">{line.sku_id}</td>
+                              <td className="px-3 py-2 text-zinc-600">{line.brand_name || '-'}</td>
+                              <td className="px-3 py-2 text-zinc-600">{line.vertical_name || '-'}</td>
+                              <td className="px-3 py-2 font-mono font-bold text-right">{line.quantity.toLocaleString()}</td>
+                              <td className="px-3 py-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleRemoveLine(idx)}
+                                  className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  data-testid={`remove-line-${idx}`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-zinc-50 border-t">
+                          <tr>
+                            <td colSpan={4} className="px-3 py-2 text-right font-bold uppercase text-xs">Total</td>
+                            <td className="px-3 py-2 font-mono font-bold text-right text-primary">{totalLinesQty.toLocaleString()}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 3: Lot Details (only show if buyer selected) */}
+              {selectedBuyer && (
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Box className="w-4 h-4 text-primary" />
+                    <Label className="text-sm font-bold uppercase tracking-wide">Step 3: Lot Details</Label>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-xs text-zinc-500">Target Date *</Label>
+                      <Input
+                        type="date"
+                        value={targetDate}
+                        onChange={(e) => setTargetDate(e.target.value)}
+                        data-testid="target-date-input"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-zinc-500">Priority</Label>
+                      <Select value={priority} onValueChange={setPriority}>
+                        <SelectTrigger data-testid="priority-select">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="LOW">Low</SelectItem>
+                          <SelectItem value="MEDIUM">Medium</SelectItem>
+                          <SelectItem value="HIGH">High</SelectItem>
+                          <SelectItem value="CRITICAL">Critical</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <Label className="text-xs text-zinc-500">Notes</Label>
+                    <Input
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Optional notes for this lot"
+                      data-testid="notes-input"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Create Button */}
+              {selectedBuyer && (
+                <Button 
+                  onClick={handleCreateLot} 
+                  className="w-full uppercase tracking-wide"
+                  disabled={lotLines.length === 0 || !targetDate}
+                  data-testid="create-lot-btn"
+                >
+                  <Package className="w-4 h-4 mr-2" />
+                  Create Dispatch Lot ({lotLines.length} lines, {totalLinesQty.toLocaleString()} units)
+                </Button>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -307,75 +574,62 @@ const DispatchLots = () => {
       <div className="mb-4 flex items-center gap-2 max-w-md">
         <Search className="w-4 h-4 text-zinc-400" />
         <Input
-          placeholder="Search by lot code or SKU..."
+          placeholder="Search by lot code..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="font-mono"
+          data-testid="search-input"
         />
       </div>
 
       {/* Dispatch Lots Table */}
       <div className="border rounded-sm overflow-x-auto bg-white">
-        <table className="w-full">
+        <table className="w-full" data-testid="lots-table">
           <thead className="bg-zinc-50">
             <tr>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Lot Code</th>
-              <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
-              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Branches</th>
+              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Lines</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Target</th>
-              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Required</th>
-              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Produced</th>
+              <th className="h-10 px-4 text-left font-mono text-xs uppercase">Total Qty</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
             </tr>
           </thead>
           <tbody>
-            {filteredLots.map((lot) => {
-              const branches = skuBranchMap[lot.sku_id] || [];
-              const isMultiBranch = branches.length > 1;
-              
-              return (
-                <tr key={lot.id} className="border-t hover:bg-zinc-50/50">
-                  <td className="p-4 font-mono font-bold text-sm">{lot.lot_code}</td>
-                  <td className="p-4 font-mono text-sm">{lot.sku_id}</td>
-                  <td className="p-4 text-sm">{getBuyerName(lot.buyer_id)}</td>
-                  <td className="p-4">
-                    {isMultiBranch ? (
-                      <div className="flex items-center gap-1">
-                        <AlertTriangle className="w-4 h-4 text-orange-500" />
-                        <span className="text-xs font-mono text-orange-600">
-                          {branches.length} branches
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs font-mono text-zinc-600">
-                        {branches[0] || 'Not assigned'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-4 font-mono text-sm">{lot.target_date?.slice(0, 10)}</td>
-                  <td className="p-4 font-mono font-bold">{lot.required_quantity?.toLocaleString()}</td>
-                  <td className="p-4 font-mono">{lot.produced_quantity?.toLocaleString() || 0}</td>
-                  <td className="p-4">
-                    <span className={`text-xs font-mono px-2 py-1 rounded border ${
-                      lot.priority === 'CRITICAL' ? 'bg-red-100 text-red-700 border-red-300' :
-                      lot.priority === 'HIGH' ? 'bg-orange-100 text-orange-700 border-orange-300' :
-                      lot.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
-                      'bg-zinc-100 border-zinc-300'
-                    }`}>{lot.priority}</span>
-                  </td>
-                  <td className="p-4">
-                    <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(lot.status)}`}>
-                      {lot.status?.replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
+            {filteredLots.map((lot) => (
+              <tr key={lot.id} className="border-t hover:bg-zinc-50/50">
+                <td className="p-4 font-mono font-bold text-sm">{lot.lot_code}</td>
+                <td className="p-4 text-sm">{getBuyerName(lot.buyer_id)}</td>
+                <td className="p-4 font-mono text-sm">
+                  {lot.line_count ? (
+                    <span className="text-primary font-medium">{lot.line_count} SKUs</span>
+                  ) : lot.sku_id ? (
+                    <span className="text-zinc-600">{lot.sku_id}</span>
+                  ) : '-'}
+                </td>
+                <td className="p-4 font-mono text-sm">{lot.target_date?.slice(0, 10)}</td>
+                <td className="p-4 font-mono font-bold">
+                  {(lot.total_quantity || lot.required_quantity || 0).toLocaleString()}
+                </td>
+                <td className="p-4">
+                  <span className={`text-xs font-mono px-2 py-1 rounded border ${
+                    lot.priority === 'CRITICAL' ? 'bg-red-100 text-red-700 border-red-300' :
+                    lot.priority === 'HIGH' ? 'bg-orange-100 text-orange-700 border-orange-300' :
+                    lot.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                    'bg-zinc-100 border-zinc-300'
+                  }`}>{lot.priority}</span>
+                </td>
+                <td className="p-4">
+                  <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(lot.status)}`}>
+                    {lot.status?.replace(/_/g, ' ')}
+                  </span>
+                </td>
+              </tr>
+            ))}
             {filteredLots.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                <td colSpan={7} className="p-8 text-center text-muted-foreground">
                   No dispatch lots yet. Create one from forecasted SKUs.
                 </td>
               </tr>
