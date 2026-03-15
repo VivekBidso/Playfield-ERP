@@ -175,6 +175,80 @@ const DispatchLots = () => {
     }
   };
 
+  const openEditDialog = (lot) => {
+    setEditingLot(lot);
+    setEditTargetDate(lot.target_date ? lot.target_date.slice(0, 10) : "");
+    setEditPriority(lot.priority || "MEDIUM");
+    setEditNotes(lot.notes || "");
+    setEditLines(lot.lines?.map(l => ({
+      id: l.id,
+      sku_id: l.sku_id,
+      sku_description: l.sku_description || l.description || "",
+      brand_id: l.brand_id,
+      vertical_id: l.vertical_id,
+      quantity: l.quantity,
+      forecast_id: l.forecast_id
+    })) || []);
+    setShowEditDialog(true);
+  };
+
+  const handleEditLineQuantity = (index, newQty) => {
+    const updated = [...editLines];
+    updated[index].quantity = parseInt(newQty) || 0;
+    setEditLines(updated);
+  };
+
+  const handleRemoveEditLine = (index) => {
+    if (editLines.length <= 1) {
+      toast.error("At least one line item is required");
+      return;
+    }
+    setEditLines(editLines.filter((_, i) => i !== index));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTargetDate) {
+      toast.error("Please select a target date");
+      return;
+    }
+    if (editLines.length === 0) {
+      toast.error("At least one line item is required");
+      return;
+    }
+    if (editLines.some(l => l.quantity <= 0)) {
+      toast.error("All line quantities must be greater than 0");
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const payload = {
+        target_date: new Date(editTargetDate).toISOString(),
+        priority: editPriority,
+        notes: editNotes,
+        lines: editLines.map(l => ({
+          id: l.id,
+          sku_id: l.sku_id,
+          brand_id: l.brand_id || null,
+          vertical_id: l.vertical_id || null,
+          quantity: l.quantity,
+          forecast_id: l.forecast_id || null
+        }))
+      };
+
+      await axios.put(`${API}/dispatch-lots/${editingLot.id}`, payload, { headers: getHeaders() });
+      
+      toast.success("Dispatch lot updated successfully");
+      setShowEditDialog(false);
+      setShowDetailDialog(false);
+      fetchDispatchLots();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update dispatch lot");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleAddLine = () => {
     if (!currentLine.sku_id || currentLine.quantity <= 0) {
       toast.error("Please select a SKU and enter quantity");
