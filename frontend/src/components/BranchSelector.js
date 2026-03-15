@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import useBranchStore from "@/store/branchStore";
+import useAuthStore from "@/store/authStore";
 import { Building2 } from "lucide-react";
 import axios from "axios";
 
@@ -8,7 +9,11 @@ const API = `${BACKEND_URL}/api`;
 
 const BranchSelector = () => {
   const { selectedBranch, setSelectedBranch } = useBranchStore();
+  const { hasRole } = useAuthStore();
   const [branches, setBranches] = useState([]);
+
+  // Hide branch selector for Demand Planner - they see all branches
+  const isDemandPlanner = hasRole('DEMAND_PLANNER') && !hasRole('MASTER_ADMIN');
 
   useEffect(() => {
     fetchBranches();
@@ -23,6 +28,11 @@ const BranchSelector = () => {
       setBranches([]);
     }
   };
+
+  // Don't show branch selector for Demand Planner
+  if (isDemandPlanner) {
+    return null;
+  }
 
   return (
     <div className="p-4 border-b border-zinc-800" data-testid="branch-selector">
