@@ -436,14 +436,14 @@ const CPC = () => {
                           )}
                         </td>
                         <td className="p-4 text-center">
-                          {f.is_fully_planned ? (
-                            <Badge className="bg-green-100 text-green-700">Fully Planned</Badge>
+                          {f.is_fully_scheduled ? (
+                            <Badge className="bg-green-100 text-green-700">Fully Scheduled</Badge>
                           ) : (
                             <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>
                           )}
                         </td>
                         <td className="p-4 text-center">
-                          {!f.is_fully_planned && f.sku_id && (
+                          {!f.is_fully_scheduled && f.sku_id && (
                             <Button
                               size="sm"
                               onClick={() => {
