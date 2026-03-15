@@ -326,8 +326,9 @@ const ProductionPlanning = () => {
 
   const downloadTemplate = () => {
     const template = [
-      { Date: '2025-01-15', SKU_ID: 'SKU001', Planned_Quantity: 100 },
-      { Date: '2025-01-16', SKU_ID: 'SKU001', Planned_Quantity: 150 }
+      { Date: '2025-01-15', SKU_ID: 'SKU001', Planned_Quantity: 100, Branch: 'Unit 1 Vedica' },
+      { Date: '2025-01-16', SKU_ID: 'SKU001', Planned_Quantity: 150, Branch: 'Unit 1 Vedica' },
+      { Date: '2025-01-15', SKU_ID: 'SKU002', Planned_Quantity: 200, Branch: 'Unit 2 Mayapuri' }
     ];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
