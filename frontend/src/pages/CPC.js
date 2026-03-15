@@ -497,7 +497,7 @@ const CPC = () => {
                           {!f.is_fully_scheduled && f.sku_id && (
                             <Button
                               size="sm"
-                              onClick={() => {
+                              onClick={async () => {
                                 setForecastScheduleForm({
                                   forecast_id: f.id,
                                   forecast_code: f.forecast_code,
@@ -505,8 +505,11 @@ const CPC = () => {
                                   remaining_qty: f.remaining_qty,
                                   quantity: f.remaining_qty,
                                   target_date: "",
+                                  branch: "",
                                   priority: f.priority || "MEDIUM"
                                 });
+                                setBranchCapacityInfo(null);
+                                await fetchAvailableBranches(f.sku_id);
                                 setShowScheduleFromForecastDialog(true);
                               }}
                               className="uppercase text-xs"
