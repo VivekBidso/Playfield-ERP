@@ -1015,6 +1015,202 @@ async def get_sku_assigned_branches(sku_id: str):
     }
 
 
+@router.get("/branches/model-capacity/template")
+async def download_model_capacity_template():
+    """Download Excel template for model capacity upload"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Model Capacity"
+    
+    # Headers
+    headers = ["Branch", "Month (YYYY-MM)", "Day", "Model Name", "Capacity Qty"]
+    header_fill = PatternFill(start_color="FF6B35", end_color="FF6B35", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+    
+    # Get branches and models for reference
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    models = await db.models.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    
+    # Add sample rows
+    sample_branch = branches[0]["name"] if branches else "Unit 1"
+    sample_model = models[0]["name"] if models else "Model A"
+    sample_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    
+    ws.cell(row=2, column=1, value=sample_branch)
+    ws.cell(row=2, column=2, value=sample_month)
+    ws.cell(row=2, column=3, value=1)
+    ws.cell(row=2, column=4, value=sample_model)
+    ws.cell(row=2, column=5, value=100)
+    
+    # Add reference sheets
+    # Branches reference
+    ws_branches = wb.create_sheet("Branches Reference")
+    ws_branches.cell(row=1, column=1, value="Available Branches")
+    ws_branches["A1"].font = Font(bold=True)
+    for i, b in enumerate(branches, 2):
+        ws_branches.cell(row=i, column=1, value=b["name"])
+    
+    # Models reference
+    ws_models = wb.create_sheet("Models Reference")
+    ws_models.cell(row=1, column=1, value="Model ID")
+    ws_models.cell(row=1, column=2, value="Model Name")
+    ws_models["A1"].font = Font(bold=True)
+    ws_models["B1"].font = Font(bold=True)
+    for i, m in enumerate(models, 2):
+        ws_models.cell(row=i, column=1, value=m["id"])
+        ws_models.cell(row=i, column=2, value=m["name"])
+    ws_models.column_dimensions["A"].width = 40
+    ws_models.column_dimensions["B"].width = 30
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=model_capacity_template.xlsx"}
+    )
+
+
+@router.post("/branches/model-capacity/upload-excel")
+async def upload_model_capacity_excel(file: UploadFile = File(...)):
+    """Upload model capacity from Excel file (Branch, Month, Day, Model Name, Capacity)"""
+    if not pd:
+        raise HTTPException(status_code=500, detail="pandas not installed")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+    
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
+    
+    # Expected columns (flexible matching)
+    required_cols = {
+        "branch": ["branch", "branch_name", "unit"],
+        "month": ["month", "month_yyyy_mm", "yyyy_mm"],
+        "day": ["day", "day_of_month"],
+        "model": ["model", "model_name", "model_id"],
+        "capacity": ["capacity", "capacity_qty", "qty", "quantity"]
+    }
+    
+    # Map columns
+    col_map = {}
+    for key, options in required_cols.items():
+        found = False
+        for opt in options:
+            if opt in df.columns:
+                col_map[key] = opt
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=400, detail=f"Missing required column: {key}. Expected one of: {options}")
+    
+    # Validate and build model name to ID map
+    models = await db.models.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    model_name_to_id = {m["name"].lower(): m["id"] for m in models}
+    model_id_set = {m["id"] for m in models}
+    
+    # Validate branches
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    valid_branches = {b["name"] for b in branches}
+    
+    # Process rows
+    results = {"inserted": 0, "updated": 0, "errors": []}
+    
+    for idx, row in df.iterrows():
+        try:
+            branch = str(row[col_map["branch"]]).strip()
+            month = str(row[col_map["month"]]).strip()
+            day = int(row[col_map["day"]])
+            model_value = str(row[col_map["model"]]).strip()
+            capacity = int(row[col_map["capacity"]])
+            
+            # Validate branch
+            if branch not in valid_branches:
+                results["errors"].append(f"Row {idx+2}: Invalid branch '{branch}'")
+                continue
+            
+            # Validate month format (YYYY-MM)
+            if len(month) < 7 or month[4] != '-':
+                # Try to parse as date and extract month
+                try:
+                    parsed_date = pd.to_datetime(month)
+                    month = parsed_date.strftime("%Y-%m")
+                except:
+                    results["errors"].append(f"Row {idx+2}: Invalid month format '{month}'. Use YYYY-MM")
+                    continue
+            
+            # Validate day
+            if day < 1 or day > 31:
+                results["errors"].append(f"Row {idx+2}: Invalid day {day}")
+                continue
+            
+            # Resolve model ID
+            if model_value in model_id_set:
+                model_id = model_value
+            elif model_value.lower() in model_name_to_id:
+                model_id = model_name_to_id[model_value.lower()]
+            else:
+                results["errors"].append(f"Row {idx+2}: Model '{model_value}' not found")
+                continue
+            
+            # Upsert capacity record
+            record = {
+                "branch": branch,
+                "month": month,
+                "day": day,
+                "model_id": model_id,
+                "capacity_qty": capacity,
+                "updated_at": datetime.now(timezone.utc)
+            }
+            
+            result = await db.branch_model_capacity.update_one(
+                {
+                    "branch": branch,
+                    "month": month,
+                    "day": day,
+                    "model_id": model_id
+                },
+                {"$set": record, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc)}},
+                upsert=True
+            )
+            
+            if result.upserted_id:
+                results["inserted"] += 1
+            else:
+                results["updated"] += 1
+                
+        except Exception as e:
+            results["errors"].append(f"Row {idx+2}: {str(e)}")
+    
+    return {
+        "message": f"Excel upload complete",
+        "inserted": results["inserted"],
+        "updated": results["updated"],
+        "total_processed": results["inserted"] + results["updated"],
+        "errors": results["errors"][:20],  # Limit error messages
+        "total_errors": len(results["errors"])
+    }
+
+
 # ============ END BRANCH MODEL CAPACITY ============
 
 
