@@ -417,7 +417,7 @@ const CPC = () => {
                         </td>
                         <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
                         <td className="p-4 font-mono font-bold text-right">{f.forecast_qty?.toLocaleString()}</td>
-                        <td className="p-4 font-mono text-right text-green-600">{f.planned_qty?.toLocaleString() || 0}</td>
+                        <td className="p-4 font-mono text-right text-green-600">{f.scheduled_qty?.toLocaleString() || 0}</td>
                         <td className="p-4 font-mono font-bold text-right">
                           <span className={f.remaining_qty > 0 ? 'text-orange-600' : 'text-green-600'}>
                             {f.remaining_qty?.toLocaleString()}
