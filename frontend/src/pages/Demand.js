@@ -32,6 +32,10 @@ const Demand = () => {
   const [selectedForecasts, setSelectedForecasts] = useState(new Set());
   const [expandedForecast, setExpandedForecast] = useState(null);
   
+  // Dispatch Lots popup state
+  const [showLotsDialog, setShowLotsDialog] = useState(false);
+  const [selectedForecastLots, setSelectedForecastLots] = useState({ forecast: null, lots: [] });
+  
   // Check if user can confirm forecasts
   const canConfirmForecasts = hasRole && (hasRole('MASTER_ADMIN') || hasRole('DEMAND_PLANNER'));
   
