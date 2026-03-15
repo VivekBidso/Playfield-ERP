@@ -414,3 +414,297 @@ async def get_all_sku_branch_assignments():
     ).to_list(50000)
     
     return assignments
+
+
+# ============ SKU Branch Assignment Routes ============
+
+async def activate_rms_for_sku(sku_id: str, branch: str) -> int:
+    """
+    Activate all RMs in the BOM for a given SKU in a branch.
+    Returns the number of RMs activated.
+    """
+    activated_count = 0
+    
+    # Get RM mappings from sku_rm_mapping collection (bulk uploaded)
+    rm_mappings = await db.sku_rm_mapping.find({"sku_id": sku_id}, {"_id": 0, "rm_id": 1}).to_list(1000)
+    
+    # Also check legacy sku_mappings collection
+    legacy_mapping = await db.sku_mappings.find_one({"sku_id": sku_id}, {"_id": 0})
+    if legacy_mapping and legacy_mapping.get('rm_mappings'):
+        for rm in legacy_mapping['rm_mappings']:
+            rm_mappings.append({"rm_id": rm['rm_id']})
+    
+    # Also check bill_of_materials collection
+    bom_mappings = await db.bill_of_materials.find({"sku_id": sku_id}, {"_id": 0, "rm_id": 1}).to_list(1000)
+    for bom in bom_mappings:
+        if bom.get("rm_id"):
+            rm_mappings.append({"rm_id": bom['rm_id']})
+    
+    # Activate each RM in the branch
+    for mapping in rm_mappings:
+        rm_id = mapping.get('rm_id')
+        if not rm_id:
+            continue
+        
+        # Check if RM exists in the system
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        if not rm:
+            continue
+        
+        # Check if already activated in branch
+        existing_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": rm_id, "branch": branch},
+            {"_id": 0}
+        )
+        
+        if not existing_inv:
+            # Activate RM in branch inventory
+            inv_obj = BranchRMInventory(rm_id=rm_id, branch=branch)
+            inv_doc = inv_obj.model_dump()
+            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+            await db.branch_rm_inventory.insert_one(inv_doc)
+            activated_count += 1
+        elif not existing_inv.get('is_active', False):
+            # Re-activate if inactive
+            await db.branch_rm_inventory.update_one(
+                {"rm_id": rm_id, "branch": branch},
+                {"$set": {"is_active": True}}
+            )
+            activated_count += 1
+    
+    return activated_count
+
+
+@router.post("/sku-branch-assignments/upload")
+async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: str = ""):
+    """Upload SKU IDs to assign to a branch. Also activates corresponding RMs."""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+    
+    try:
+        contents = await file.read()
+        workbook = openpyxl.load_workbook(io.BytesIO(contents))
+        sheet = workbook.active
+        
+        assigned_count = 0
+        skipped_count = 0
+        not_found = []
+        total_rms_activated = 0
+        
+        for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0]:
+                continue
+            
+            sku_id = str(row[0]).strip()
+            
+            # Check if SKU exists (by buyer_sku_id or sku_id)
+            sku = await db.skus.find_one(
+                {"$or": [{"buyer_sku_id": sku_id}, {"sku_id": sku_id}]},
+                {"_id": 0}
+            )
+            
+            if not sku:
+                not_found.append(sku_id)
+                continue
+            
+            actual_sku_id = sku['sku_id']
+            
+            # Check if already assigned
+            existing = await db.sku_branch_assignments.find_one(
+                {"sku_id": actual_sku_id, "branch": branch},
+                {"_id": 0}
+            )
+            
+            if existing:
+                skipped_count += 1
+                continue
+            
+            # Create assignment
+            assignment = SKUBranchAssignment(sku_id=actual_sku_id, branch=branch)
+            doc = assignment.model_dump()
+            doc['assigned_at'] = doc['assigned_at'].isoformat()
+            await db.sku_branch_assignments.insert_one(doc)
+            
+            # Also activate SKU in branch inventory
+            existing_inv = await db.branch_sku_inventory.find_one(
+                {"sku_id": actual_sku_id, "branch": branch},
+                {"_id": 0}
+            )
+            if not existing_inv:
+                inv_obj = BranchSKUInventory(sku_id=actual_sku_id, branch=branch)
+                inv_doc = inv_obj.model_dump()
+                inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+                await db.branch_sku_inventory.insert_one(inv_doc)
+            
+            # Activate corresponding RMs for this SKU
+            rms_activated = await activate_rms_for_sku(actual_sku_id, branch)
+            total_rms_activated += rms_activated
+            
+            assigned_count += 1
+        
+        return {
+            "assigned": assigned_count,
+            "skipped": skipped_count,
+            "not_found": not_found[:20],
+            "total_not_found": len(not_found),
+            "rms_activated": total_rms_activated
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+
+@router.get("/sku-branch-assignments")
+async def get_sku_branch_assignments(branch: Optional[str] = None):
+    """Get SKU assignments, optionally filtered by branch"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    
+    assignments = await db.sku_branch_assignments.find(query, {"_id": 0}).to_list(5000)
+    
+    # Enrich with SKU details
+    result = []
+    for a in assignments:
+        sku = await db.skus.find_one({"sku_id": a['sku_id']}, {"_id": 0})
+        if sku:
+            result.append({
+                **serialize_doc(a),
+                "buyer_sku_id": sku.get('buyer_sku_id', ''),
+                "bidso_sku": sku.get('bidso_sku', ''),
+                "description": sku.get('description', ''),
+                "brand": sku.get('brand', ''),
+                "vertical": sku.get('vertical', ''),
+                "model": sku.get('model', '')
+            })
+    
+    return result
+
+
+@router.delete("/sku-branch-assignments/{sku_id}/{branch}")
+async def delete_sku_branch_assignment(sku_id: str, branch: str):
+    """Remove SKU assignment from a branch"""
+    await db.sku_branch_assignments.delete_one({"sku_id": sku_id, "branch": branch})
+    return {"message": "Assignment removed"}
+
+
+@router.post("/sku-branch-assignments/bulk-subscribe")
+async def bulk_subscribe_skus(
+    branch: str,
+    vertical: Optional[str] = None,
+    model: Optional[str] = None
+):
+    """Bulk subscribe all SKUs matching vertical and/or model to a branch. Also activates corresponding RMs."""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not vertical and not model:
+        raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
+    
+    # Build query for matching SKUs
+    query = {}
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    
+    # Find all matching SKUs
+    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
+    
+    if not matching_skus:
+        return {
+            "assigned": 0,
+            "skipped": 0,
+            "total_matching": 0,
+            "rms_activated": 0,
+            "message": "No SKUs found matching the criteria"
+        }
+    
+    assigned_count = 0
+    skipped_count = 0
+    total_rms_activated = 0
+    
+    for sku in matching_skus:
+        sku_id = sku['sku_id']
+        
+        # Check if already assigned
+        existing = await db.sku_branch_assignments.find_one(
+            {"sku_id": sku_id, "branch": branch},
+            {"_id": 0}
+        )
+        
+        if existing:
+            skipped_count += 1
+            continue
+        
+        # Create assignment
+        assignment = SKUBranchAssignment(sku_id=sku_id, branch=branch)
+        doc = assignment.model_dump()
+        doc['assigned_at'] = doc['assigned_at'].isoformat()
+        await db.sku_branch_assignments.insert_one(doc)
+        
+        # Also activate SKU in branch inventory
+        existing_inv = await db.branch_sku_inventory.find_one(
+            {"sku_id": sku_id, "branch": branch},
+            {"_id": 0}
+        )
+        if not existing_inv:
+            inv_obj = BranchSKUInventory(sku_id=sku_id, branch=branch)
+            inv_doc = inv_obj.model_dump()
+            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
+            await db.branch_sku_inventory.insert_one(inv_doc)
+        
+        # Activate corresponding RMs for this SKU
+        rms_activated = await activate_rms_for_sku(sku_id, branch)
+        total_rms_activated += rms_activated
+        
+        assigned_count += 1
+    
+    return {
+        "assigned": assigned_count,
+        "skipped": skipped_count,
+        "total_matching": len(matching_skus),
+        "rms_activated": total_rms_activated,
+        "message": f"Subscribed {assigned_count} SKUs to {branch}, activated {total_rms_activated} RMs"
+    }
+
+
+@router.delete("/sku-branch-assignments/bulk-unsubscribe")
+async def bulk_unsubscribe_skus(
+    branch: str,
+    vertical: Optional[str] = None,
+    model: Optional[str] = None
+):
+    """Bulk unsubscribe all SKUs matching vertical and/or model from a branch"""
+    if not branch:
+        raise HTTPException(status_code=400, detail="Branch is required")
+    
+    if not vertical and not model:
+        raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
+    
+    # Build query for matching SKUs
+    query = {}
+    if vertical:
+        query["vertical"] = vertical
+    if model:
+        query["model"] = model
+    
+    # Find all matching SKUs
+    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
+    sku_ids = [s['sku_id'] for s in matching_skus]
+    
+    if not sku_ids:
+        return {"removed": 0, "message": "No matching SKUs found"}
+    
+    # Remove assignments
+    result = await db.sku_branch_assignments.delete_many({
+        "sku_id": {"$in": sku_ids},
+        "branch": branch
+    })
+    
+    return {
+        "removed": result.deleted_count,
+        "message": f"Removed {result.deleted_count} SKU assignments from {branch}"
+    }
