@@ -74,6 +74,15 @@ async def get_forecasts(
 
 @router.post("/forecasts")
 async def create_forecast(data: ForecastCreate):
+    # Validate buyer_id is provided
+    if not data.buyer_id:
+        raise HTTPException(status_code=400, detail="Buyer is required for creating a forecast")
+    
+    # Verify buyer exists
+    buyer = await db.buyers.find_one({"id": data.buyer_id}, {"_id": 0})
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    
     count = await db.forecasts.count_documents({})
     forecast_code = f"FC_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
     
@@ -85,6 +94,8 @@ async def create_forecast(data: ForecastCreate):
         "sku_id": data.sku_id,
         "forecast_month": data.forecast_month,
         "quantity": data.quantity,
+        "planned_quantity": 0,  # Track production planned against this forecast
+        "dispatched_quantity": 0,  # Track dispatch lots created
         "priority": data.priority,
         "status": "DRAFT",
         "notes": data.notes,
@@ -103,6 +114,97 @@ async def confirm_forecast(forecast_id: str):
     if result.matched_count == 0:
         raise HTTPException(status_code=400, detail="Forecast not found or not in DRAFT status")
     return {"message": "Forecast confirmed"}
+
+
+@router.post("/forecasts/bulk-confirm")
+async def bulk_confirm_forecasts(data: BulkConfirmRequest):
+    """Bulk confirm multiple forecasts (Master Admin action)"""
+    if not data.forecast_ids:
+        raise HTTPException(status_code=400, detail="No forecast IDs provided")
+    
+    result = await db.forecasts.update_many(
+        {"id": {"$in": data.forecast_ids}, "status": "DRAFT"},
+        {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {
+        "message": f"Confirmed {result.modified_count} forecasts",
+        "confirmed_count": result.modified_count
+    }
+
+
+@router.post("/forecasts/confirm-month")
+async def confirm_month_forecasts(month: str, buyer_id: Optional[str] = None):
+    """Confirm all draft forecasts for a specific month"""
+    # Parse month (format: YYYY-MM)
+    try:
+        year, mon = month.split("-")
+        start_date = datetime(int(year), int(mon), 1, tzinfo=timezone.utc)
+        if int(mon) == 12:
+            end_date = datetime(int(year) + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            end_date = datetime(int(year), int(mon) + 1, 1, tzinfo=timezone.utc)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+    
+    query = {
+        "status": "DRAFT",
+        "forecast_month": {"$gte": start_date, "$lt": end_date}
+    }
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    
+    result = await db.forecasts.update_many(
+        query,
+        {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {
+        "message": f"Confirmed {result.modified_count} forecasts for {month}",
+        "confirmed_count": result.modified_count
+    }
+
+
+@router.get("/forecasts/{forecast_id}/dispatch-lots")
+async def get_forecast_dispatch_lots(forecast_id: str):
+    """Get dispatch lots linked to a specific forecast"""
+    # Get dispatch lots directly linked
+    lots = await db.dispatch_lots.find(
+        {"forecast_id": forecast_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Also check dispatch_lot_lines for lots created from this forecast's SKUs
+    forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+    if forecast and forecast.get("sku_id"):
+        additional_lots = await db.dispatch_lots.find(
+            {"sku_id": forecast["sku_id"], "buyer_id": forecast.get("buyer_id")},
+            {"_id": 0}
+        ).to_list(100)
+        # Merge without duplicates
+        lot_ids = {l["id"] for l in lots}
+        for al in additional_lots:
+            if al["id"] not in lot_ids:
+                lots.append(al)
+    
+    return [serialize_doc(l) for l in lots]
+
+
+@router.get("/forecasts/{forecast_id}/production-plans")
+async def get_forecast_production_plans(forecast_id: str):
+    """Get production plans linked to a specific forecast"""
+    plans = await db.production_plans.find(
+        {"forecast_id": forecast_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    total_planned = sum(p.get("planned_quantity", 0) for p in plans)
+    
+    return {
+        "forecast_id": forecast_id,
+        "production_plans": [serialize_doc(p) for p in plans],
+        "total_planned_quantity": total_planned
+    }
 
 # --- Dispatch Lots ---
 @router.get("/dispatch-lots")
