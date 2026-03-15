@@ -570,12 +570,10 @@ async def get_demand_forecasts_for_cpc(
         forecast_qty = f.get("quantity", 0)
         forecast_id = f.get("id")
         
-        # Get planned production qty
-        planned_qty = planned_by_forecast.get(forecast_id, 0)
-        # Also check by forecast_code
-        planned_qty += planned_by_forecast.get(f.get("forecast_code"), 0)
+        # Get scheduled production qty (from production_schedules)
+        scheduled_qty = scheduled_by_forecast.get(forecast_id, 0)
         
-        remaining_qty = max(0, forecast_qty - planned_qty)
+        remaining_qty = max(0, forecast_qty - scheduled_qty)
         
         # Get linked dispatch lots
         dispatch_lots = lots_by_forecast.get(forecast_id, [])
@@ -597,11 +595,11 @@ async def get_demand_forecasts_for_cpc(
             "brand": sku.get("brand", ""),
             "forecast_month": f.get("forecast_month"),
             "forecast_qty": forecast_qty,
-            "planned_qty": planned_qty,
+            "scheduled_qty": scheduled_qty,
             "remaining_qty": remaining_qty,
             "dispatch_qty": dispatch_qty,
             "dispatch_lots": dispatch_lots,
-            "is_fully_planned": remaining_qty == 0,
+            "is_fully_scheduled": remaining_qty == 0,
             "priority": f.get("priority", "MEDIUM"),
             "status": f.get("status"),
             "notes": f.get("notes", "")
