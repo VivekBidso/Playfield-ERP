@@ -401,3 +401,15 @@ async def get_filtered_skus(
             sku["fg_stock"] = fg.get("quantity", 0) if fg else 0
     
     return skus
+
+
+
+@router.get("/sku-branch-assignments/all")
+async def get_all_sku_branch_assignments():
+    """Get all SKU branch assignments for demand planning"""
+    assignments = await db.branch_sku_inventory.find(
+        {"is_active": True},
+        {"_id": 0, "sku_id": 1, "branch": 1}
+    ).to_list(50000)
+    
+    return assignments
