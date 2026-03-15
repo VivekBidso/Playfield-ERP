@@ -91,13 +91,15 @@ const CPC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [dashRes, schedRes, capRes, sugRes, skuRes, lotsRes] = await Promise.all([
+      const [dashRes, schedRes, capRes, sugRes, skuRes, lotsRes, forecastRes, forecastSumRes] = await Promise.all([
         axios.get(`${API}/cpc/dashboard`),
         axios.get(`${API}/production-schedules`),
         axios.get(`${API}/branches/capacity`),
         axios.get(`${API}/cpc/schedule-suggestions`),
         axios.get(`${API}/skus`),
-        axios.get(`${API}/dispatch-lots`)
+        axios.get(`${API}/dispatch-lots`),
+        axios.get(`${API}/cpc/demand-forecasts`).catch(() => ({ data: [] })),
+        axios.get(`${API}/cpc/demand-forecasts/summary`).catch(() => ({ data: null }))
       ]);
       setDashboard(dashRes.data);
       setSchedules(schedRes.data);
@@ -105,6 +107,8 @@ const CPC = () => {
       setSuggestions(sugRes.data);
       setSkus(skuRes.data);
       setDispatchLots(lotsRes.data.filter(l => l.status === 'CREATED'));
+      setDemandForecasts(forecastRes.data);
+      setForecastSummary(forecastSumRes.data);
     } catch (error) {
       toast.error("Failed to fetch CPC data");
     }
