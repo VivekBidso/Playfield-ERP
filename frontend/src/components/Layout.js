@@ -58,7 +58,7 @@ const Layout = () => {
     { path: "/demand", label: "Demand", icon: TrendingUp, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
-    { path: "/raw-materials", label: "Raw Materials", icon: Package, show: true },
+    { path: "/raw-materials", label: "Raw Materials", icon: Package, show: (isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('TECH_OPS_ENGINEER')) && !hasRole('DEMAND_PLANNER') },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     { path: "/skus", label: "SKUs", icon: Box, show: true },
