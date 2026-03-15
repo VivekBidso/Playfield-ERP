@@ -243,6 +243,12 @@ const Demand = () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       
+      // Validate quantity
+      if (forecastForm.quantity <= 0) {
+        toast.error("Quantity must be greater than 0");
+        return;
+      }
+      
       const payload = {
         buyer_id: forecastForm.buyer_id,  // REQUIRED
         forecast_month: new Date(forecastForm.forecast_month + "-01").toISOString(),
@@ -254,18 +260,27 @@ const Demand = () => {
       if (forecastForm.vertical_id) payload.vertical_id = forecastForm.vertical_id;
       if (forecastForm.sku_id) payload.sku_id = forecastForm.sku_id;
       
-      await axios.post(`${API}/forecasts`, payload, { headers });
-      toast.success("Forecast created");
+      if (forecastForm.id) {
+        // Update existing forecast
+        await axios.put(`${API}/forecasts/${forecastForm.id}`, payload, { headers });
+        toast.success("Forecast updated");
+      } else {
+        // Create new forecast
+        await axios.post(`${API}/forecasts`, payload, { headers });
+        toast.success("Forecast created");
+      }
+      
       setShowForecastDialog(false);
       resetForecastForm();
       fetchAllData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to create forecast");
+      toast.error(error.response?.data?.detail || "Failed to save forecast");
     }
   };
 
   const resetForecastForm = () => {
     setForecastForm({
+      id: null,
       buyer_id: "",
       vertical_id: "",
       model_id: "",
