@@ -987,11 +987,88 @@ const CPC = () => {
               <Input 
                 type="date"
                 value={forecastScheduleForm.target_date}
-                onChange={(e) => setForecastScheduleForm({...forecastScheduleForm, target_date: e.target.value})}
+                onChange={(e) => {
+                  setForecastScheduleForm({...forecastScheduleForm, target_date: e.target.value});
+                  // Fetch capacity when date changes and branch is selected
+                  if (forecastScheduleForm.branch) {
+                    fetchBranchCapacityForDate(forecastScheduleForm.branch, e.target.value);
+                  }
+                }}
                 className="font-mono"
                 data-testid="forecast-schedule-date"
               />
             </div>
+            
+            {/* NEW: Branch Selector */}
+            <div>
+              <Label>Branch (Optional)</Label>
+              <Select 
+                value={forecastScheduleForm.branch || "_none"} 
+                onValueChange={(v) => {
+                  const branch = v === "_none" ? "" : v;
+                  setForecastScheduleForm({...forecastScheduleForm, branch});
+                  // Fetch capacity when branch changes
+                  if (branch && forecastScheduleForm.target_date) {
+                    fetchBranchCapacityForDate(branch, forecastScheduleForm.target_date);
+                  } else {
+                    setBranchCapacityInfo(null);
+                  }
+                }}
+              >
+                <SelectTrigger data-testid="forecast-schedule-branch">
+                  <SelectValue placeholder={loadingBranches ? "Loading..." : "Select branch"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No Branch (Allocate Later)</SelectItem>
+                  {availableBranches.map(b => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {availableBranches.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {availableBranches.length} branch(es) available for this SKU
+                </p>
+              )}
+            </div>
+            
+            {/* Branch Capacity Info */}
+            {branchCapacityInfo && forecastScheduleForm.branch && (
+              <div className={`p-3 rounded-lg border ${
+                branchCapacityInfo.available >= forecastScheduleForm.quantity 
+                  ? 'bg-green-50 border-green-200' 
+                  : 'bg-red-50 border-red-200'
+              }`}>
+                <div className="text-sm font-medium">
+                  Capacity for {forecastScheduleForm.branch} on {forecastScheduleForm.target_date}:
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">Capacity:</span>
+                    <span className="font-mono ml-1 font-bold">
+                      {branchCapacityInfo.model_capacities?.length > 0 
+                        ? branchCapacityInfo.model_capacities.reduce((s, m) => s + m.capacity_qty, 0)
+                        : branchCapacityInfo.base_capacity}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Allocated:</span>
+                    <span className="font-mono ml-1">{branchCapacityInfo.allocated}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Available:</span>
+                    <span className={`font-mono ml-1 font-bold ${
+                      branchCapacityInfo.available >= forecastScheduleForm.quantity ? 'text-green-600' : 'text-red-600'
+                    }`}>{branchCapacityInfo.available}</span>
+                  </div>
+                </div>
+                {branchCapacityInfo.available < forecastScheduleForm.quantity && (
+                  <div className="mt-2 text-xs text-red-600 font-medium">
+                    ⚠️ Quantity exceeds available capacity! Reduce quantity or select different branch/date.
+                  </div>
+                )}
+              </div>
+            )}
             
             <div>
               <Label>Priority</Label>
@@ -1025,12 +1102,20 @@ const CPC = () => {
                   toast.error(`Quantity exceeds remaining (${forecastScheduleForm.remaining_qty})`);
                   return;
                 }
+                // Validate branch capacity if branch is selected
+                if (forecastScheduleForm.branch && branchCapacityInfo) {
+                  if (forecastScheduleForm.quantity > branchCapacityInfo.available) {
+                    toast.error(`Quantity (${forecastScheduleForm.quantity}) exceeds available capacity (${branchCapacityInfo.available}) for ${forecastScheduleForm.branch}`);
+                    return;
+                  }
+                }
                 
                 try {
                   await axios.post(`${API}/cpc/schedule-from-forecast`, {
                     forecast_id: forecastScheduleForm.forecast_id,
                     quantity: forecastScheduleForm.quantity,
                     target_date: new Date(forecastScheduleForm.target_date).toISOString(),
+                    branch: forecastScheduleForm.branch || null,
                     priority: forecastScheduleForm.priority
                   });
                   toast.success("Production schedule created from forecast");
