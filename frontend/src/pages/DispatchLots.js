@@ -702,6 +702,7 @@ const DispatchLots = () => {
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Readiness</th>
               <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
+              <th className="h-10 px-4 text-right font-mono text-xs uppercase">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -749,11 +750,32 @@ const DispatchLots = () => {
                     {lot.status?.replace(/_/g, ' ')}
                   </span>
                 </td>
+                <td className="p-4 text-right">
+                  {!["DISPATCHED", "DELIVERED"].includes(lot.status) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        // Fetch full details before editing
+                        try {
+                          const res = await axios.get(`${API}/dispatch-lots/${lot.id}/details`, { headers: getHeaders() });
+                          openEditDialog(res.data);
+                        } catch (err) {
+                          toast.error("Failed to load lot for editing");
+                        }
+                      }}
+                      className="h-8 px-2"
+                      data-testid={`edit-${lot.lot_code}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  )}
+                </td>
               </tr>
             ))}
             {filteredLots.length === 0 && (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                <td colSpan={9} className="p-8 text-center text-muted-foreground">
                   No dispatch lots yet. Create one from forecasted SKUs.
                 </td>
               </tr>
