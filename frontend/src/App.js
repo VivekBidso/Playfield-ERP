@@ -10,7 +10,7 @@ import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
 import SKUSubscription from "@/pages/SKUSubscription";
 import VendorManagement from "@/pages/VendorManagement";
-import ProductionPlanning from "@/pages/ProductionPlanning";
+// ProductionPlanning page removed - CPC handles all production planning from forecasts
 import Production from "@/pages/Production";
 import Dispatch from "@/pages/Dispatch";
 import DispatchLots from "@/pages/DispatchLots";
@@ -86,7 +86,7 @@ function App() {
             <Route path="sku-mapping" element={<SKUMapping />} />
             <Route path="sku-subscription" element={<SKUSubscription />} />
             <Route path="vendors" element={<VendorManagement />} />
-            <Route path="production-planning" element={<ProductionPlanning />} />
+            {/* Production Planning removed - use CPC module for forecast-driven planning */}
             <Route path="production" element={<Production />} />
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="dispatch-lots" element={<DispatchLots />} />
