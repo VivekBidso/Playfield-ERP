@@ -450,6 +450,249 @@ async def get_dispatch_lot_lines(lot_id: str):
     return [serialize_doc(l) for l in lines]
 
 
+@router.get("/dispatch-lots/{lot_id}/details")
+async def get_dispatch_lot_details(lot_id: str):
+    """Get dispatch lot with full details including readiness status"""
+    # Get the lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Get buyer info
+    buyer = None
+    if lot.get("buyer_id"):
+        buyer = await db.buyers.find_one({"id": lot["buyer_id"]}, {"_id": 0, "name": 1, "code": 1})
+    
+    # Get lines for this lot
+    lines = await db.dispatch_lot_lines.find(
+        {"lot_id": lot_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    # If no lines collection, check if it's old format (single SKU per lot)
+    if not lines and lot.get("sku_id"):
+        lines = [{
+            "id": str(uuid.uuid4()),
+            "lot_id": lot_id,
+            "line_number": 1,
+            "sku_id": lot["sku_id"],
+            "quantity": lot.get("required_quantity", 0),
+            "produced_qty": lot.get("produced_quantity", 0),
+            "dispatched_qty": lot.get("dispatched_quantity", 0),
+            "status": "PENDING"
+        }]
+    
+    # Get SKU details and inventory for readiness calculation
+    sku_ids = [line.get("sku_id") for line in lines if line.get("sku_id")]
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(1000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    # Get FG inventory for these SKUs (sum across all branches)
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
+        {"sku_id": 1, "quantity": 1, "_id": 0}
+    ).to_list(5000)
+    
+    # Also check production batches for produced quantity
+    production_batches = await db.production_batches.find(
+        {"sku_id": {"$in": sku_ids}, "status": {"$in": ["COMPLETED", "QC_PASSED", "FG_READY"]}},
+        {"sku_id": 1, "good_quantity": 1, "_id": 0}
+    ).to_list(5000)
+    
+    # Sum inventory by SKU
+    inventory_by_sku = {}
+    for inv in fg_inventory:
+        sku = inv.get("sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+    
+    # Add produced quantity from batches
+    for batch in production_batches:
+        sku = batch.get("sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + batch.get("good_quantity", 0)
+    
+    # Also check SKU current_stock if no FG inventory
+    for sku_id in sku_ids:
+        if sku_id not in inventory_by_sku or inventory_by_sku[sku_id] == 0:
+            sku_data = sku_map.get(sku_id, {})
+            inventory_by_sku[sku_id] = sku_data.get("current_stock", 0)
+    
+    # Calculate readiness for each line
+    lines_with_readiness = []
+    total_ready = 0
+    total_pending = 0
+    
+    for line in lines:
+        sku_id = line.get("sku_id")
+        sku_data = sku_map.get(sku_id, {})
+        required_qty = line.get("quantity", 0)
+        available_qty = inventory_by_sku.get(sku_id, 0)
+        
+        # Calculate readiness
+        ready_qty = min(required_qty, available_qty)
+        pending_qty = max(0, required_qty - available_qty)
+        
+        readiness_pct = (ready_qty / required_qty * 100) if required_qty > 0 else 0
+        
+        if readiness_pct >= 100:
+            readiness_status = "READY"
+            total_ready += 1
+        elif readiness_pct > 0:
+            readiness_status = "PARTIAL"
+        else:
+            readiness_status = "PENDING"
+            total_pending += 1
+        
+        lines_with_readiness.append({
+            **line,
+            "sku_description": sku_data.get("description", ""),
+            "brand": sku_data.get("brand", ""),
+            "vertical": sku_data.get("vertical", ""),
+            "model": sku_data.get("model", ""),
+            "available_qty": available_qty,
+            "ready_qty": ready_qty,
+            "pending_qty": pending_qty,
+            "readiness_pct": round(readiness_pct, 1),
+            "readiness_status": readiness_status
+        })
+    
+    # Calculate overall lot readiness
+    total_lines = len(lines_with_readiness)
+    if total_lines == 0:
+        lot_readiness = "EMPTY"
+        lot_readiness_pct = 0
+    elif total_ready == total_lines:
+        lot_readiness = "READY"
+        lot_readiness_pct = 100
+    elif total_ready > 0:
+        lot_readiness = "PARTIAL"
+        lot_readiness_pct = round(total_ready / total_lines * 100, 1)
+    else:
+        lot_readiness = "PENDING"
+        lot_readiness_pct = 0
+    
+    return {
+        **serialize_doc(lot),
+        "buyer_name": buyer.get("name") if buyer else None,
+        "buyer_code": buyer.get("code") if buyer else None,
+        "lines": lines_with_readiness,
+        "readiness_status": lot_readiness,
+        "readiness_pct": lot_readiness_pct,
+        "ready_lines": total_ready,
+        "pending_lines": total_pending,
+        "total_lines": total_lines
+    }
+
+
+@router.get("/dispatch-lots/with-readiness")
+async def get_dispatch_lots_with_readiness(
+    buyer_id: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """Get all dispatch lots with readiness status"""
+    query = {}
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    if status:
+        query["status"] = status
+    
+    lots = await db.dispatch_lots.find(query, {"_id": 0}).to_list(1000)
+    
+    # Get all lot IDs
+    lot_ids = [lot.get("id") for lot in lots]
+    
+    # Get all lines for these lots
+    all_lines = await db.dispatch_lot_lines.find(
+        {"lot_id": {"$in": lot_ids}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    # Group lines by lot_id
+    lines_by_lot = {}
+    for line in all_lines:
+        lot_id = line.get("lot_id")
+        if lot_id not in lines_by_lot:
+            lines_by_lot[lot_id] = []
+        lines_by_lot[lot_id].append(line)
+    
+    # Get all unique SKU IDs
+    sku_ids = set()
+    for lot in lots:
+        if lot.get("sku_id"):
+            sku_ids.add(lot["sku_id"])
+    for line in all_lines:
+        if line.get("sku_id"):
+            sku_ids.add(line["sku_id"])
+    
+    sku_ids = list(sku_ids)
+    
+    # Get SKU current stock
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "current_stock": 1}).to_list(5000)
+    stock_by_sku = {s["sku_id"]: s.get("current_stock", 0) for s in skus}
+    
+    # Get FG inventory
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
+        {"sku_id": 1, "quantity": 1, "_id": 0}
+    ).to_list(10000)
+    
+    for inv in fg_inventory:
+        sku = inv.get("sku_id")
+        stock_by_sku[sku] = stock_by_sku.get(sku, 0) + inv.get("quantity", 0)
+    
+    # Get buyer names
+    buyer_ids = list(set(lot.get("buyer_id") for lot in lots if lot.get("buyer_id")))
+    buyers = await db.buyers.find({"id": {"$in": buyer_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    buyer_map = {b["id"]: b["name"] for b in buyers}
+    
+    # Calculate readiness for each lot
+    result = []
+    for lot in lots:
+        lot_id = lot.get("id")
+        lines = lines_by_lot.get(lot_id, [])
+        
+        # For old format lots
+        if not lines and lot.get("sku_id"):
+            lines = [{
+                "sku_id": lot["sku_id"],
+                "quantity": lot.get("required_quantity", 0)
+            }]
+        
+        ready_count = 0
+        total_count = len(lines)
+        
+        for line in lines:
+            sku_id = line.get("sku_id")
+            required = line.get("quantity", 0)
+            available = stock_by_sku.get(sku_id, 0)
+            
+            if available >= required and required > 0:
+                ready_count += 1
+        
+        if total_count == 0:
+            readiness = "EMPTY"
+            readiness_pct = 0
+        elif ready_count == total_count:
+            readiness = "READY"
+            readiness_pct = 100
+        elif ready_count > 0:
+            readiness = "PARTIAL"
+            readiness_pct = round(ready_count / total_count * 100, 1)
+        else:
+            readiness = "PENDING"
+            readiness_pct = 0
+        
+        result.append({
+            **serialize_doc(lot),
+            "buyer_name": buyer_map.get(lot.get("buyer_id")),
+            "readiness_status": readiness,
+            "readiness_pct": readiness_pct,
+            "ready_lines": ready_count,
+            "total_lines": total_count
+        })
+    
+    return result
+
+
 # --- Bulk Upload ---
 @router.post("/forecasts/parse-excel")
 async def parse_forecast_excel(file: UploadFile = File(...)):
