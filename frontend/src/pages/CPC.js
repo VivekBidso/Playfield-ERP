@@ -77,8 +77,14 @@ const CPC = () => {
     remaining_qty: 0,
     quantity: 0,
     target_date: "",
+    branch: "",
     priority: "MEDIUM"
   });
+  
+  // NEW: Available branches for scheduling
+  const [availableBranches, setAvailableBranches] = useState([]);
+  const [branchCapacityInfo, setBranchCapacityInfo] = useState(null);
+  const [loadingBranches, setLoadingBranches] = useState(false);
   
   // Loading & Selected
   const [loading, setLoading] = useState(true);
