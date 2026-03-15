@@ -1004,7 +1004,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
     branch_name = None
     if data.branch:
         # Check if branch exists
-        branch_cap = await db.branch_capacity.find_one({"branch": data.branch}, {"_id": 0})
+        branch_cap = await db.branches.find_one({"name": data.branch, "is_active": True}, {"_id": 0})
         if not branch_cap:
             raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
         
