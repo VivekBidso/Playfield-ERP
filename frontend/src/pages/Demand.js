@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X } from "lucide-react";
+import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Demand = () => {
-  const { token } = useAuthStore();
+  const { token, hasRole } = useAuthStore();
   const [activeTab, setActiveTab] = useState("forecasts");
   const fileInputRef = useRef(null);
   
@@ -27,6 +27,13 @@ const Demand = () => {
   const [brands, setBrands] = useState([]);
   const [skuBomMap, setSkuBomMap] = useState({});
   const [expandedSku, setExpandedSku] = useState(null);
+  
+  // Selection state for bulk confirmation
+  const [selectedForecasts, setSelectedForecasts] = useState(new Set());
+  const [expandedForecast, setExpandedForecast] = useState(null);
+  
+  // Check if user can confirm forecasts
+  const canConfirmForecasts = hasRole && (hasRole('MASTER_ADMIN') || hasRole('DEMAND_PLANNER'));
   
   // Dialogs
   const [showForecastDialog, setShowForecastDialog] = useState(false);
