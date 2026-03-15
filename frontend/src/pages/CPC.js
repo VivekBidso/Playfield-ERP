@@ -386,7 +386,7 @@ const CPC = () => {
                 Demand Forecasts from Demand Team
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                View confirmed forecasts and schedule production directly
+                View confirmed forecasts, plan production, and see linked dispatch lots
               </p>
             </CardHeader>
             <CardContent>
@@ -394,21 +394,22 @@ const CPC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-zinc-50">
                     <tr>
-                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast</th>
+                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast ID</th>
                       <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
                       <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
                       <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Forecast</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Scheduled</th>
+                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Forecast Qty</th>
+                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Planned</th>
                       <th className="h-10 px-4 text-right font-mono text-xs uppercase">Remaining</th>
+                      <th className="h-10 px-4 text-center font-mono text-xs uppercase">Dispatch Lots</th>
                       <th className="h-10 px-4 text-center font-mono text-xs uppercase">Status</th>
                       <th className="h-10 px-4 text-center font-mono text-xs uppercase">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {demandForecasts.map((f) => (
-                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_scheduled ? 'opacity-50' : ''}`}>
-                        <td className="p-4 font-mono text-sm font-bold">{f.forecast_code}</td>
+                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_planned ? 'opacity-50' : ''}`}>
+                        <td className="p-4 font-mono text-sm font-bold text-primary">{f.forecast_code}</td>
                         <td className="p-4 text-sm">{f.buyer_name || '-'}</td>
                         <td className="p-4">
                           <div className="font-mono text-sm font-bold">{f.sku_id || f.vertical_name}</div>
@@ -416,21 +417,33 @@ const CPC = () => {
                         </td>
                         <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
                         <td className="p-4 font-mono font-bold text-right">{f.forecast_qty?.toLocaleString()}</td>
-                        <td className="p-4 font-mono text-right text-green-600">{f.scheduled_qty?.toLocaleString()}</td>
+                        <td className="p-4 font-mono text-right text-green-600">{f.planned_qty?.toLocaleString() || 0}</td>
                         <td className="p-4 font-mono font-bold text-right">
                           <span className={f.remaining_qty > 0 ? 'text-orange-600' : 'text-green-600'}>
                             {f.remaining_qty?.toLocaleString()}
                           </span>
                         </td>
                         <td className="p-4 text-center">
-                          {f.is_fully_scheduled ? (
-                            <Badge className="bg-green-100 text-green-700">Scheduled</Badge>
+                          {f.dispatch_lots && f.dispatch_lots.length > 0 ? (
+                            <div className="text-xs">
+                              {f.dispatch_lots.map((lot, i) => (
+                                <div key={i} className="font-mono text-blue-600">{lot.lot_code}</div>
+                              ))}
+                              <div className="text-zinc-500 mt-1">({f.dispatch_qty?.toLocaleString()} units)</div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-zinc-400">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          {f.is_fully_planned ? (
+                            <Badge className="bg-green-100 text-green-700">Fully Planned</Badge>
                           ) : (
                             <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>
                           )}
                         </td>
                         <td className="p-4 text-center">
-                          {!f.is_fully_scheduled && f.sku_id && (
+                          {!f.is_fully_planned && f.sku_id && (
                             <Button
                               size="sm"
                               onClick={() => {
@@ -449,7 +462,7 @@ const CPC = () => {
                               data-testid={`schedule-forecast-${f.forecast_code}`}
                             >
                               <Factory className="w-3 h-3 mr-1" />
-                              Schedule
+                              Plan
                             </Button>
                           )}
                         </td>
@@ -457,7 +470,7 @@ const CPC = () => {
                     ))}
                     {demandForecasts.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={10} className="p-8 text-center text-muted-foreground">
                           No confirmed demand forecasts yet
                         </td>
                       </tr>
