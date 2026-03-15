@@ -35,7 +35,7 @@ const TechOps = () => {
   // Form Data
   const [verticalForm, setVerticalForm] = useState({ code: "", name: "", description: "" });
   const [modelForm, setModelForm] = useState({ vertical_id: "", code: "", name: "", description: "" });
-  const [brandForm, setBrandForm] = useState({ code: "", name: "", buyer_id: "" });
+  const [brandForm, setBrandForm] = useState({ code: "", name: "" });
   const [buyerForm, setBuyerForm] = useState({ code: "", name: "", country: "", contact_email: "", payment_terms_days: 30 });
 
   useEffect(() => {
