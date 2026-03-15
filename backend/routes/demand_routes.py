@@ -83,6 +83,13 @@ async def create_forecast(data: ForecastCreate):
     if not buyer:
         raise HTTPException(status_code=404, detail="Buyer not found")
     
+    # Auto-derive vertical_id from SKU if not provided
+    vertical_id = data.vertical_id
+    if data.sku_id and not vertical_id:
+        sku = await db.skus.find_one({"sku_id": data.sku_id}, {"_id": 0})
+        if sku and sku.get("vertical_id"):
+            vertical_id = sku["vertical_id"]
+    
     count = await db.forecasts.count_documents({})
     forecast_code = f"FC_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
     
@@ -90,7 +97,7 @@ async def create_forecast(data: ForecastCreate):
         "id": str(uuid.uuid4()),
         "forecast_code": forecast_code,
         "buyer_id": data.buyer_id,
-        "vertical_id": data.vertical_id,
+        "vertical_id": vertical_id,
         "sku_id": data.sku_id,
         "forecast_month": data.forecast_month,
         "quantity": data.quantity,
