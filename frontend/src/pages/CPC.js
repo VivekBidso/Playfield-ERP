@@ -814,7 +814,14 @@ const CPC = () => {
               <Card key={b.branch} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => fetchBranchForecast(b.branch)}>
                 <CardHeader className="pb-2">
                   <div className="flex justify-between items-start">
-                    <CardTitle className="text-sm font-mono">{b.branch}</CardTitle>
+                    <div>
+                      <CardTitle className="text-sm font-mono">{b.branch}</CardTitle>
+                      {b.capacity_source === 'model_specific' && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded mt-1 inline-block">
+                          {b.model_capacity_count} model(s) today
+                        </span>
+                      )}
+                    </div>
                     <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openCapacityDialog(b); }} data-testid={`edit-capacity-${b.branch}`}>
                       Edit
                     </Button>
@@ -824,7 +831,9 @@ const CPC = () => {
                   <div className="flex justify-between items-end mb-2">
                     <div>
                       <div className="text-2xl font-black">{b.capacity_units_per_day}</div>
-                      <div className="text-xs text-muted-foreground">units/day</div>
+                      <div className="text-xs text-muted-foreground">
+                        {b.capacity_source === 'model_specific' ? 'model capacity today' : 'units/day (base)'}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className={`text-lg font-bold ${b.utilization_percent > 80 ? 'text-red-600' : b.utilization_percent > 50 ? 'text-yellow-600' : 'text-green-600'}`}>
