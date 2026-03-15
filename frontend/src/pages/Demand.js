@@ -695,6 +695,8 @@ const Demand = () => {
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Vertical</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Brand</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Model</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Quantity</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
@@ -721,7 +723,9 @@ const Demand = () => {
                     <td className="p-4 font-mono font-bold text-sm text-primary">{f.forecast_code}</td>
                     <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
                     <td className="p-4 text-sm">{getBuyerName(f.buyer_id)}</td>
-                    <td className="p-4 text-sm">{getVerticalName(f.vertical_id)}</td>
+                    <td className="p-4 text-sm">{getVerticalDisplay(f)}</td>
+                    <td className="p-4 text-sm">{getBrandDisplay(f)}</td>
+                    <td className="p-4 text-sm">{getModelDisplay(f)}</td>
                     <td className="p-4 font-mono text-sm text-zinc-600">{f.sku_id || 'All in Vertical'}</td>
                     <td className="p-4 font-mono font-bold">{f.quantity?.toLocaleString()}</td>
                     <td className="p-4">
@@ -776,7 +780,7 @@ const Demand = () => {
                   </tr>
                 ))}
                 {forecasts.length === 0 && (
-                  <tr><td colSpan={canConfirmForecasts ? 11 : 10} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
+                  <tr><td colSpan={canConfirmForecasts ? 13 : 12} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
                 )}
               </tbody>
             </table>
