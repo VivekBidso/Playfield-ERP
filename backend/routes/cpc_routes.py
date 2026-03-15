@@ -182,6 +182,274 @@ async def get_branch_capacity_forecast(branch_name: str, days: int = 7):
         "forecast": forecast
     }
 
+
+# ===== Day-wise Branch Capacity =====
+class DailyCapacityEntry(BaseModel):
+    branch: str
+    date: str  # Format: YYYY-MM-DD
+    capacity: int
+
+
+class DailyCapacityBulkUpload(BaseModel):
+    entries: List[DailyCapacityEntry]
+
+
+@router.post("/branches/daily-capacity")
+async def upload_daily_capacity(data: DailyCapacityBulkUpload):
+    """Upload day-wise capacity for branches. Overwrites existing data for same branch+date."""
+    if not data.entries:
+        raise HTTPException(status_code=400, detail="No entries provided")
+    
+    # Validate branches
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    valid_branches = {b["name"] for b in branches}
+    
+    inserted = 0
+    updated = 0
+    errors = []
+    
+    for entry in data.entries:
+        # Validate branch
+        if entry.branch not in valid_branches:
+            errors.append(f"Invalid branch: {entry.branch}")
+            continue
+        
+        # Validate date format
+        try:
+            datetime.strptime(entry.date, "%Y-%m-%d")
+        except ValueError:
+            errors.append(f"Invalid date format: {entry.date}. Use YYYY-MM-DD")
+            continue
+        
+        # Validate capacity
+        if entry.capacity < 0:
+            errors.append(f"Invalid capacity for {entry.branch} on {entry.date}: {entry.capacity}")
+            continue
+        
+        # Upsert (overwrite if exists)
+        result = await db.branch_daily_capacity.update_one(
+            {"branch": entry.branch, "date": entry.date},
+            {
+                "$set": {
+                    "branch": entry.branch,
+                    "date": entry.date,
+                    "capacity": entry.capacity,
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    "created_at": datetime.now(timezone.utc)
+                }
+            },
+            upsert=True
+        )
+        
+        if result.upserted_id:
+            inserted += 1
+        else:
+            updated += 1
+    
+    return {
+        "message": "Daily capacity uploaded",
+        "inserted": inserted,
+        "updated": updated,
+        "total": inserted + updated,
+        "errors": errors[:10] if errors else []
+    }
+
+
+@router.get("/branches/daily-capacity")
+async def get_daily_capacities(branch: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """Get day-wise capacity overrides"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    if start_date:
+        query["date"] = {"$gte": start_date}
+    if end_date:
+        if "date" in query:
+            query["date"]["$lte"] = end_date
+        else:
+            query["date"] = {"$lte": end_date}
+    
+    capacities = await db.branch_daily_capacity.find(query, {"_id": 0}).sort("date", 1).to_list(5000)
+    return capacities
+
+
+@router.get("/branches/daily-capacity/template")
+async def download_daily_capacity_template():
+    """Download Excel template for daily capacity upload"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Daily Capacity"
+    
+    # Headers
+    headers = ["Branch", "Date (YYYY-MM-DD)", "Capacity"]
+    header_fill = PatternFill(start_color="FF6B35", end_color="FF6B35", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
+    
+    # Get branches for reference
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    
+    # Add sample rows for each branch for next 7 days
+    row = 2
+    today = datetime.now(timezone.utc)
+    for b in branches[:3]:  # First 3 branches as samples
+        for i in range(7):  # Next 7 days
+            date_str = (today + timedelta(days=i)).strftime("%Y-%m-%d")
+            ws.cell(row=row, column=1, value=b["name"])
+            ws.cell(row=row, column=2, value=date_str)
+            ws.cell(row=row, column=3, value=b.get("capacity_units_per_day", 100))
+            row += 1
+    
+    # Branches reference sheet
+    ws_ref = wb.create_sheet("Branches Reference")
+    ws_ref.cell(row=1, column=1, value="Branch Name")
+    ws_ref.cell(row=1, column=2, value="Base Capacity")
+    ws_ref["A1"].font = Font(bold=True)
+    ws_ref["B1"].font = Font(bold=True)
+    for i, b in enumerate(branches, 2):
+        ws_ref.cell(row=i, column=1, value=b["name"])
+        ws_ref.cell(row=i, column=2, value=b.get("capacity_units_per_day", 0))
+    ws_ref.column_dimensions["A"].width = 25
+    ws_ref.column_dimensions["B"].width = 15
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=daily_capacity_template.xlsx"}
+    )
+
+
+@router.post("/branches/daily-capacity/upload-excel")
+async def upload_daily_capacity_excel(file: UploadFile = File(...)):
+    """Upload daily capacity from Excel file. Overwrites existing data for same branch+date."""
+    if not pd:
+        raise HTTPException(status_code=500, detail="pandas not installed")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+    
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
+    
+    # Map columns
+    col_map = {}
+    branch_opts = ["branch", "branch_name", "unit", "unit_name"]
+    date_opts = ["date", "date_yyyy_mm_dd", "yyyy_mm_dd"]
+    capacity_opts = ["capacity", "capacity_qty", "qty", "units"]
+    
+    for opt in branch_opts:
+        if opt in df.columns:
+            col_map["branch"] = opt
+            break
+    for opt in date_opts:
+        if opt in df.columns:
+            col_map["date"] = opt
+            break
+    for opt in capacity_opts:
+        if opt in df.columns:
+            col_map["capacity"] = opt
+            break
+    
+    if len(col_map) < 3:
+        raise HTTPException(status_code=400, detail=f"Missing required columns. Found: {list(df.columns)}")
+    
+    # Validate branches
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    valid_branches = {b["name"] for b in branches}
+    
+    inserted = 0
+    updated = 0
+    errors = []
+    
+    for idx, row in df.iterrows():
+        try:
+            branch = str(row[col_map["branch"]]).strip()
+            date_val = row[col_map["date"]]
+            capacity = int(row[col_map["capacity"]])
+            
+            # Parse date
+            if isinstance(date_val, str):
+                date_str = date_val.strip()
+                # Try to validate format
+                try:
+                    datetime.strptime(date_str, "%Y-%m-%d")
+                except:
+                    # Try parsing as datetime
+                    parsed = pd.to_datetime(date_val)
+                    date_str = parsed.strftime("%Y-%m-%d")
+            else:
+                # It's a datetime object from pandas
+                date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
+            
+            # Validate branch
+            if branch not in valid_branches:
+                errors.append(f"Row {idx+2}: Invalid branch '{branch}'")
+                continue
+            
+            # Validate capacity
+            if capacity < 0:
+                errors.append(f"Row {idx+2}: Invalid capacity {capacity}")
+                continue
+            
+            # Upsert
+            result = await db.branch_daily_capacity.update_one(
+                {"branch": branch, "date": date_str},
+                {
+                    "$set": {
+                        "branch": branch,
+                        "date": date_str,
+                        "capacity": capacity,
+                        "updated_at": datetime.now(timezone.utc)
+                    },
+                    "$setOnInsert": {
+                        "id": str(uuid.uuid4()),
+                        "created_at": datetime.now(timezone.utc)
+                    }
+                },
+                upsert=True
+            )
+            
+            if result.upserted_id:
+                inserted += 1
+            else:
+                updated += 1
+                
+        except Exception as e:
+            errors.append(f"Row {idx+2}: {str(e)}")
+    
+    return {
+        "message": "Excel upload complete",
+        "inserted": inserted,
+        "updated": updated,
+        "total": inserted + updated,
+        "errors": errors[:20] if errors else [],
+        "total_errors": len(errors)
+    }
+
+
 # ===== Production Scheduling =====
 @router.get("/production-schedules")
 async def get_production_schedules(
