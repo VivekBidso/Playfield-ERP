@@ -157,6 +157,299 @@ async def update_dispatch_lot_status(lot_id: str, status: str):
     return {"message": f"Status updated to {status}"}
 
 
+# --- Dispatch Lot Cascade Filter Endpoints ---
+
+@router.get("/dispatch-lots/buyers-with-forecasts")
+async def get_buyers_with_forecasts():
+    """Get only buyers who have confirmed forecasts"""
+    # Get unique buyer_ids from confirmed forecasts
+    forecasts = await db.forecasts.find(
+        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}, "buyer_id": {"$ne": None}},
+        {"buyer_id": 1, "_id": 0}
+    ).to_list(1000)
+    
+    buyer_ids = list(set(f["buyer_id"] for f in forecasts if f.get("buyer_id")))
+    
+    if not buyer_ids:
+        return []
+    
+    # Get buyer details
+    buyers = await db.buyers.find(
+        {"id": {"$in": buyer_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    return buyers
+
+
+@router.get("/dispatch-lots/brands-by-buyer")
+async def get_brands_by_buyer(buyer_id: str):
+    """Get brands linked to the buyer"""
+    # First get brands directly linked to buyer
+    brands = await db.brands.find(
+        {"buyer_id": buyer_id, "status": "ACTIVE"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Also get brands from SKUs that have forecasts for this buyer
+    forecasts = await db.forecasts.find(
+        {"buyer_id": buyer_id, "status": {"$in": ["CONFIRMED", "CONVERTED"]}},
+        {"sku_id": 1, "_id": 0}
+    ).to_list(1000)
+    
+    sku_ids = [f["sku_id"] for f in forecasts if f.get("sku_id")]
+    if sku_ids:
+        skus = await db.skus.find(
+            {"sku_id": {"$in": sku_ids}},
+            {"brand_id": 1, "brand": 1, "_id": 0}
+        ).to_list(1000)
+        
+        # Get unique brand_ids from forecasted SKUs
+        brand_ids_from_skus = list(set(s.get("brand_id") for s in skus if s.get("brand_id")))
+        if brand_ids_from_skus:
+            additional_brands = await db.brands.find(
+                {"id": {"$in": brand_ids_from_skus}, "status": "ACTIVE"},
+                {"_id": 0}
+            ).to_list(100)
+            
+            # Merge without duplicates
+            existing_ids = {b["id"] for b in brands}
+            for ab in additional_brands:
+                if ab["id"] not in existing_ids:
+                    brands.append(ab)
+    
+    return brands
+
+
+@router.get("/dispatch-lots/verticals-by-buyer")
+async def get_verticals_by_buyer(buyer_id: str, brand_id: Optional[str] = None):
+    """Get verticals that have forecasted SKUs for this buyer (optionally filtered by brand)"""
+    # Get forecasts for this buyer
+    forecast_query = {"buyer_id": buyer_id, "status": {"$in": ["CONFIRMED", "CONVERTED"]}}
+    forecasts = await db.forecasts.find(forecast_query, {"sku_id": 1, "vertical_id": 1, "_id": 0}).to_list(1000)
+    
+    vertical_ids = set()
+    
+    # Collect vertical IDs from forecasts
+    for f in forecasts:
+        if f.get("vertical_id"):
+            vertical_ids.add(f["vertical_id"])
+    
+    # Also get verticals from forecasted SKUs
+    sku_ids = [f["sku_id"] for f in forecasts if f.get("sku_id")]
+    if sku_ids:
+        sku_query = {"sku_id": {"$in": sku_ids}}
+        if brand_id:
+            sku_query["brand_id"] = brand_id
+        
+        skus = await db.skus.find(sku_query, {"vertical_id": 1, "_id": 0}).to_list(1000)
+        for s in skus:
+            if s.get("vertical_id"):
+                vertical_ids.add(s["vertical_id"])
+    
+    if not vertical_ids:
+        return []
+    
+    # Get vertical details
+    verticals = await db.verticals.find(
+        {"id": {"$in": list(vertical_ids)}, "status": "ACTIVE"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    return verticals
+
+
+@router.get("/dispatch-lots/forecasted-skus")
+async def get_forecasted_skus(buyer_id: str, vertical_id: Optional[str] = None, brand_id: Optional[str] = None):
+    """Get SKUs with confirmed forecasts for buyer, with available quantity"""
+    # Get confirmed forecasts for this buyer
+    forecast_query = {"buyer_id": buyer_id, "status": {"$in": ["CONFIRMED", "CONVERTED"]}}
+    if vertical_id:
+        forecast_query["vertical_id"] = vertical_id
+    
+    forecasts = await db.forecasts.find(forecast_query, {"_id": 0}).to_list(1000)
+    
+    # Get SKU-level forecasts
+    sku_forecasts = {}
+    vertical_forecasts = {}
+    
+    for f in forecasts:
+        if f.get("sku_id"):
+            if f["sku_id"] not in sku_forecasts:
+                sku_forecasts[f["sku_id"]] = {"forecast_qty": 0, "forecast_ids": []}
+            sku_forecasts[f["sku_id"]]["forecast_qty"] += f.get("quantity", 0)
+            sku_forecasts[f["sku_id"]]["forecast_ids"].append(f.get("id"))
+        elif f.get("vertical_id"):
+            # Vertical-level forecast - will be distributed to SKUs
+            if f["vertical_id"] not in vertical_forecasts:
+                vertical_forecasts[f["vertical_id"]] = {"forecast_qty": 0, "forecast_ids": []}
+            vertical_forecasts[f["vertical_id"]]["forecast_qty"] += f.get("quantity", 0)
+            vertical_forecasts[f["vertical_id"]]["forecast_ids"].append(f.get("id"))
+    
+    # Get SKUs that match the criteria
+    sku_query = {}
+    if vertical_id:
+        sku_query["vertical_id"] = vertical_id
+    if brand_id:
+        sku_query["brand_id"] = brand_id
+    
+    # Get SKUs either directly forecasted or in forecasted verticals
+    forecasted_sku_ids = list(sku_forecasts.keys())
+    forecasted_vertical_ids = list(vertical_forecasts.keys())
+    
+    if forecasted_sku_ids or forecasted_vertical_ids:
+        or_conditions = []
+        if forecasted_sku_ids:
+            or_conditions.append({"sku_id": {"$in": forecasted_sku_ids}})
+        if forecasted_vertical_ids:
+            or_conditions.append({"vertical_id": {"$in": forecasted_vertical_ids}})
+        
+        if sku_query:
+            sku_query["$and"] = [{"$or": or_conditions}]
+        else:
+            sku_query = {"$or": or_conditions}
+    
+    skus = await db.skus.find(sku_query, {"_id": 0}).to_list(1000)
+    
+    # Apply brand filter if specified
+    if brand_id:
+        skus = [s for s in skus if s.get("brand_id") == brand_id]
+    
+    # Get existing dispatch lot quantities
+    dispatch_lots = await db.dispatch_lots.find(
+        {"buyer_id": buyer_id, "status": {"$ne": "CANCELLED"}},
+        {"sku_id": 1, "required_quantity": 1, "_id": 0}
+    ).to_list(1000)
+    
+    # Also get from dispatch_lot_lines
+    lot_lines = await db.dispatch_lot_lines.find(
+        {},
+        {"sku_id": 1, "quantity": 1, "_id": 0}
+    ).to_list(5000)
+    
+    dispatched_by_sku = {}
+    for lot in dispatch_lots:
+        sku = lot.get("sku_id")
+        if sku:
+            dispatched_by_sku[sku] = dispatched_by_sku.get(sku, 0) + lot.get("required_quantity", 0)
+    
+    for line in lot_lines:
+        sku = line.get("sku_id")
+        if sku:
+            dispatched_by_sku[sku] = dispatched_by_sku.get(sku, 0) + line.get("quantity", 0)
+    
+    # Build result with available quantities
+    result = []
+    for sku in skus:
+        sku_id = sku.get("sku_id")
+        
+        # Calculate forecast qty (direct SKU forecast + vertical forecast share)
+        forecast_qty = 0
+        if sku_id in sku_forecasts:
+            forecast_qty = sku_forecasts[sku_id]["forecast_qty"]
+        elif sku.get("vertical_id") in vertical_forecasts:
+            # For vertical-level forecasts, show the vertical total
+            forecast_qty = vertical_forecasts[sku["vertical_id"]]["forecast_qty"]
+        
+        if forecast_qty == 0:
+            continue
+        
+        dispatched_qty = dispatched_by_sku.get(sku_id, 0)
+        available_qty = max(0, forecast_qty - dispatched_qty)
+        
+        result.append({
+            "sku_id": sku_id,
+            "description": sku.get("description", ""),
+            "brand": sku.get("brand", ""),
+            "brand_id": sku.get("brand_id"),
+            "vertical": sku.get("vertical", ""),
+            "vertical_id": sku.get("vertical_id"),
+            "model": sku.get("model", ""),
+            "forecast_qty": forecast_qty,
+            "dispatched_qty": dispatched_qty,
+            "available_qty": available_qty
+        })
+    
+    return result
+
+
+@router.post("/dispatch-lots/multi")
+async def create_dispatch_lot_multi(data: DispatchLotMultiCreate):
+    """Create a dispatch lot with multiple SKU lines"""
+    if not data.lines:
+        raise HTTPException(status_code=400, detail="At least one line item is required")
+    
+    if not data.buyer_id:
+        raise HTTPException(status_code=400, detail="Buyer is required")
+    
+    # Verify buyer exists
+    buyer = await db.buyers.find_one({"id": data.buyer_id})
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    
+    # Generate lot code
+    count = await db.dispatch_lots.count_documents({})
+    lot_code = f"DL_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    # Calculate total quantity
+    total_quantity = sum(line.quantity for line in data.lines)
+    
+    # Create main dispatch lot record
+    lot_id = str(uuid.uuid4())
+    lot = {
+        "id": lot_id,
+        "lot_code": lot_code,
+        "buyer_id": data.buyer_id,
+        "target_date": data.target_date,
+        "priority": data.priority,
+        "notes": data.notes or "",
+        "status": "CREATED",
+        "total_quantity": total_quantity,
+        "total_produced": 0,
+        "total_dispatched": 0,
+        "line_count": len(data.lines),
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.dispatch_lots.insert_one(lot)
+    
+    # Create line items
+    lines_created = []
+    for idx, line in enumerate(data.lines):
+        line_record = {
+            "id": str(uuid.uuid4()),
+            "lot_id": lot_id,
+            "lot_code": lot_code,
+            "line_number": idx + 1,
+            "sku_id": line.sku_id,
+            "brand_id": line.brand_id,
+            "vertical_id": line.vertical_id,
+            "quantity": line.quantity,
+            "produced_qty": 0,
+            "dispatched_qty": 0,
+            "status": "PENDING",
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.dispatch_lot_lines.insert_one(line_record)
+        del line_record["_id"]
+        lines_created.append(line_record)
+    
+    del lot["_id"]
+    lot["lines"] = lines_created
+    
+    return serialize_doc(lot)
+
+
+@router.get("/dispatch-lots/{lot_id}/lines")
+async def get_dispatch_lot_lines(lot_id: str):
+    """Get line items for a dispatch lot"""
+    lines = await db.dispatch_lot_lines.find(
+        {"lot_id": lot_id},
+        {"_id": 0}
+    ).to_list(1000)
+    return [serialize_doc(l) for l in lines]
+
+
 # --- Bulk Upload ---
 @router.post("/forecasts/parse-excel")
 async def parse_forecast_excel(file: UploadFile = File(...)):
