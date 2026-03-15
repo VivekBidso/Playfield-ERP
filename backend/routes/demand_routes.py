@@ -594,6 +594,87 @@ async def get_dispatch_lot_lines(lot_id: str):
     return [serialize_doc(l) for l in lines]
 
 
+# Model for adding line to existing lot
+class AddLineToLotRequest(BaseModel):
+    sku_id: str
+    quantity: int
+    forecast_id: Optional[str] = None
+    brand_id: Optional[str] = None
+    vertical_id: Optional[str] = None
+
+
+@router.post("/dispatch-lots/{lot_id}/add-line")
+async def add_line_to_dispatch_lot(lot_id: str, data: AddLineToLotRequest):
+    """Add a new line item to an existing dispatch lot"""
+    # Get the lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Don't allow adding to dispatched/delivered lots
+    if lot.get("status") in ["DISPATCHED", "DELIVERED"]:
+        raise HTTPException(status_code=400, detail="Cannot add lines to dispatched or delivered lots")
+    
+    # Get current line count for this lot
+    existing_lines = await db.dispatch_lot_lines.count_documents({"lot_id": lot_id})
+    
+    # Create new line
+    line_record = {
+        "id": str(uuid.uuid4()),
+        "lot_id": lot_id,
+        "lot_code": lot.get("lot_code"),
+        "line_number": existing_lines + 1,
+        "sku_id": data.sku_id,
+        "brand_id": data.brand_id,
+        "vertical_id": data.vertical_id,
+        "forecast_id": data.forecast_id,
+        "quantity": data.quantity,
+        "produced_qty": 0,
+        "dispatched_qty": 0,
+        "status": "PENDING",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.dispatch_lot_lines.insert_one(line_record)
+    
+    # Update lot totals
+    current_total = lot.get("total_quantity", 0)
+    current_line_count = lot.get("line_count", existing_lines)
+    
+    await db.dispatch_lots.update_one(
+        {"id": lot_id},
+        {
+            "$set": {
+                "total_quantity": current_total + data.quantity,
+                "line_count": current_line_count + 1,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    del line_record["_id"]
+    return {
+        "message": "Line added to dispatch lot",
+        "line": serialize_doc(line_record),
+        "new_lot_total": current_total + data.quantity
+    }
+
+
+@router.get("/dispatch-lots/by-buyer/{buyer_id}")
+async def get_dispatch_lots_by_buyer(buyer_id: str, exclude_completed: bool = True):
+    """Get all dispatch lots for a specific buyer"""
+    query = {"buyer_id": buyer_id}
+    if exclude_completed:
+        query["status"] = {"$nin": ["DISPATCHED", "DELIVERED"]}
+    
+    lots = await db.dispatch_lots.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    return [serialize_doc(l) for l in lots]
+
+
 @router.get("/dispatch-lots/{lot_id}/details")
 async def get_dispatch_lot_details(lot_id: str):
     """Get dispatch lot with full details including readiness status"""
