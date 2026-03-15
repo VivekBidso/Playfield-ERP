@@ -6,7 +6,7 @@ import io
 import openpyxl
 
 class FactoryManagementTester:
-    def __init__(self, base_url="https://production-hub-141.preview.emergentagent.com"):
+    def __init__(self, base_url="https://factory-planner-12.preview.emergentagent.com"):
         self.base_url = base_url
         self.tests_run = 0
         self.tests_passed = 0
