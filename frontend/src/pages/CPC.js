@@ -824,7 +824,7 @@ const CPC = () => {
                     <div>
                       <div className="text-2xl font-black">{b.capacity_units_per_day}</div>
                       <div className="text-xs text-muted-foreground">
-                        {b.capacity_source === 'model_specific' ? 'model capacity today' : 'units/day (base)'}
+                        {b.capacity_source === 'daily_override' ? 'daily capacity' : 'units/day (base)'}
                       </div>
                     </div>
                     <div className="text-right">
