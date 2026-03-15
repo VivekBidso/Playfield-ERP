@@ -2051,52 +2051,58 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
     # Check branch capacity for the target date
     target_date_obj = data.target_date
     date_str = target_date_obj.strftime("%Y-%m-%d")
-        month_str = target_date_obj.strftime("%Y-%m")
-        day = target_date_obj.day
-        
-        # Get model-specific capacity if available
-        model_id = sku.get("model_id")
-        model_capacity = None
-        if model_id:
-            model_capacity = await db.branch_model_capacity.find_one(
-                {"branch": data.branch, "month": month_str, "day": day, "model_id": model_id},
-                {"_id": 0}
-            )
-        
-        # Calculate already allocated for this branch on target date
-        day_start = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, tzinfo=timezone.utc)
-        day_end = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, 23, 59, 59, tzinfo=timezone.utc)
-        
-        existing_on_date = await db.production_schedules.find(
-            {
-                "branch": data.branch,
-                "target_date": {"$gte": day_start, "$lte": day_end},
-                "status": {"$ne": "CANCELLED"}
-            },
-            {"_id": 0, "target_quantity": 1}
-        ).to_list(1000)
-        
-        already_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
-        
-        # Determine capacity limit
-        if model_capacity:
-            capacity_limit = model_capacity.get("capacity_qty", 0)
-            capacity_type = "model-specific"
-        else:
-            capacity_limit = branch_cap.get("capacity_units_per_day", 0)
-            capacity_type = "base"
-        
-        available_capacity = capacity_limit - already_allocated
-        
-        # Check if quantity exceeds available capacity
-        if data.quantity > available_capacity:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Quantity ({data.quantity}) exceeds available capacity for branch '{data.branch}' on {date_str}. "
-                       f"Capacity ({capacity_type}): {capacity_limit}, Already allocated: {already_allocated}, Available: {available_capacity}"
-            )
-        
-        branch_name = data.branch
+    month_str = target_date_obj.strftime("%Y-%m")
+    day = target_date_obj.day
+    
+    # Get model-specific capacity if available
+    model_id = sku.get("model_id")
+    model_capacity = None
+    if model_id:
+        model_capacity = await db.branch_model_capacity.find_one(
+            {"branch": data.branch, "month": month_str, "day": day, "model_id": model_id},
+            {"_id": 0}
+        )
+    
+    # Calculate already allocated for this branch on target date
+    day_start = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, tzinfo=timezone.utc)
+    day_end = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, 23, 59, 59, tzinfo=timezone.utc)
+    
+    existing_on_date = await db.production_schedules.find(
+        {
+            "branch": data.branch,
+            "target_date": {"$gte": day_start, "$lte": day_end},
+            "status": {"$ne": "CANCELLED"}
+        },
+        {"_id": 0, "target_quantity": 1}
+    ).to_list(1000)
+    
+    already_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
+    
+    # Determine capacity limit - check daily override first
+    daily_override = await db.branch_daily_capacity.find_one(
+        {"branch": data.branch, "date": date_str},
+        {"_id": 0, "capacity": 1}
+    )
+    
+    if daily_override:
+        capacity_limit = daily_override.get("capacity", 0)
+        capacity_type = "daily-override"
+    elif model_capacity:
+        capacity_limit = model_capacity.get("capacity_qty", 0)
+        capacity_type = "model-specific"
+    else:
+        capacity_limit = branch_cap.get("capacity_units_per_day", 0)
+        capacity_type = "base"
+    
+    available_capacity = capacity_limit - already_allocated
+    
+    # Check if quantity exceeds available capacity
+    if data.quantity > available_capacity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Quantity ({data.quantity}) exceeds available capacity for branch '{data.branch}' on {date_str}. "
+                   f"Capacity ({capacity_type}): {capacity_limit}, Already allocated: {already_allocated}, Available: {available_capacity}"
+        )
     
     # Check remaining quantity
     existing_schedules = await db.production_schedules.find(
