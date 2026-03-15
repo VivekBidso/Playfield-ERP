@@ -151,7 +151,7 @@ const TechOps = () => {
   };
 
   const handleEditBrand = (b) => {
-    setBrandForm({ code: b.code, name: b.name, buyer_id: b.buyer_id || "" });
+    setBrandForm({ code: b.code, name: b.name });
     setEditingItem(b);
     setShowBrandDialog(true);
   };
