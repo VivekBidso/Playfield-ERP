@@ -157,6 +157,10 @@ async def get_forecasts(
 
 @router.post("/forecasts")
 async def create_forecast(data: ForecastCreate):
+    # Validate quantity is greater than 0
+    if data.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
+    
     # Validate buyer_id is provided
     if not data.buyer_id:
         raise HTTPException(status_code=400, detail="Buyer is required for creating a forecast")
@@ -194,6 +198,94 @@ async def create_forecast(data: ForecastCreate):
     await db.forecasts.insert_one(forecast)
     del forecast["_id"]
     return serialize_doc(forecast)
+
+
+# Pydantic model for updating forecast
+class ForecastUpdate(BaseModel):
+    buyer_id: Optional[str] = None
+    vertical_id: Optional[str] = None
+    sku_id: Optional[str] = None
+    forecast_month: Optional[datetime] = None
+    quantity: Optional[int] = None
+    priority: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.put("/forecasts/{forecast_id}")
+async def update_forecast(forecast_id: str, data: ForecastUpdate):
+    """Update a forecast - only allowed while in DRAFT status"""
+    # Check if forecast exists and is in DRAFT status
+    forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+    if not forecast:
+        raise HTTPException(status_code=404, detail="Forecast not found")
+    
+    if forecast.get("status") != "DRAFT":
+        raise HTTPException(status_code=400, detail="Cannot edit forecast after confirmation. Only DRAFT forecasts can be edited.")
+    
+    # Build update dict
+    update_data = {}
+    if data.buyer_id is not None:
+        # Verify buyer exists
+        buyer = await db.buyers.find_one({"id": data.buyer_id}, {"_id": 0})
+        if not buyer:
+            raise HTTPException(status_code=404, detail="Buyer not found")
+        update_data["buyer_id"] = data.buyer_id
+    
+    if data.vertical_id is not None:
+        update_data["vertical_id"] = data.vertical_id
+    
+    if data.sku_id is not None:
+        update_data["sku_id"] = data.sku_id
+        # Auto-derive vertical_id from SKU if not explicitly provided
+        if data.vertical_id is None:
+            sku = await db.skus.find_one({"sku_id": data.sku_id}, {"_id": 0})
+            if sku and sku.get("vertical_id"):
+                update_data["vertical_id"] = sku["vertical_id"]
+    
+    if data.forecast_month is not None:
+        update_data["forecast_month"] = data.forecast_month
+    
+    if data.quantity is not None:
+        if data.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
+        update_data["quantity"] = data.quantity
+    
+    if data.priority is not None:
+        update_data["priority"] = data.priority
+    
+    if data.notes is not None:
+        update_data["notes"] = data.notes
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    await db.forecasts.update_one(
+        {"id": forecast_id},
+        {"$set": update_data}
+    )
+    
+    # Return updated forecast
+    updated = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+    return serialize_doc(updated)
+
+
+@router.delete("/forecasts/{forecast_id}")
+async def delete_forecast(forecast_id: str):
+    """Delete a forecast - only allowed while in DRAFT status"""
+    # Check if forecast exists and is in DRAFT status
+    forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+    if not forecast:
+        raise HTTPException(status_code=404, detail="Forecast not found")
+    
+    if forecast.get("status") != "DRAFT":
+        raise HTTPException(status_code=400, detail="Cannot delete forecast after confirmation. Only DRAFT forecasts can be deleted.")
+    
+    # Delete the forecast
+    await db.forecasts.delete_one({"id": forecast_id})
+    
+    return {"message": "Forecast deleted successfully", "forecast_code": forecast.get("forecast_code")}
 
 @router.put("/forecasts/{forecast_id}/confirm")
 async def confirm_forecast(forecast_id: str):
