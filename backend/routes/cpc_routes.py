@@ -1000,6 +1000,79 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
     
+    # NEW: Validate branch if provided
+    branch_name = None
+    if data.branch:
+        # Check if branch exists
+        branch_cap = await db.branch_capacity.find_one({"branch": data.branch}, {"_id": 0})
+        if not branch_cap:
+            raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found")
+        
+        # Check if SKU is assigned to this branch
+        sku_assignments = await db.sku_branch_assignments.find(
+            {"sku_id": sku_id, "is_active": True},
+            {"_id": 0, "branch": 1}
+        ).to_list(100)
+        
+        assigned_branches = [a["branch"] for a in sku_assignments]
+        
+        # If there are specific assignments, verify the branch is in the list
+        if assigned_branches and data.branch not in assigned_branches:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"SKU {sku_id} is not assigned to branch '{data.branch}'. Assigned branches: {', '.join(assigned_branches)}"
+            )
+        
+        # Check branch capacity for the target date
+        target_date_obj = data.target_date
+        date_str = target_date_obj.strftime("%Y-%m-%d")
+        month_str = target_date_obj.strftime("%Y-%m")
+        day = target_date_obj.day
+        
+        # Get model-specific capacity if available
+        model_id = sku.get("model_id")
+        model_capacity = None
+        if model_id:
+            model_capacity = await db.branch_model_capacity.find_one(
+                {"branch": data.branch, "month": month_str, "day": day, "model_id": model_id},
+                {"_id": 0}
+            )
+        
+        # Calculate already allocated for this branch on target date
+        day_start = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, tzinfo=timezone.utc)
+        day_end = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, 23, 59, 59, tzinfo=timezone.utc)
+        
+        existing_on_date = await db.production_schedules.find(
+            {
+                "branch": data.branch,
+                "target_date": {"$gte": day_start, "$lte": day_end},
+                "status": {"$ne": "CANCELLED"}
+            },
+            {"_id": 0, "target_quantity": 1}
+        ).to_list(1000)
+        
+        already_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
+        
+        # Determine capacity limit
+        if model_capacity:
+            capacity_limit = model_capacity.get("capacity_qty", 0)
+            capacity_type = "model-specific"
+        else:
+            capacity_limit = branch_cap.get("capacity_units_per_day", 0)
+            capacity_type = "base"
+        
+        available_capacity = capacity_limit - already_allocated
+        
+        # Check if quantity exceeds available capacity
+        if data.quantity > available_capacity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quantity ({data.quantity}) exceeds available capacity for branch '{data.branch}' on {date_str}. "
+                       f"Capacity ({capacity_type}): {capacity_limit}, Already allocated: {already_allocated}, Available: {available_capacity}"
+            )
+        
+        branch_name = data.branch
+    
     # Check remaining quantity
     existing_schedules = await db.production_schedules.find(
         {"forecast_id": data.forecast_id, "status": {"$ne": "CANCELLED"}},
@@ -1025,6 +1098,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
         "schedule_code": schedule_code,
         "forecast_id": data.forecast_id,
         "dispatch_lot_id": None,
+        "branch": branch_name,  # NEW: Include branch in schedule
         "sku_id": sku_id,
         "sku_description": sku.get("description", ""),
         "target_quantity": data.quantity,
