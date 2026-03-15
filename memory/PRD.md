@@ -518,7 +518,6 @@ Example:
 
 ### P1 - High Priority
 - Consolidate IBT routes into logistics_routes.py
-- Test all roles with branch-specific data
 
 ### P2 - Medium Priority
 - Auto-generate dispatch lots from forecasts
@@ -532,5 +531,30 @@ Example:
 
 ---
 
+## 11. CPC MODULE STATUS (COMPLETE - March 15, 2026)
+
+### What's Working:
+1. **Production Planning Tab** - Shows confirmed forecasts from Demand team
+2. **Branch Capacity Tab** - Day-wise capacity upload with branch cards
+3. **Production Schedule Tab** - Branch-wise per-day schedule view
+
+### Rules Enforced:
+- **No standalone schedule creation** - All planning starts from forecasts
+- **Branch is REQUIRED** - Cannot create schedule without branch
+- **Status = SCHEDULED** - When branch is assigned (not DRAFT)
+- **Inventory considered** - Schedule Pending = Forecast - Inventory - Scheduled
+
+### APIs Added:
+- `GET /api/cpc/rm-shortage-report` - RM shortage by branch
+- `GET /api/cpc/rm-shortage-report/download` - Excel export
+- `DELETE /api/cpc/cleanup/unassigned-schedules` - Data cleanup
+- `POST /api/cpc/fix-draft-schedules` - Fix legacy DRAFT status
+
+### Removed:
+- **Production Planning page** - Removed from sidebar and routes
+- CPC is now the ONLY way to plan production
+
+---
+
 *Last updated: March 15, 2026*
-*CPC Module Restructure - Forecast-driven planning with inventory consideration*
+*CPC Module Complete - Forecast-driven planning with branch enforcement*
