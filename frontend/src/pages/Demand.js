@@ -839,11 +839,23 @@ const Demand = () => {
                       }`}>{f.priority}</span>
                     </td>
                     <td className="p-4">
-                      {f.status === 'DRAFT' && canConfirmForecasts && (
-                        <Button size="sm" variant="outline" onClick={() => handleConfirmForecast(f.id)}>
-                          Confirm
-                        </Button>
-                      )}
+                      <div className="flex gap-1">
+                        {f.status === 'DRAFT' && canEditForecasts && (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => handleEditForecast(f)} title="Edit">
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleDeleteForecast(f.id)} title="Delete" className="text-red-600 hover:text-red-700">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        {f.status === 'DRAFT' && canConfirmForecasts && (
+                          <Button size="sm" variant="outline" onClick={() => handleConfirmForecast(f.id)}>
+                            Confirm
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
