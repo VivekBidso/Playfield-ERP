@@ -1,0 +1,84 @@
+{
+  "summary": "Completed testing of CPC Module Restructure. All 17 backend API tests passed (100%). Frontend UI verified - all 3 tabs working correctly: Production Planning (forecasts with new columns), Branch Capacity (branch cards with day-wise upload), Production Schedule (branch-wise per-day view). Standalone schedule creation removed - all planning now starts from forecasts.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cpc_restructure.py",
+    "/app/test_reports/pytest/pytest_cpc_restructure.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_cpc_restructure.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@factory.com",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "None - used existing data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "CPC Module Restructure fully tested. Key changes verified: 1) Standalone 'New Schedule' button removed - all production planning starts from forecasts via 'Plan' button. 2) Summary cards correctly show Forecast Qty, Inventory, Scheduled, Schedule Pending. 3) Schedule Pending = Forecast Qty - Inventory - Scheduled (verified in both API and UI). 4) Plan dialog requires Branch selection with capacity validation. 5) Three tabs working: Production Planning (forecasts table), Branch Capacity (branch cards with day-wise upload), Production Schedule (branch-wise per-day view with filters).",
+  "features_tested": {
+    "backend_api": {
+      "GET /api/cpc/demand-forecasts - returns forecast_qty, inventory_qty, scheduled_qty, schedule_pending": "PASS",
+      "GET /api/cpc/demand-forecasts - schedule_pending calculation (Forecast - Inventory - Scheduled)": "PASS",
+      "GET /api/cpc/demand-forecasts - is_fully_scheduled flag": "PASS",
+      "GET /api/cpc/demand-forecasts/summary - returns all required fields including inventory": "PASS",
+      "GET /api/cpc/demand-forecasts/summary - remaining_to_schedule calculation": "PASS",
+      "GET /api/branches/capacity - returns branch cards with capacity info": "PASS",
+      "GET /api/branches/daily-capacity/template - Excel template download": "PASS",
+      "GET /api/branches/daily-capacity - returns daily capacity overrides": "PASS",
+      "GET /api/cpc/branch-schedules - returns branch-wise per-day schedules": "PASS",
+      "GET /api/cpc/branch-schedules - date filter": "PASS",
+      "GET /api/cpc/branch-schedules - branch filter": "PASS",
+      "GET /api/cpc/production-plan/template - bulk plan template download": "PASS",
+      "POST /api/cpc/schedule-from-forecast - with branch parameter": "PASS",
+      "GET /api/cpc/demand-forecasts/download - Excel export": "PASS",
+      "GET /api/skus/{sku_id}/assigned-branches - returns branches for SKU": "PASS",
+      "GET /api/branches/{branch}/capacity-for-date - returns capacity for specific date": "PASS",
+      "Summary only counts forecast-linked schedules": "PASS"
+    },
+    "frontend_ui": {
+      "CPC page loads with 3 tabs": "PASS - Production Planning, Branch Capacity, Production Schedule",
+      "Production Planning tab - summary cards": "PASS - Total Forecasts, Forecast Qty, Inventory, Scheduled, Schedule Pending",
+      "Production Planning tab - forecasts table columns": "PASS - Forecast ID, Buyer, SKU, Month, Forecast Qty, Inventory, Scheduled, Pending, Status, Action",
+      "Production Planning tab - Plan button": "PASS - Opens dialog for scheduling from forecast",
+      "Production Planning tab - Export button": "PASS",
+      "Production Planning tab - Plan Template button": "PASS",
+      "Production Planning tab - Upload Plan button": "PASS",
+      "Plan dialog - Branch selector required": "PASS - Shows available branches for SKU with capacity info",
+      "Plan dialog - Submit disabled without branch": "PASS",
+      "Branch Capacity tab - Day-wise Capacity Upload section": "PASS",
+      "Branch Capacity tab - Download Template button": "PASS",
+      "Branch Capacity tab - Upload Excel button": "PASS",
+      "Branch Capacity tab - Branch cards": "PASS - 7 branches with capacity, utilization, available",
+      "Branch Capacity tab - Daily override badge": "PASS - Shows when daily override is active",
+      "Branch Capacity tab - 7 Day Forecast": "PASS - Opens when clicking branch card",
+      "Production Schedule tab - Branch-wise view": "PASS - Shows schedules grouped by branch and date",
+      "Production Schedule tab - Date filters": "PASS - Start Date, End Date inputs",
+      "Production Schedule tab - Branch filter": "PASS - Dropdown with All Branches option",
+      "Production Schedule tab - Apply Filter button": "PASS",
+      "No standalone New Schedule button": "PASS - Removed from all tabs"
+    }
+  },
+  "cpc_restructure_verification": {
+    "standalone_schedule_creation_removed": true,
+    "forecast_driven_planning_enforced": true,
+    "summary_includes_inventory": true,
+    "schedule_pending_formula_correct": "Schedule Pending = Forecast Qty - Inventory - Scheduled",
+    "three_tabs_implemented": ["Production Planning", "Branch Capacity", "Production Schedule"],
+    "branch_required_for_scheduling": true
+  }
+}
