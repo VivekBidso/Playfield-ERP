@@ -11,7 +11,9 @@ import {
   Target,
   BarChart3,
   RefreshCw,
-  Factory
+  Factory,
+  TrendingUp,
+  Package
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,10 +40,15 @@ const CPC = () => {
   const [skus, setSkus] = useState([]);
   const [dispatchLots, setDispatchLots] = useState([]);
   
+  // NEW: Demand Forecasts data
+  const [demandForecasts, setDemandForecasts] = useState([]);
+  const [forecastSummary, setForecastSummary] = useState(null);
+  
   // Dialogs
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showCapacityDialog, setShowCapacityDialog] = useState(false);
   const [showAllocateDialog, setShowAllocateDialog] = useState(false);
+  const [showScheduleFromForecastDialog, setShowScheduleFromForecastDialog] = useState(false);
   
   // Form Data
   const [scheduleForm, setScheduleForm] = useState({
@@ -59,6 +66,17 @@ const CPC = () => {
   const [allocateForm, setAllocateForm] = useState({
     schedule_id: "",
     preferred_branches: []
+  });
+  
+  // NEW: Schedule from forecast form
+  const [forecastScheduleForm, setForecastScheduleForm] = useState({
+    forecast_id: "",
+    forecast_code: "",
+    sku_id: "",
+    remaining_qty: 0,
+    quantity: 0,
+    target_date: "",
+    priority: "MEDIUM"
   });
   
   // Loading & Selected
