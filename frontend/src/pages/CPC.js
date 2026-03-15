@@ -881,6 +881,108 @@ const CPC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Schedule from Forecast Dialog */}
+      <Dialog open={showScheduleFromForecastDialog} onOpenChange={setShowScheduleFromForecastDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Factory className="w-5 h-5" />
+              Schedule from Forecast
+            </DialogTitle>
+            <DialogDescription>
+              Create production schedule from demand forecast: {forecastScheduleForm.forecast_code}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="text-sm font-medium text-blue-800">SKU: {forecastScheduleForm.sku_id}</div>
+              <div className="text-xs text-blue-600 mt-1">
+                Remaining to schedule: <span className="font-bold">{forecastScheduleForm.remaining_qty?.toLocaleString()}</span> units
+              </div>
+            </div>
+            
+            <div>
+              <Label>Quantity to Schedule *</Label>
+              <Input 
+                type="number"
+                value={forecastScheduleForm.quantity}
+                onChange={(e) => setForecastScheduleForm({...forecastScheduleForm, quantity: parseInt(e.target.value) || 0})}
+                max={forecastScheduleForm.remaining_qty}
+                className="font-mono"
+                data-testid="forecast-schedule-qty"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Max: {forecastScheduleForm.remaining_qty?.toLocaleString()}</p>
+            </div>
+            
+            <div>
+              <Label>Target Date *</Label>
+              <Input 
+                type="date"
+                value={forecastScheduleForm.target_date}
+                onChange={(e) => setForecastScheduleForm({...forecastScheduleForm, target_date: e.target.value})}
+                className="font-mono"
+                data-testid="forecast-schedule-date"
+              />
+            </div>
+            
+            <div>
+              <Label>Priority</Label>
+              <Select 
+                value={forecastScheduleForm.priority} 
+                onValueChange={(v) => setForecastScheduleForm({...forecastScheduleForm, priority: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">Low</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="CRITICAL">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <Button 
+              onClick={async () => {
+                if (!forecastScheduleForm.target_date) {
+                  toast.error("Please select a target date");
+                  return;
+                }
+                if (forecastScheduleForm.quantity <= 0) {
+                  toast.error("Please enter a valid quantity");
+                  return;
+                }
+                if (forecastScheduleForm.quantity > forecastScheduleForm.remaining_qty) {
+                  toast.error(`Quantity exceeds remaining (${forecastScheduleForm.remaining_qty})`);
+                  return;
+                }
+                
+                try {
+                  await axios.post(`${API}/cpc/schedule-from-forecast`, {
+                    forecast_id: forecastScheduleForm.forecast_id,
+                    quantity: forecastScheduleForm.quantity,
+                    target_date: new Date(forecastScheduleForm.target_date).toISOString(),
+                    priority: forecastScheduleForm.priority
+                  });
+                  toast.success("Production schedule created from forecast");
+                  setShowScheduleFromForecastDialog(false);
+                  fetchAllData();
+                } catch (error) {
+                  toast.error(error.response?.data?.detail || "Failed to create schedule");
+                }
+              }}
+              className="w-full uppercase text-xs tracking-wide"
+              disabled={!forecastScheduleForm.target_date || forecastScheduleForm.quantity <= 0}
+              data-testid="submit-forecast-schedule-btn"
+            >
+              <Factory className="w-4 h-4 mr-2" />
+              Create Production Schedule
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
