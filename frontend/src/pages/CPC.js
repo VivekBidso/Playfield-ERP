@@ -748,14 +748,63 @@ const CPC = () => {
                     Upload capacity by Month, Day, Model to override base capacity for specific days
                   </p>
                 </div>
-                <Button 
-                  onClick={() => setShowModelCapacityDialog(true)}
-                  className="uppercase text-xs"
-                  data-testid="open-model-capacity-upload"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Upload Capacity
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline"
+                    onClick={() => window.open(`${API}/branches/model-capacity/template`, '_blank')}
+                    className="uppercase text-xs"
+                    data-testid="download-capacity-template"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Template
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => document.getElementById('capacity-excel-upload').click()}
+                    className="uppercase text-xs"
+                    data-testid="upload-capacity-excel"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Excel
+                  </Button>
+                  <input
+                    id="capacity-excel-upload"
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      
+                      try {
+                        const res = await axios.post(`${API}/branches/model-capacity/upload-excel`, formData, {
+                          headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                        
+                        if (res.data.total_errors > 0) {
+                          toast.warning(`Uploaded ${res.data.total_processed} records with ${res.data.total_errors} errors`);
+                        } else {
+                          toast.success(`Successfully uploaded ${res.data.total_processed} capacity records`);
+                        }
+                        fetchAllData();
+                      } catch (error) {
+                        toast.error(error.response?.data?.detail || "Failed to upload Excel");
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                  <Button 
+                    onClick={() => setShowModelCapacityDialog(true)}
+                    className="uppercase text-xs"
+                    data-testid="open-model-capacity-upload"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Manual Entry
+                  </Button>
+                </div>
               </div>
             </CardHeader>
           </Card>
