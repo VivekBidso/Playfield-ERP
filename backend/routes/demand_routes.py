@@ -727,6 +727,84 @@ async def get_dispatch_lot_details(lot_id: str):
     }
 
 
+@router.put("/dispatch-lots/{lot_id}")
+async def update_dispatch_lot(lot_id: str, data: DispatchLotUpdate):
+    """Update a dispatch lot and optionally its line items"""
+    # Get existing lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Don't allow editing lots that are already dispatched or delivered
+    if lot.get("status") in ["DISPATCHED", "DELIVERED"]:
+        raise HTTPException(status_code=400, detail="Cannot edit dispatched or delivered lots")
+    
+    # Build update dict for lot-level fields
+    update_fields = {"updated_at": datetime.now(timezone.utc)}
+    
+    if data.target_date is not None:
+        update_fields["target_date"] = data.target_date
+    if data.priority is not None:
+        update_fields["priority"] = data.priority
+    if data.notes is not None:
+        update_fields["notes"] = data.notes
+    
+    # Handle line items update
+    if data.lines is not None:
+        if len(data.lines) == 0:
+            raise HTTPException(status_code=400, detail="At least one line item is required")
+        
+        # Delete existing lines
+        await db.dispatch_lot_lines.delete_many({"lot_id": lot_id})
+        
+        # Create new lines
+        total_quantity = 0
+        lines_created = []
+        for idx, line in enumerate(data.lines):
+            line_record = {
+                "id": line.id if line.id else str(uuid.uuid4()),
+                "lot_id": lot_id,
+                "lot_code": lot.get("lot_code"),
+                "line_number": idx + 1,
+                "sku_id": line.sku_id,
+                "brand_id": line.brand_id,
+                "vertical_id": line.vertical_id,
+                "forecast_id": line.forecast_id,
+                "quantity": line.quantity,
+                "produced_qty": 0,
+                "dispatched_qty": 0,
+                "status": "PENDING",
+                "created_at": datetime.now(timezone.utc)
+            }
+            await db.dispatch_lot_lines.insert_one(line_record)
+            del line_record["_id"]
+            lines_created.append(line_record)
+            total_quantity += line.quantity
+        
+        # Update lot totals
+        update_fields["total_quantity"] = total_quantity
+        update_fields["line_count"] = len(data.lines)
+    
+    # Apply updates
+    await db.dispatch_lots.update_one(
+        {"id": lot_id},
+        {"$set": update_fields}
+    )
+    
+    # Fetch updated lot
+    updated_lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+    
+    # Get lines
+    lines = await db.dispatch_lot_lines.find(
+        {"lot_id": lot_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    updated_lot["lines"] = [serialize_doc(l) for l in lines]
+    
+    return serialize_doc(updated_lot)
+
+
 @router.get("/dispatch-lots/with-readiness")
 async def get_dispatch_lots_with_readiness(
     buyer_id: Optional[str] = None,
