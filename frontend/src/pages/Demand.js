@@ -40,8 +40,11 @@ const Demand = () => {
   const [selectedLotForAdd, setSelectedLotForAdd] = useState("");
   const [addingToLot, setAddingToLot] = useState(false);
   
-  // Check if user can confirm forecasts
-  const canConfirmForecasts = hasRole && (hasRole('MASTER_ADMIN') || hasRole('DEMAND_PLANNER'));
+  // Check if user can confirm forecasts - ONLY MASTER_ADMIN can confirm
+  const canConfirmForecasts = hasRole && hasRole('MASTER_ADMIN');
+  
+  // Check if user can create/edit forecasts
+  const canEditForecasts = hasRole && (hasRole('MASTER_ADMIN') || hasRole('DEMAND_PLANNER'));
   
   // Dialogs
   const [showForecastDialog, setShowForecastDialog] = useState(false);
