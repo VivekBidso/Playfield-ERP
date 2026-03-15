@@ -263,6 +263,7 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - ~~Event System~~ ✅ March 14, 2026 (35 event types, 11 handlers, alerts)
 - ~~CPC Excel Download~~ ✅ March 15, 2026 (Export confirmed forecasts as .xlsx)
 - ~~Dispatch Lot Forecast Linking~~ ✅ March 15, 2026 (forecast_id saved in lots)
+- ~~Edit Existing Dispatch Lots~~ ✅ March 15, 2026 (Edit target date, priority, notes, line quantities)
 
 ### P1 - High Priority
 - Consolidate `sku_rm_mapping` and `sku_mappings` collections into single data model
