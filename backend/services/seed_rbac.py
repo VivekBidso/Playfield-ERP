@@ -637,6 +637,7 @@ async def seed_rbac(db):
             logger.debug(f"Created constraint: {entity}.{action}.{constraint_data['constraint_type']}")
     
     # ============ MIGRATE EXISTING USERS ============
+    # Only migrate users who don't have ANY RBAC roles yet
     # Map legacy roles to new roles
     legacy_mapping = {
         "master_admin": "MASTER_ADMIN",
@@ -651,6 +652,12 @@ async def seed_rbac(db):
         if not legacy_role or not user_id:
             continue
         
+        # Check if user already has ANY RBAC roles assigned
+        existing_roles = await db.user_roles.find({"user_id": user_id}).to_list(10)
+        if existing_roles:
+            # User already has RBAC roles, skip migration
+            continue
+        
         new_role_code = legacy_mapping.get(legacy_role)
         if not new_role_code:
             continue
@@ -659,21 +666,14 @@ async def seed_rbac(db):
         if not role_id:
             continue
         
-        # Check if user already has this role
-        existing_user_role = await db.user_roles.find_one({
+        await db.user_roles.insert_one({
+            "id": str(uuid.uuid4()),
             "user_id": user_id,
-            "role_id": role_id
+            "role_id": role_id,
+            "is_primary": True,
+            "granted_at": now
         })
-        
-        if not existing_user_role:
-            await db.user_roles.insert_one({
-                "id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "role_id": role_id,
-                "is_primary": True,
-                "granted_at": now
-            })
-            logger.info(f"Migrated user {user.get('email')} to role {new_role_code}")
+        logger.info(f"Migrated user {user.get('email')} to role {new_role_code}")
     
     logger.info("RBAC seeding complete!")
     
