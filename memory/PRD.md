@@ -317,5 +317,20 @@ The system is being evolved into an **Integrated Manufacturing & Operations Suit
 - Email: `admin@factory.com`
 - Password: `admin123`
 
+### Test Accounts (RBAC Testing)
+All test accounts use password: `bidso123`
+| Role | Email |
+|------|-------|
+| Master Admin | `masteradmin@bidso.com` |
+| Demand Planner | `demandplanner@bidso.com` |
+| Tech Ops Engineer | `techops@bidso.com` |
+| CPC Planner | `cpcplanner@bidso.com` |
+| Procurement Officer | `procurement@bidso.com` |
+| Branch Ops User | `branchops@bidso.com` |
+| Quality Inspector | `qcinspector@bidso.com` |
+| Logistics Coordinator | `logistics@bidso.com` |
+| Finance Viewer | `financeviewer@bidso.com` |
+| Auditor | `auditor@bidso.com` |
+
 ---
-*Last updated: March 14, 2026 - Event System Complete*
+*Last updated: March 15, 2026 - Fixed Demand Planner Dashboard*
