@@ -125,6 +125,8 @@ const Layout = () => {
             )}
           </div>
         </div>
+
+        <BranchSelector />
         
         <nav className="flex-1 p-4 overflow-y-auto">
           {navItems.filter(item => item.show).map((item) => (
