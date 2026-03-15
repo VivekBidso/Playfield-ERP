@@ -499,13 +499,18 @@ async def get_schedule_suggestions():
 @router.get("/cpc/demand-forecasts")
 async def get_demand_forecasts_for_cpc(
     status: Optional[str] = None,
-    buyer_id: Optional[str] = None
+    buyer_id: Optional[str] = None,
+    include_draft: bool = False
 ):
     """
-    Get confirmed demand forecasts for CPC to view and schedule production.
-    Shows forecasts with scheduled vs remaining quantities.
+    Get demand forecasts for CPC to view and schedule production.
+    Shows forecasts with planned production qty, dispatch lots linked.
     """
-    query = {"status": {"$in": ["CONFIRMED", "CONVERTED"]}}
+    if include_draft:
+        query = {"status": {"$in": ["DRAFT", "CONFIRMED", "CONVERTED"]}}
+    else:
+        query = {"status": {"$in": ["CONFIRMED", "CONVERTED"]}}
+    
     if status:
         query["status"] = status
     if buyer_id:
@@ -513,20 +518,36 @@ async def get_demand_forecasts_for_cpc(
     
     forecasts = await db.forecasts.find(query, {"_id": 0}).sort("forecast_month", 1).to_list(1000)
     
-    # Get all production schedules to calculate scheduled quantities
-    all_schedules = await db.production_schedules.find(
-        {"status": {"$ne": "CANCELLED"}},
-        {"_id": 0, "sku_id": 1, "target_quantity": 1, "forecast_id": 1}
+    # Get all production plans to calculate planned quantities
+    all_plans = await db.production_plans.find(
+        {"forecast_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "forecast_id": 1, "planned_quantity": 1}
+    ).to_list(10000)
+    
+    # Sum planned qty by forecast_id
+    planned_by_forecast = {}
+    for p in all_plans:
+        fid = p.get("forecast_id")
+        if fid:
+            planned_by_forecast[fid] = planned_by_forecast.get(fid, 0) + p.get("planned_quantity", 0)
+    
+    # Get all dispatch lots linked to forecasts
+    all_lots = await db.dispatch_lots.find(
+        {"forecast_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "forecast_id": 1, "lot_code": 1, "total_quantity": 1, "required_quantity": 1, "status": 1}
     ).to_list(5000)
     
-    # Sum scheduled qty by forecast_id and sku_id
-    scheduled_by_forecast = {}
-    scheduled_by_sku = {}
-    for s in all_schedules:
-        if s.get("forecast_id"):
-            scheduled_by_forecast[s["forecast_id"]] = scheduled_by_forecast.get(s["forecast_id"], 0) + s.get("target_quantity", 0)
-        if s.get("sku_id"):
-            scheduled_by_sku[s["sku_id"]] = scheduled_by_sku.get(s["sku_id"], 0) + s.get("target_quantity", 0)
+    lots_by_forecast = {}
+    for lot in all_lots:
+        fid = lot.get("forecast_id")
+        if fid:
+            if fid not in lots_by_forecast:
+                lots_by_forecast[fid] = []
+            lots_by_forecast[fid].append({
+                "lot_code": lot.get("lot_code"),
+                "quantity": lot.get("total_quantity") or lot.get("required_quantity", 0),
+                "status": lot.get("status")
+            })
     
     # Get buyer names
     buyer_ids = list(set(f.get("buyer_id") for f in forecasts if f.get("buyer_id")))
@@ -546,22 +567,24 @@ async def get_demand_forecasts_for_cpc(
     result = []
     for f in forecasts:
         forecast_qty = f.get("quantity", 0)
+        forecast_id = f.get("id")
         
-        # Calculate scheduled quantity
-        scheduled_qty = 0
-        if f.get("id"):
-            scheduled_qty = scheduled_by_forecast.get(f["id"], 0)
-        elif f.get("sku_id"):
-            # For SKU-level forecasts without direct link
-            scheduled_qty = scheduled_by_sku.get(f["sku_id"], 0)
+        # Get planned production qty
+        planned_qty = planned_by_forecast.get(forecast_id, 0)
+        # Also check by forecast_code
+        planned_qty += planned_by_forecast.get(f.get("forecast_code"), 0)
         
-        remaining_qty = max(0, forecast_qty - scheduled_qty)
+        remaining_qty = max(0, forecast_qty - planned_qty)
+        
+        # Get linked dispatch lots
+        dispatch_lots = lots_by_forecast.get(forecast_id, [])
+        dispatch_qty = sum(l.get("quantity", 0) for l in dispatch_lots)
         
         buyer = buyer_map.get(f.get("buyer_id"), {})
         sku = sku_map.get(f.get("sku_id"), {})
         
         result.append({
-            "id": f.get("id"),
+            "id": forecast_id,
             "forecast_code": f.get("forecast_code"),
             "buyer_id": f.get("buyer_id"),
             "buyer_name": buyer.get("name"),
@@ -573,9 +596,11 @@ async def get_demand_forecasts_for_cpc(
             "brand": sku.get("brand", ""),
             "forecast_month": f.get("forecast_month"),
             "forecast_qty": forecast_qty,
-            "scheduled_qty": scheduled_qty,
+            "planned_qty": planned_qty,
             "remaining_qty": remaining_qty,
-            "is_fully_scheduled": remaining_qty == 0,
+            "dispatch_qty": dispatch_qty,
+            "dispatch_lots": dispatch_lots,
+            "is_fully_planned": remaining_qty == 0,
             "priority": f.get("priority", "MEDIUM"),
             "status": f.get("status"),
             "notes": f.get("notes", "")
