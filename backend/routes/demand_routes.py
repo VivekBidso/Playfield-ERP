@@ -141,3 +141,70 @@ async def update_dispatch_lot_status(lot_id: str, status: str):
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Dispatch lot not found")
     return {"message": f"Status updated to {status}"}
+
+
+# --- Bulk Upload ---
+@router.post("/forecasts/parse-excel")
+async def parse_forecast_excel(file: UploadFile = File(...)):
+    """Parse Excel/CSV file for bulk forecast upload"""
+    import openpyxl
+    import csv
+    
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
+    contents = await file.read()
+    forecasts = []
+    
+    try:
+        if file.filename.endswith('.csv'):
+            # Parse CSV
+            text = contents.decode('utf-8')
+            reader = csv.DictReader(io.StringIO(text))
+            for row in reader:
+                forecasts.append({
+                    "month": row.get('Month', row.get('month', '')),
+                    "vertical": row.get('Vertical', row.get('vertical', '')),
+                    "model": row.get('Model', row.get('model', '')),
+                    "brand": row.get('Brand', row.get('brand', '')),
+                    "sku_id": row.get('SKU', row.get('sku', row.get('sku_id', ''))),
+                    "quantity": int(row.get('Qty', row.get('qty', row.get('quantity', 0))) or 0)
+                })
+        else:
+            # Parse Excel
+            wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True)
+            ws = wb.active
+            
+            headers = []
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                if row_idx == 0:
+                    # Header row
+                    headers = [str(h).lower() if h else '' for h in row]
+                    continue
+                
+                if not any(row):
+                    continue
+                
+                row_data = dict(zip(headers, row))
+                forecasts.append({
+                    "month": str(row_data.get('month', '')),
+                    "vertical": str(row_data.get('vertical', '')),
+                    "model": str(row_data.get('model', '')),
+                    "brand": str(row_data.get('brand', '')),
+                    "sku_id": str(row_data.get('sku', row_data.get('sku_id', ''))),
+                    "quantity": int(row_data.get('qty', row_data.get('quantity', 0)) or 0)
+                })
+            wb.close()
+        
+        # Validate and enrich data
+        verticals_list = await db.verticals.find({}, {"_id": 0}).to_list(100)
+        vertical_map = {v['name'].lower(): v['id'] for v in verticals_list}
+        
+        for f in forecasts:
+            v_name = f.get('vertical', '').lower()
+            f['vertical_id'] = vertical_map.get(v_name)
+        
+        return {"forecasts": forecasts, "count": len(forecasts)}
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
