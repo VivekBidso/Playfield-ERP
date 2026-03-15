@@ -234,6 +234,84 @@ async def get_raw_materials(
     return rms
 
 
+@router.get("/raw-materials/filtered")
+async def get_raw_materials_filtered(
+    page: int = 1,
+    page_size: int = 100,
+    branch: Optional[str] = None,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    colour_filter: Optional[str] = None,
+    brand_filter: Optional[str] = None
+):
+    """Get raw materials with pagination and filters"""
+    query = {"status": {"$ne": "INACTIVE"}}
+    
+    # Apply category filter
+    if category:
+        query["category"] = category
+    
+    # Get all matching RMs first
+    rms = await db.raw_materials.find(query, {"_id": 0}).to_list(15000)
+    
+    # Apply text search
+    if search:
+        search_lower = search.lower()
+        filtered = []
+        for rm in rms:
+            if search_lower in rm.get("rm_id", "").lower():
+                filtered.append(rm)
+                continue
+            if search_lower in rm.get("description", "").lower():
+                filtered.append(rm)
+                continue
+            # Search in category_data
+            for val in rm.get("category_data", {}).values():
+                if val and search_lower in str(val).lower():
+                    filtered.append(rm)
+                    break
+        rms = filtered
+    
+    # Apply category_data filters
+    if type_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("type") == type_filter]
+    if model_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("model_name") == model_filter or rm.get("category_data", {}).get("model") == model_filter]
+    if colour_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("colour") == colour_filter]
+    if brand_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("brand") == brand_filter]
+    
+    # Add branch inventory data if branch specified
+    if branch:
+        branch_inv = await db.branch_rm_inventory.find(
+            {"branch": branch},
+            {"_id": 0, "rm_id": 1, "current_stock": 1, "is_active": 1}
+        ).to_list(15000)
+        inv_map = {inv["rm_id"]: inv for inv in branch_inv}
+        
+        for rm in rms:
+            inv = inv_map.get(rm["rm_id"])
+            rm["branch_stock"] = inv.get("current_stock", 0.0) if inv else 0.0
+            rm["is_active_in_branch"] = inv.get("is_active", False) if inv else False
+    
+    # Calculate pagination
+    total = len(rms)
+    total_pages = (total + page_size - 1) // page_size
+    start = (page - 1) * page_size
+    end = start + page_size
+    
+    return {
+        "items": rms[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
+
+
 @router.post("/raw-materials/activate")
 async def activate_rm_in_branch(request: ActivateItemRequest):
     """Activate a raw material in a specific branch"""
