@@ -875,11 +875,11 @@ async def get_branch_model_capacity(branch: str, month: Optional[str] = None):
 
 
 @router.get("/branches/{branch}/capacity-for-date")
-async def get_branch_capacity_for_date(branch: str, date: str, model_id: Optional[str] = None):
+async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Optional[str] = None):
     """Get available capacity for a branch on a specific date, optionally filtered by model"""
     # Parse date
     try:
-        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         month_str = date_obj.strftime("%Y-%m")
         day = date_obj.day
     except ValueError:
