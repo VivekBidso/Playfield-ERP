@@ -601,12 +601,61 @@ const Demand = () => {
             </div>
           </div>
           
+          {/* Bulk Confirmation Bar */}
+          {canConfirmForecasts && forecasts.filter(f => f.status === 'DRAFT').length > 0 && (
+            <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+              <div className="flex items-center gap-4">
+                <input
+                  type="checkbox"
+                  checked={selectedForecasts.size === forecasts.filter(f => f.status === 'DRAFT').length && selectedForecasts.size > 0}
+                  onChange={handleSelectAllDraft}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium">
+                  {selectedForecasts.size > 0 
+                    ? `${selectedForecasts.size} forecast(s) selected`
+                    : `${forecasts.filter(f => f.status === 'DRAFT').length} draft forecast(s) pending confirmation`
+                  }
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {selectedForecasts.size > 0 && (
+                  <Button onClick={handleBulkConfirm} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                    <CheckSquare className="w-4 h-4 mr-2" />
+                    Confirm Selected ({selectedForecasts.size})
+                  </Button>
+                )}
+                {/* Get unique months from draft forecasts */}
+                {[...new Set(forecasts.filter(f => f.status === 'DRAFT').map(f => f.forecast_month?.slice(0, 7)))].map(month => (
+                  <Button 
+                    key={month} 
+                    onClick={() => handleConfirmMonth(month)} 
+                    size="sm" 
+                    variant="outline"
+                  >
+                    Confirm All {month}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+          
           {/* Forecasts Table */}
           <div className="border rounded-sm overflow-x-auto bg-white">
             <table className="w-full">
               <thead className="bg-zinc-50">
                 <tr>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Code</th>
+                  {canConfirmForecasts && (
+                    <th className="h-10 px-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedForecasts.size === forecasts.filter(f => f.status === 'DRAFT').length && selectedForecasts.size > 0}
+                        onChange={handleSelectAllDraft}
+                        className="w-4 h-4"
+                      />
+                    </th>
+                  )}
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast ID</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Vertical</th>
@@ -614,13 +663,26 @@ const Demand = () => {
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Quantity</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Priority</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Status</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Dispatch Lots</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {forecasts.map((f) => (
-                  <tr key={f.id} className="border-t hover:bg-zinc-50/50">
-                    <td className="p-4 font-mono font-bold text-sm">{f.forecast_code}</td>
+                  <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${selectedForecasts.has(f.id) ? 'bg-blue-50' : ''}`}>
+                    {canConfirmForecasts && (
+                      <td className="p-2 text-center">
+                        {f.status === 'DRAFT' && (
+                          <input
+                            type="checkbox"
+                            checked={selectedForecasts.has(f.id)}
+                            onChange={() => handleSelectForecast(f.id)}
+                            className="w-4 h-4"
+                          />
+                        )}
+                      </td>
+                    )}
+                    <td className="p-4 font-mono font-bold text-sm text-primary">{f.forecast_code}</td>
                     <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
                     <td className="p-4 text-sm">{getBuyerName(f.buyer_id)}</td>
                     <td className="p-4 text-sm">{getVerticalName(f.vertical_id)}</td>
@@ -638,7 +700,38 @@ const Demand = () => {
                       <span className={`text-xs font-mono px-2 py-1 rounded border ${getStatusColor(f.status)}`}>{f.status}</span>
                     </td>
                     <td className="p-4">
-                      {f.status === 'DRAFT' && (
+                      <button 
+                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                        onClick={async () => {
+                          if (expandedForecast === f.id) {
+                            setExpandedForecast(null);
+                          } else {
+                            const lots = await fetchForecastDispatchLots(f.id);
+                            f._dispatchLots = lots;
+                            setExpandedForecast(f.id);
+                          }
+                        }}
+                      >
+                        <Package className="w-3 h-3" />
+                        View Lots
+                      </button>
+                      {expandedForecast === f.id && f._dispatchLots && (
+                        <div className="mt-2 p-2 bg-zinc-50 rounded text-xs">
+                          {f._dispatchLots.length > 0 ? (
+                            f._dispatchLots.map((lot, i) => (
+                              <div key={i} className="flex justify-between py-1 border-b border-zinc-200 last:border-0">
+                                <span className="font-mono">{lot.lot_code}</span>
+                                <span>{lot.total_quantity || lot.required_quantity} units</span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-zinc-400">No dispatch lots linked</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      {f.status === 'DRAFT' && canConfirmForecasts && (
                         <Button size="sm" variant="outline" onClick={() => handleConfirmForecast(f.id)}>
                           Confirm
                         </Button>
@@ -647,7 +740,7 @@ const Demand = () => {
                   </tr>
                 ))}
                 {forecasts.length === 0 && (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
+                  <tr><td colSpan={canConfirmForecasts ? 11 : 10} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
                 )}
               </tbody>
             </table>
