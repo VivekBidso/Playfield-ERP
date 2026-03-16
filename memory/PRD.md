@@ -564,5 +564,40 @@ Example:
 
 ---
 
-*Last updated: March 15, 2026*
-*CPC Module Complete - SKU Subscription restored and moved under CPC menu*
+## 12. BUYERS MODULE STATUS (COMPLETE - March 16, 2026)
+
+### New Data Model:
+| Field | Type | Description |
+|-------|------|-------------|
+| `customer_code` | String | Auto-generated unique code (CUST001, CUST002, etc.) |
+| `name` | String | Customer/Buyer name (required) |
+| `gst` | String | GST Number |
+| `email` | String | Contact email |
+| `phone_no` | String | Phone number |
+| `poc_name` | String | Point of Contact name |
+| `brands_dispatched` | Array | Auto-populated from dispatch data |
+
+### Features:
+- **Auto-generated Customer Code**: Format CUST001, CUST002, etc.
+- **Excel Import**: Bulk import buyers from Excel file
+- **Brands Column**: Shows brands dispatched to each buyer (from dispatch_lots aggregation)
+- **Soft Delete**: Buyers are marked INACTIVE, not deleted
+
+### APIs:
+- `GET /api/buyers` - Returns all buyers with brands_dispatched field
+- `POST /api/buyers` - Create buyer (customer_code auto-generated)
+- `PUT /api/buyers/{buyer_id}` - Update buyer (customer_code preserved)
+- `DELETE /api/buyers/{buyer_id}` - Soft delete buyer
+- `POST /api/buyers/bulk-import` - Bulk import from Excel
+- `DELETE /api/buyers/clear-all` - Admin cleanup endpoint
+
+### Frontend Updates:
+- 7 columns: Customer Code, Customer Name, GST, Email, Phone No, POC Name, Brands
+- Import Excel button with expected column guide
+- Add Buyer dialog shows "Customer code will be auto-generated"
+- Edit Buyer dialog shows customer_code as read-only
+
+---
+
+*Last updated: March 16, 2026*
+*Buyers Module Complete - New schema with auto-generated customer codes and Excel import*
