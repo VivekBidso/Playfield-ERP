@@ -179,10 +179,10 @@ const TechOps = () => {
         toast.success("Buyer updated");
       } else {
         await axios.post(`${API}/buyers`, buyerForm);
-        toast.success("Buyer created");
+        toast.success("Buyer created with auto-generated code");
       }
       setShowBuyerDialog(false);
-      setBuyerForm({ code: "", name: "", country: "", contact_email: "", payment_terms_days: 30 });
+      setBuyerForm({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
       setEditingItem(null);
       fetchAllData();
     } catch (error) {
@@ -191,7 +191,13 @@ const TechOps = () => {
   };
 
   const handleEditBuyer = (b) => {
-    setBuyerForm({ code: b.code, name: b.name, country: b.country || "", contact_email: b.contact_email || "", payment_terms_days: b.payment_terms_days || 30 });
+    setBuyerForm({ 
+      name: b.name || "", 
+      gst: b.gst || "", 
+      email: b.email || "", 
+      phone_no: b.phone_no || "", 
+      poc_name: b.poc_name || "" 
+    });
     setEditingItem(b);
     setShowBuyerDialog(true);
   };
@@ -205,6 +211,29 @@ const TechOps = () => {
       toast.error(error.response?.data?.detail || "Failed to delete buyer");
     }
     setDeleteConfirm(null);
+  };
+
+  const handleBuyerImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setImportLoading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await axios.post(`${API}/buyers/bulk-import`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      toast.success(res.data.message);
+      setShowImportDialog(false);
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Import failed");
+    } finally {
+      setImportLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id;
