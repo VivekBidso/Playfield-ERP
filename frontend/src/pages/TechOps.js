@@ -37,7 +37,10 @@ const TechOps = () => {
   const [verticalForm, setVerticalForm] = useState({ code: "", name: "", description: "" });
   const [modelForm, setModelForm] = useState({ vertical_id: "", code: "", name: "", description: "" });
   const [brandForm, setBrandForm] = useState({ code: "", name: "" });
-  const [buyerForm, setBuyerForm] = useState({ code: "", name: "", country: "", contact_email: "", payment_terms_days: 30 });
+  const [buyerForm, setBuyerForm] = useState({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchAllData();
