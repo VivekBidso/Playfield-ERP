@@ -418,21 +418,29 @@ const TechOps = () => {
         {/* Buyers Tab */}
         <TabsContent value="buyers">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">Buyers</h2>
-            <Button onClick={() => openAddDialog('buyer')} className="uppercase text-xs tracking-wide" data-testid="add-buyer-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Buyer
-            </Button>
+            <h2 className="text-lg font-bold">Buyers / Customers</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowImportDialog(true)} className="uppercase text-xs tracking-wide" data-testid="import-buyers-btn">
+                <Upload className="w-4 h-4 mr-2" />
+                Import Excel
+              </Button>
+              <Button onClick={() => openAddDialog('buyer')} className="uppercase text-xs tracking-wide" data-testid="add-buyer-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Buyer
+              </Button>
+            </div>
           </div>
           
-          <div className="border rounded-sm">
+          <div className="border rounded-sm overflow-x-auto">
             <table className="w-full">
               <thead className="bg-zinc-50">
                 <tr>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Code</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Name</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Country</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Customer Code</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Customer Name</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">GST</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Email</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Phone No</th>
+                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">POC Name</th>
                   <th className="h-10 px-4 text-left font-mono text-xs uppercase">Brands</th>
                   <th className="h-10 px-4 text-right font-mono text-xs uppercase">Actions</th>
                 </tr>
@@ -440,23 +448,40 @@ const TechOps = () => {
               <tbody>
                 {buyers.map((b) => (
                   <tr key={b.id} className="border-t">
-                    <td className="p-4 font-mono font-bold">{b.code}</td>
+                    <td className="p-4 font-mono font-bold">{b.customer_code || b.code || '-'}</td>
                     <td className="p-4">{b.name}</td>
-                    <td className="p-4 text-sm">{b.country || '-'}</td>
-                    <td className="p-4 text-sm">{b.contact_email || '-'}</td>
-                    <td className="p-4 font-mono">{brands.filter(br => br.buyer_id === b.id).length}</td>
+                    <td className="p-4 text-sm font-mono">{b.gst || '-'}</td>
+                    <td className="p-4 text-sm">{b.email || b.contact_email || '-'}</td>
+                    <td className="p-4 text-sm font-mono">{b.phone_no || '-'}</td>
+                    <td className="p-4 text-sm">{b.poc_name || '-'}</td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1">
+                        {(b.brands_dispatched || []).length > 0 ? (
+                          b.brands_dispatched.slice(0, 3).map((brand, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">
+                              <Tag className="w-3 h-3 mr-1" />{brand}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
+                        {(b.brands_dispatched || []).length > 3 && (
+                          <Badge variant="outline" className="text-xs">+{b.brands_dispatched.length - 3}</Badge>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-4 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleEditBuyer(b)}>
+                      <Button variant="ghost" size="sm" onClick={() => handleEditBuyer(b)} data-testid={`edit-buyer-${b.customer_code || b.code}`}>
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm({ type: 'buyer', id: b.id, name: b.name })}>
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm({ type: 'buyer', id: b.id, name: b.name })} data-testid={`delete-buyer-${b.customer_code || b.code}`}>
                         <Trash2 className="w-4 h-4 text-red-500" />
                       </Button>
                     </td>
                   </tr>
                 ))}
                 {buyers.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No buyers defined</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No buyers defined</td></tr>
                 )}
               </tbody>
             </table>
