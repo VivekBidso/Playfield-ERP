@@ -251,7 +251,7 @@ const TechOps = () => {
       setBrandForm({ code: "", name: "" });
       setShowBrandDialog(true);
     } else if (type === 'buyer') {
-      setBuyerForm({ code: "", name: "", country: "", contact_email: "", payment_terms_days: 30 });
+      setBuyerForm({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
       setShowBuyerDialog(true);
     }
   };
