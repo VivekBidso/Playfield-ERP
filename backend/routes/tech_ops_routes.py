@@ -123,8 +123,7 @@ async def delete_model(model_id: str):
 async def bulk_import_models(file: UploadFile = File(...)):
     """
     Bulk import models from Excel file.
-    Expected columns: Model Name, Model Code
-    Model will be auto-assigned to vertical based on name prefix (Scooter, Tricycle, etc.)
+    Expected columns: Vertical, Model Name, Model Code
     """
     try:
         import openpyxl
@@ -141,25 +140,23 @@ async def bulk_import_models(file: UploadFile = File(...)):
     # Get all verticals for mapping
     verticals = await db.verticals.find({"status": "ACTIVE"}, {"_id": 0}).to_list(100)
     
-    # Create mapping from name prefix to vertical
+    # Create mapping from vertical name to id
     vertical_map = {}
     for v in verticals:
-        name_lower = v["name"].lower()
+        name_lower = v["name"].lower().strip()
         vertical_map[name_lower] = v["id"]
-        # Also map by code
+        # Also map by code and common variations
         vertical_map[v["code"].lower()] = v["id"]
     
-    # Special mappings for model prefixes
-    prefix_to_vertical = {
-        "scooter": next((v["id"] for v in verticals if "scooter" in v["name"].lower() and "electric" not in v["name"].lower()), None),
-        "tricycle": next((v["id"] for v in verticals if v["code"] == "KTC" or (v["code"] == "KT" and "tricycle" in v["name"].lower())), None),
-        "rideon": next((v["id"] for v in verticals if v["code"] == "SC" or ("rideon" in v["name"].lower() and "electric" not in v["name"].lower() and "push" not in v["name"].lower())), None),
-        "push rideon": next((v["id"] for v in verticals if v["code"] == "PR" or "push" in v["name"].lower()), None),
-        "walker": next((v["id"] for v in verticals if "walker" in v["name"].lower()), None),
-        "shakers": next((v["id"] for v in verticals if "shaker" in v["name"].lower()), None),
-        "electric scooter": next((v["id"] for v in verticals if v["code"] == "EKS" or ("electric" in v["name"].lower() and "scooter" in v["name"].lower())), None),
-        "electric rideon": next((v["id"] for v in verticals if v["code"] == "EV" or ("electric" in v["name"].lower() and "rideon" in v["name"].lower())), None),
-    }
+    # Add common name mappings
+    vertical_map["scooter"] = next((v["id"] for v in verticals if v["code"] == "KS"), None)
+    vertical_map["tricycle"] = next((v["id"] for v in verticals if v["code"] in ["KTC", "KT"]), None)
+    vertical_map["rideon"] = next((v["id"] for v in verticals if v["code"] == "SC"), None)
+    vertical_map["push rideon"] = next((v["id"] for v in verticals if v["code"] == "PR"), None)
+    vertical_map["walker"] = next((v["id"] for v in verticals if v["code"] == "BW"), None)
+    vertical_map["shakers"] = next((v["id"] for v in verticals if v["code"] == "SH"), None)
+    vertical_map["electric scooter"] = next((v["id"] for v in verticals if v["code"] == "EKS"), None)
+    vertical_map["electric rideon"] = next((v["id"] for v in verticals if v["code"] == "EV"), None)
     
     # Get headers
     headers = [cell.value for cell in ws[1] if cell.value]
@@ -167,7 +164,9 @@ async def bulk_import_models(file: UploadFile = File(...)):
     
     col_map = {}
     for idx, h in enumerate(headers_lower):
-        if "model name" in h or h == "name":
+        if h == "vertical":
+            col_map["vertical"] = idx
+        elif "model name" in h or h == "name":
             col_map["name"] = idx
         elif "model code" in h or h == "code":
             col_map["code"] = idx
@@ -180,29 +179,26 @@ async def bulk_import_models(file: UploadFile = File(...)):
     errors = []
     
     for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        if not row or not row[col_map["name"]]:
+        if not row or len(row) < max(col_map.values()) + 1:
             continue
-        
-        name = str(row[col_map["name"]]).strip()
+            
+        name = str(row[col_map["name"]]).strip() if row[col_map["name"]] else ""
         code = str(row[col_map["code"]]).strip().upper() if row[col_map["code"]] else ""
         
         if not name or not code:
             continue
         
-        # Determine vertical based on name prefix
-        name_lower = name.lower()
+        # Determine vertical
         vertical_id = None
-        
-        for prefix, vid in prefix_to_vertical.items():
-            if name_lower.startswith(prefix):
-                vertical_id = vid
-                break
+        if "vertical" in col_map and row[col_map["vertical"]]:
+            vertical_name = str(row[col_map["vertical"]]).strip().lower()
+            vertical_id = vertical_map.get(vertical_name)
         
         if not vertical_id:
-            errors.append(f"Row {row_num}: Could not determine vertical for '{name}'")
+            errors.append(f"Row {row_num}: Could not find vertical for '{row[col_map.get('vertical', 0)] if 'vertical' in col_map else 'unknown'}'")
             continue
         
-        # Check if model already exists
+        # Check if model already exists (by code in same vertical)
         existing = await db.models.find_one({"code": code, "vertical_id": vertical_id})
         if existing:
             skipped += 1
