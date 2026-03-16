@@ -601,44 +601,113 @@ const TechOps = () => {
 
       {/* Buyer Dialog */}
       <Dialog open={showBuyerDialog} onOpenChange={(open) => { setShowBuyerDialog(open); if (!open) setEditingItem(null); }}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Buyer' : 'Create Buyer'}</DialogTitle>
-            <DialogDescription>Customer/Buyer information</DialogDescription>
+            <DialogDescription>
+              {editingItem 
+                ? `Editing buyer: ${editingItem.customer_code || editingItem.code}` 
+                : 'Customer code will be auto-generated (e.g., CUST001)'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {editingItem && (
+              <div>
+                <Label>Customer Code</Label>
+                <Input 
+                  value={editingItem.customer_code || editingItem.code || ''}
+                  disabled
+                  className="font-mono bg-zinc-100"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Auto-generated, cannot be changed</p>
+              </div>
+            )}
             <div>
-              <Label>Code</Label>
+              <Label>Customer Name *</Label>
               <Input 
-                value={buyerForm.code}
-                onChange={(e) => setBuyerForm({...buyerForm, code: e.target.value})}
-                placeholder="e.g., BUYER_001"
+                value={buyerForm.name}
+                onChange={(e) => setBuyerForm({...buyerForm, name: e.target.value})}
+                placeholder="Enter customer name"
+              />
+            </div>
+            <div>
+              <Label>GST Number</Label>
+              <Input 
+                value={buyerForm.gst}
+                onChange={(e) => setBuyerForm({...buyerForm, gst: e.target.value.toUpperCase()})}
+                placeholder="e.g., 22AAAAA0000A1Z5"
                 className="font-mono uppercase"
               />
             </div>
             <div>
-              <Label>Name</Label>
+              <Label>Email</Label>
               <Input 
-                value={buyerForm.name}
-                onChange={(e) => setBuyerForm({...buyerForm, name: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label>Country</Label>
-              <Input 
-                value={buyerForm.country}
-                onChange={(e) => setBuyerForm({...buyerForm, country: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label>Contact Email</Label>
-              <Input 
-                value={buyerForm.contact_email}
-                onChange={(e) => setBuyerForm({...buyerForm, contact_email: e.target.value})}
+                value={buyerForm.email}
+                onChange={(e) => setBuyerForm({...buyerForm, email: e.target.value})}
                 type="email"
+                placeholder="contact@company.com"
               />
             </div>
-            <Button onClick={handleCreateBuyer} className="w-full">{editingItem ? 'Update' : 'Create'}</Button>
+            <div>
+              <Label>Phone Number</Label>
+              <Input 
+                value={buyerForm.phone_no}
+                onChange={(e) => setBuyerForm({...buyerForm, phone_no: e.target.value})}
+                placeholder="+91 98765 43210"
+              />
+            </div>
+            <div>
+              <Label>POC Name (Point of Contact)</Label>
+              <Input 
+                value={buyerForm.poc_name}
+                onChange={(e) => setBuyerForm({...buyerForm, poc_name: e.target.value})}
+                placeholder="Contact person name"
+              />
+            </div>
+            <Button onClick={handleCreateBuyer} className="w-full" disabled={!buyerForm.name.trim()}>
+              {editingItem ? 'Update' : 'Create Buyer'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Buyer Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Buyers from Excel</DialogTitle>
+            <DialogDescription>
+              Upload an Excel file with buyer data. Expected columns: Customer Name (required), GST, Email, Phone No, POC Name
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleBuyerImport}
+                className="hidden"
+                id="buyer-file-input"
+              />
+              <label htmlFor="buyer-file-input" className="cursor-pointer">
+                <Button variant="outline" disabled={importLoading} asChild>
+                  <span>{importLoading ? 'Importing...' : 'Select Excel File'}</span>
+                </Button>
+              </label>
+              <p className="text-xs text-muted-foreground mt-2">Supports .xlsx and .xls files</p>
+            </div>
+            <div className="bg-zinc-50 rounded p-3 text-sm">
+              <p className="font-medium mb-1">Expected columns:</p>
+              <ul className="text-muted-foreground space-y-1 text-xs">
+                <li>• <span className="font-mono">Customer Name</span> or <span className="font-mono">Name</span> (required)</li>
+                <li>• <span className="font-mono">GST</span></li>
+                <li>• <span className="font-mono">Email</span></li>
+                <li>• <span className="font-mono">Phone No</span> or <span className="font-mono">Phone</span></li>
+                <li>• <span className="font-mono">POC Name</span> or <span className="font-mono">Contact</span></li>
+              </ul>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
