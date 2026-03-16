@@ -63,25 +63,41 @@ class BrandCreate(BaseModel):
 
 
 class Buyer(BaseModel):
-    """Buyer/Customer"""
+    """Buyer/Customer - Represents a customer who places orders"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    code: str
+    customer_code: str  # Auto-generated unique code like CUST001
     name: str
-    country: str = ""
-    contact_email: str = ""
-    contact_phone: str = ""
-    payment_terms_days: int = 30
+    gst: str = ""
+    email: str = ""
+    phone_no: str = ""
+    poc_name: str = ""  # Point of Contact Name
     status: str = "ACTIVE"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BuyerCreate(BaseModel):
-    code: str
     name: str
-    country: str = ""
-    contact_email: str = ""
-    payment_terms_days: int = 30
+    gst: str = ""
+    email: str = ""
+    phone_no: str = ""
+    poc_name: str = ""
+
+
+class BuyerUpdate(BaseModel):
+    name: Optional[str] = None
+    gst: Optional[str] = None
+    email: Optional[str] = None
+    phone_no: Optional[str] = None
+    poc_name: Optional[str] = None
+
+
+class BuyerBulkImport(BaseModel):
+    name: str
+    gst: str = ""
+    email: str = ""
+    phone_no: str = ""
+    poc_name: str = ""
 
 
 class Branch(BaseModel):
