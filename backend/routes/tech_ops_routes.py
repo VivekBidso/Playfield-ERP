@@ -1,15 +1,16 @@
 """Tech Ops routes - Verticals, Models, Brands, Buyers, BOM"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 import uuid
+import io
 
 from database import db
 from models.master_data import (
     Vertical, VerticalCreate,
     Model, ModelCreate,
     Brand, BrandCreate,
-    Buyer, BuyerCreate
+    Buyer, BuyerCreate, BuyerUpdate, BuyerBulkImport
 )
 
 router = APIRouter(tags=["Tech Ops"])
