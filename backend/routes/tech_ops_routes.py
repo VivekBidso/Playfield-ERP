@@ -118,6 +118,126 @@ async def delete_model(model_id: str):
         raise HTTPException(status_code=404, detail="Model not found")
     return {"message": "Model deleted"}
 
+
+@router.post("/models/bulk-import")
+async def bulk_import_models(file: UploadFile = File(...)):
+    """
+    Bulk import models from Excel file.
+    Expected columns: Model Name, Model Code
+    Model will be auto-assigned to vertical based on name prefix (Scooter, Tricycle, etc.)
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
+    
+    content = await file.read()
+    wb = openpyxl.load_workbook(io.BytesIO(content))
+    ws = wb.active
+    
+    # Get all verticals for mapping
+    verticals = await db.verticals.find({"status": "ACTIVE"}, {"_id": 0}).to_list(100)
+    
+    # Create mapping from name prefix to vertical
+    vertical_map = {}
+    for v in verticals:
+        name_lower = v["name"].lower()
+        vertical_map[name_lower] = v["id"]
+        # Also map by code
+        vertical_map[v["code"].lower()] = v["id"]
+    
+    # Special mappings for model prefixes
+    prefix_to_vertical = {
+        "scooter": next((v["id"] for v in verticals if "scooter" in v["name"].lower() and "electric" not in v["name"].lower()), None),
+        "tricycle": next((v["id"] for v in verticals if v["code"] == "KTC" or (v["code"] == "KT" and "tricycle" in v["name"].lower())), None),
+        "rideon": next((v["id"] for v in verticals if v["code"] == "SC" or ("rideon" in v["name"].lower() and "electric" not in v["name"].lower() and "push" not in v["name"].lower())), None),
+        "push rideon": next((v["id"] for v in verticals if v["code"] == "PR" or "push" in v["name"].lower()), None),
+        "walker": next((v["id"] for v in verticals if "walker" in v["name"].lower()), None),
+        "shakers": next((v["id"] for v in verticals if "shaker" in v["name"].lower()), None),
+        "electric scooter": next((v["id"] for v in verticals if v["code"] == "EKS" or ("electric" in v["name"].lower() and "scooter" in v["name"].lower())), None),
+        "electric rideon": next((v["id"] for v in verticals if v["code"] == "EV" or ("electric" in v["name"].lower() and "rideon" in v["name"].lower())), None),
+    }
+    
+    # Get headers
+    headers = [cell.value for cell in ws[1] if cell.value]
+    headers_lower = [h.lower().strip() if h else "" for h in headers]
+    
+    col_map = {}
+    for idx, h in enumerate(headers_lower):
+        if "model name" in h or h == "name":
+            col_map["name"] = idx
+        elif "model code" in h or h == "code":
+            col_map["code"] = idx
+    
+    if "name" not in col_map or "code" not in col_map:
+        raise HTTPException(status_code=400, detail="Missing required columns: 'Model Name' and 'Model Code'")
+    
+    created = 0
+    skipped = 0
+    errors = []
+    
+    for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or not row[col_map["name"]]:
+            continue
+        
+        name = str(row[col_map["name"]]).strip()
+        code = str(row[col_map["code"]]).strip().upper() if row[col_map["code"]] else ""
+        
+        if not name or not code:
+            continue
+        
+        # Determine vertical based on name prefix
+        name_lower = name.lower()
+        vertical_id = None
+        
+        for prefix, vid in prefix_to_vertical.items():
+            if name_lower.startswith(prefix):
+                vertical_id = vid
+                break
+        
+        if not vertical_id:
+            errors.append(f"Row {row_num}: Could not determine vertical for '{name}'")
+            continue
+        
+        # Check if model already exists
+        existing = await db.models.find_one({"code": code, "vertical_id": vertical_id})
+        if existing:
+            skipped += 1
+            continue
+        
+        model = {
+            "id": str(uuid.uuid4()),
+            "vertical_id": vertical_id,
+            "code": code,
+            "name": name,
+            "description": "",
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        try:
+            await db.models.insert_one(model)
+            created += 1
+        except Exception as e:
+            errors.append(f"Row {row_num}: {str(e)}")
+    
+    return {
+        "message": f"Import complete: {created} created, {skipped} skipped (duplicates)",
+        "created": created,
+        "skipped": skipped,
+        "errors": errors[:10]
+    }
+
+
+@router.delete("/models/clear-all")
+async def clear_all_models():
+    """Delete all models (admin only) - use with caution"""
+    result = await db.models.delete_many({})
+    return {"message": f"Deleted {result.deleted_count} models"}
+
 # --- Brands CRUD ---
 @router.get("/brands")
 async def get_brands():
