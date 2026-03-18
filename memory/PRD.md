@@ -653,3 +653,54 @@ Example:
 
 *Last updated: March 18, 2026*
 *Forecast Export & Dispatch Lot Template features complete*
+
+---
+
+## 15. CPC BRANCH CAPACITY OVERRIDE SYSTEM (March 18, 2026)
+
+### Requirement:
+- Base capacity (branch's default daily capacity) should apply to ALL days of the year
+- If a specific day has a capacity upload, it should override the base capacity only for that day
+
+### Implementation:
+
+#### Logic Flow:
+```
+For any date:
+1. Check branch_daily_capacity for (branch, date)
+2. If found → Use override capacity
+3. If not found → Use branch's base capacity_units_per_day
+```
+
+#### Updated Endpoints:
+
+1. **GET /api/branches/{branch}/capacity-for-date**
+   - Returns: `base_capacity`, `daily_override_capacity`, `effective_capacity`, `capacity_type`
+   - `capacity_type` is one of: `"base"`, `"daily_override"`, `"model_specific"`
+
+2. **GET /api/branches/{branch}/capacity-forecast**
+   - Returns: Forecast with `is_override` flag for each day
+   - Shows both `base_capacity` and `effective_capacity`
+
+3. **POST /api/branch-allocations (updated)**
+   - Now checks for daily override before allocating
+   
+4. **POST /api/branch-allocations/auto-allocate (updated)**
+   - Now uses effective capacity (override or base) for auto-allocation
+
+#### Helper Function:
+- `get_effective_branch_capacity(branch_name, date_str, base_capacity)` - Reusable function to get effective capacity
+
+### Files Modified:
+- `backend/routes/cpc_routes.py` - Updated capacity lookup in 4 endpoints, added helper function
+
+### Test Results:
+```
+Date 2026-03-19 (with override): Base=500, Override=750, Effective=750, Type=daily_override
+Date 2026-03-20 (no override):   Base=500, Override=None, Effective=500, Type=base
+```
+
+---
+
+*Last updated: March 18, 2026*
+*CPC Branch Capacity Override System complete*

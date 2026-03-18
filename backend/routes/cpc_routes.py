@@ -35,6 +35,37 @@ def serialize_doc(doc):
         doc['target_date'] = datetime.fromisoformat(doc['target_date'])
     return doc
 
+
+async def get_effective_branch_capacity(branch_name: str, date_str: str, base_capacity: int = None) -> int:
+    """
+    Get effective capacity for a branch on a specific date.
+    Priority: Daily override > Base capacity
+    
+    Args:
+        branch_name: Name of the branch
+        date_str: Date in YYYY-MM-DD format
+        base_capacity: Optional base capacity (if already fetched, to avoid extra DB call)
+    
+    Returns:
+        Effective capacity for the branch on that date
+    """
+    # Check for daily override first
+    daily_override = await db.branch_daily_capacity.find_one({
+        "branch": branch_name,
+        "date": date_str
+    }, {"_id": 0, "capacity": 1})
+    
+    if daily_override:
+        return daily_override.get("capacity", 0)
+    
+    # Fall back to base capacity
+    if base_capacity is not None:
+        return base_capacity
+    
+    # Fetch base capacity from branch if not provided
+    branch = await db.branches.find_one({"name": branch_name}, {"_id": 0, "capacity_units_per_day": 1})
+    return branch.get("capacity_units_per_day", 0) if branch else 0
+
 # ===== Models =====
 class BranchCapacityUpdate(BaseModel):
     capacity_units_per_day: int
@@ -144,18 +175,35 @@ async def update_branch_capacity(branch_name: str, data: BranchCapacityUpdate):
 
 @router.get("/branches/{branch_name}/capacity-forecast")
 async def get_branch_capacity_forecast(branch_name: str, days: int = 7):
-    """Get capacity utilization forecast for next N days"""
+    """Get capacity utilization forecast for next N days.
+    Uses daily override capacity if exists, otherwise falls back to base capacity.
+    """
     branch = await db.branches.find_one({"name": branch_name}, {"_id": 0})
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
     
-    capacity = branch.get("capacity_units_per_day", 0)
+    base_capacity = branch.get("capacity_units_per_day", 0)
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Get all daily capacity overrides for this branch in the date range
+    date_strings = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+    daily_overrides = await db.branch_daily_capacity.find({
+        "branch": branch_name,
+        "date": {"$in": date_strings}
+    }, {"_id": 0}).to_list(100)
+    
+    # Create lookup map for daily overrides
+    override_map = {d["date"]: d["capacity"] for d in daily_overrides}
     
     forecast = []
     for i in range(days):
         day_start = today + timedelta(days=i)
         day_end = day_start + timedelta(days=1)
+        date_str = day_start.strftime("%Y-%m-%d")
+        
+        # Use daily override if exists, otherwise base capacity
+        effective_capacity = override_map.get(date_str, base_capacity)
+        is_override = date_str in override_map
         
         allocations = await db.branch_allocations.find({
             "branch": branch_name,
@@ -163,20 +211,31 @@ async def get_branch_capacity_forecast(branch_name: str, days: int = 7):
             "status": {"$in": ["PENDING", "IN_PROGRESS"]}
         }).to_list(1000)
         
-        allocated = sum(a.get("allocated_quantity", 0) for a in allocations)
+        # Also get production schedules
+        schedules = await db.production_schedules.find({
+            "branch": branch_name,
+            "target_date": {"$gte": day_start, "$lt": day_end},
+            "status": {"$nin": ["CANCELLED", "COMPLETED"]}
+        }, {"_id": 0, "target_quantity": 1}).to_list(1000)
+        
+        allocated_from_allocations = sum(a.get("allocated_quantity", 0) for a in allocations)
+        allocated_from_schedules = sum(s.get("target_quantity", 0) for s in schedules)
+        allocated = allocated_from_allocations + allocated_from_schedules
         
         forecast.append({
-            "date": day_start.strftime("%Y-%m-%d"),
+            "date": date_str,
             "day": day_start.strftime("%A"),
-            "capacity": capacity,
+            "capacity": effective_capacity,
+            "base_capacity": base_capacity,
+            "is_override": is_override,
             "allocated": allocated,
-            "available": max(0, capacity - allocated),
-            "utilization_percent": round((allocated / capacity * 100), 1) if capacity > 0 else 0
+            "available": max(0, effective_capacity - allocated),
+            "utilization_percent": round((allocated / effective_capacity * 100), 1) if effective_capacity > 0 else 0
         })
     
     return {
         "branch": branch_name,
-        "capacity_units_per_day": capacity,
+        "base_capacity_units_per_day": base_capacity,
         "forecast": forecast
     }
 
@@ -548,11 +607,14 @@ async def create_branch_allocation(data: BranchAllocationCreate):
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
     
-    capacity = branch.get("capacity_units_per_day", 0)
-    
     # Check existing allocations for that day
     day_start = data.planned_date.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
+    date_str = day_start.strftime("%Y-%m-%d")
+    
+    # Get effective capacity (daily override or base)
+    base_capacity = branch.get("capacity_units_per_day", 0)
+    capacity = await get_effective_branch_capacity(data.branch, date_str, base_capacity)
     
     existing = await db.branch_allocations.find({
         "branch": data.branch,
@@ -614,10 +676,13 @@ async def auto_allocate_production(data: AutoAllocateRequest):
     target_date = schedule["target_date"]
     day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0) if isinstance(target_date, datetime) else datetime.fromisoformat(str(target_date))
     day_end = day_start + timedelta(days=1)
+    date_str = day_start.strftime("%Y-%m-%d")
     
     branch_availability = []
     for b in branches:
-        capacity = b.get("capacity_units_per_day", 0)
+        base_capacity = b.get("capacity_units_per_day", 0)
+        # Get effective capacity (daily override or base)
+        capacity = await get_effective_branch_capacity(b["name"], date_str, base_capacity)
         if capacity == 0:
             continue
         
@@ -2004,7 +2069,9 @@ async def get_branch_model_capacity(branch: str, month: Optional[str] = None):
 
 @router.get("/branches/{branch}/capacity-for-date")
 async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Optional[str] = None):
-    """Get available capacity for a branch on a specific date, optionally filtered by model"""
+    """Get available capacity for a branch on a specific date, optionally filtered by model.
+    Priority: 1) Model-specific capacity, 2) Daily override, 3) Base capacity
+    """
     # Parse date
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -2020,6 +2087,14 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
     
     base_capacity = branch_cap.get("capacity_units_per_day", 0)
     
+    # Check for daily capacity override
+    daily_override = await db.branch_daily_capacity.find_one({
+        "branch": branch,
+        "date": date_str
+    }, {"_id": 0})
+    
+    daily_override_capacity = daily_override.get("capacity") if daily_override else None
+    
     # Check if there's model-specific capacity
     model_query = {"branch": branch, "month": month_str, "day": day}
     if model_id:
@@ -2031,7 +2106,6 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
     ).to_list(100)
     
     # Get already allocated for this date
-    allocated_query = {"branch": branch}
     schedules_on_date = await db.production_schedules.find(
         {
             "target_date": {
@@ -2047,21 +2121,29 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
     branch_schedules = [s for s in schedules_on_date if s.get("branch") == branch]
     total_allocated = sum(s.get("target_quantity", 0) for s in branch_schedules)
     
-    # Determine effective capacity
+    # Determine effective capacity (priority: model > daily override > base)
     if model_capacities:
         # Use model-specific capacity
         total_model_capacity = sum(m.get("capacity_qty", 0) for m in model_capacities)
-        available = max(0, total_model_capacity - total_allocated)
+        effective_capacity = total_model_capacity
         capacity_type = "model_specific"
+    elif daily_override_capacity is not None:
+        # Use daily override capacity
+        effective_capacity = daily_override_capacity
+        capacity_type = "daily_override"
     else:
-        # Use base capacity
-        available = max(0, base_capacity - total_allocated)
+        # Use base capacity (default for all days)
+        effective_capacity = base_capacity
         capacity_type = "base"
+    
+    available = max(0, effective_capacity - total_allocated)
     
     return {
         "branch": branch,
         "date": date_str,
         "base_capacity": base_capacity,
+        "daily_override_capacity": daily_override_capacity,
+        "effective_capacity": effective_capacity,
         "model_capacities": model_capacities,
         "allocated": total_allocated,
         "available": available,
