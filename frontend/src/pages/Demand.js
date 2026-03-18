@@ -434,7 +434,12 @@ const Demand = () => {
       });
       
       setUploadPreview(response.data.forecasts || []);
+      setUploadErrors(response.data.errors || []);
       setShowUploadDialog(true);
+      
+      if (response.data.error_count > 0) {
+        toast.warning(`${response.data.error_count} rows have errors and will be skipped`);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to parse Excel file");
     }
