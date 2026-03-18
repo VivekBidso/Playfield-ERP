@@ -1016,8 +1016,8 @@ const DispatchLots = () => {
                   {selectedLot.can_complete_with_current_inventory !== undefined && (
                     <Badge variant={selectedLot.can_complete_with_current_inventory ? "default" : "destructive"} className="text-xs">
                       {selectedLot.can_complete_with_current_inventory 
-                        ? "✓ Current inventory can complete lot" 
-                        : "⚠ Insufficient inventory"}
+                        ? "Current inventory can complete lot" 
+                        : "Insufficient inventory"}
                     </Badge>
                   )}
                 </div>
