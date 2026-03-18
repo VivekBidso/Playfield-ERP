@@ -349,27 +349,61 @@ async def confirm_month_forecasts(month: str, buyer_id: Optional[str] = None):
 
 @router.get("/forecasts/{forecast_id}/dispatch-lots")
 async def get_forecast_dispatch_lots(forecast_id: str):
-    """Get dispatch lots linked to a specific forecast"""
-    # Get dispatch lots directly linked
-    lots = await db.dispatch_lots.find(
+    """Get dispatch lots linked to a specific forecast via dispatch_lot_lines"""
+    # Find all dispatch_lot_lines that reference this forecast
+    lines = await db.dispatch_lot_lines.find(
         {"forecast_id": forecast_id},
+        {"_id": 0}
+    ).to_list(1000)
+    
+    if not lines:
+        # Also check if forecast_code is stored in lines
+        forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
+        if forecast and forecast.get("forecast_code"):
+            lines = await db.dispatch_lot_lines.find(
+                {"forecast_code": forecast.get("forecast_code")},
+                {"_id": 0}
+            ).to_list(1000)
+    
+    # Get unique lot IDs
+    lot_ids = list(set(l.get("lot_id") for l in lines if l.get("lot_id")))
+    
+    if not lot_ids:
+        return []
+    
+    # Get the lots
+    lots = await db.dispatch_lots.find(
+        {"id": {"$in": lot_ids}},
         {"_id": 0}
     ).to_list(100)
     
-    # Also check dispatch_lot_lines for lots created from this forecast's SKUs
-    forecast = await db.forecasts.find_one({"id": forecast_id}, {"_id": 0})
-    if forecast and forecast.get("sku_id"):
-        additional_lots = await db.dispatch_lots.find(
-            {"sku_id": forecast["sku_id"], "buyer_id": forecast.get("buyer_id")},
-            {"_id": 0}
-        ).to_list(100)
-        # Merge without duplicates
-        lot_ids = {l["id"] for l in lots}
-        for al in additional_lots:
-            if al["id"] not in lot_ids:
-                lots.append(al)
+    # Get line quantities per lot
+    line_qty_by_lot = {}
+    for line in lines:
+        lot_id = line.get("lot_id")
+        if lot_id:
+            if lot_id not in line_qty_by_lot:
+                line_qty_by_lot[lot_id] = {"lines": [], "total_qty": 0}
+            line_qty_by_lot[lot_id]["lines"].append({
+                "line_number": line.get("line_number"),
+                "sku_id": line.get("sku_id"),
+                "quantity": line.get("quantity", 0),
+                "status": line.get("status")
+            })
+            line_qty_by_lot[lot_id]["total_qty"] += line.get("quantity", 0)
     
-    return [serialize_doc(l) for l in lots]
+    # Enrich lots with line info
+    result = []
+    for lot in lots:
+        lot_id = lot.get("id")
+        lot_info = line_qty_by_lot.get(lot_id, {"lines": [], "total_qty": 0})
+        result.append({
+            **serialize_doc(lot),
+            "forecast_lines": lot_info["lines"],
+            "forecast_qty_in_lot": lot_info["total_qty"]
+        })
+    
+    return result
 
 
 @router.get("/forecasts/{forecast_id}/production-plans")
