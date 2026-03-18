@@ -417,10 +417,14 @@ const Demand = () => {
     
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
       toast.error("Please upload an Excel file (.xlsx or .xls)");
+      // Reset file input to allow re-selecting the same file
+      e.target.value = '';
       return;
     }
     
     parseExcelFile(file);
+    // Reset file input to allow re-selecting the same file for re-upload
+    e.target.value = '';
   };
 
   const parseExcelFile = async (file) => {

@@ -599,5 +599,24 @@ Example:
 
 ---
 
-*Last updated: March 16, 2026*
-*Buyers Module Complete - New schema with auto-generated customer codes and Excel import*
+---
+
+## 13. DEMAND FORECASTS BULK UPLOAD FIX (March 18, 2026)
+
+### Issue Fixed:
+- **UI Non-responsive on Re-upload**: When a user tried to re-upload an Excel file (same or different file), the file picker would not trigger the `onChange` event again, making the UI appear frozen.
+
+### Root Cause:
+- The file input's value was not being reset after processing, so the browser's `onChange` event would not fire for the same file selection.
+
+### Solution:
+- Added `e.target.value = ''` after file processing in `handleFileSelect()` function in `Demand.js`
+- This resets the file input, allowing the same file to be re-selected
+
+### Files Modified:
+- `frontend/src/pages/Demand.js` - Line 421 and 427
+
+---
+
+*Last updated: March 18, 2026*
+*Demand Forecasts bulk upload re-upload fix complete*
