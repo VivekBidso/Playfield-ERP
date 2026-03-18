@@ -1225,19 +1225,38 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
             ws = wb.active
             
             headers = []
-            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
-                if row_idx == 0:
-                    # Header row - normalize headers
-                    headers = [str(h).lower().strip() if h else '' for h in row]
+            header_row_idx = None
+            
+            # Find the header row (first row with data that contains 'month' or 'sku')
+            for row_idx, row in enumerate(ws.iter_rows(max_row=10, values_only=True)):
+                if not any(row):
                     continue
-                
+                row_lower = [str(cell).lower().strip() if cell else '' for cell in row]
+                if any('month' in cell or 'sku' in cell for cell in row_lower):
+                    headers = [str(h).lower().strip() if h else '' for h in row]
+                    header_row_idx = row_idx
+                    break
+            
+            if not headers:
+                raise HTTPException(status_code=400, detail="Could not find header row. Expected columns: Month, SKU ID, Qty")
+            
+            # Parse data rows (starting after header)
+            for row_idx, row in enumerate(ws.iter_rows(min_row=header_row_idx + 2, values_only=True)):
                 if not any(row):
                     continue
                 
                 row_data = dict(zip(headers, row))
+                
+                # Handle month - could be datetime or string
+                month_val = row_data.get('month', '')
+                if hasattr(month_val, 'strftime'):
+                    month_val = month_val.strftime('%Y-%m')
+                elif month_val:
+                    month_val = str(month_val)
+                
                 raw_rows.append({
-                    "row_num": row_idx + 1,
-                    "month": str(row_data.get('month', '') or ''),
+                    "row_num": header_row_idx + 2 + row_idx,
+                    "month": month_val,
                     "vertical": str(row_data.get('vertical', '') or ''),
                     "model": str(row_data.get('model', '') or ''),
                     "brand": str(row_data.get('brand', '') or ''),
