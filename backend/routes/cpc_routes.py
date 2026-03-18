@@ -1931,11 +1931,11 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 "sku_id": sku_id,
                 "sku_description": sku.get("description", ""),
                 "target_quantity": qty,
-                "allocated_quantity": 0,
+                "allocated_quantity": qty,  # Fully allocated since branch is assigned
                 "completed_quantity": 0,
                 "target_date": target_date,
                 "priority": priority,
-                "status": "DRAFT",
+                "status": "SCHEDULED",  # SCHEDULED (not DRAFT) since branch is assigned
                 "notes": f"Bulk upload from {forecast_code}",
                 "created_at": datetime.now(timezone.utc)
             }
