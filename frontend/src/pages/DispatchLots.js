@@ -819,6 +819,7 @@ const DispatchLots = () => {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Search */}
