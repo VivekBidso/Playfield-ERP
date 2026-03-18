@@ -474,35 +474,6 @@ const DispatchLots = () => {
 
   return (
     <div className="p-6 md:p-8" data-testid="dispatch-lots-page">
-      {/* Dashboard Summary Cards */}
-      {dashboardSummary && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white border rounded-lg p-4">
-            <div className="text-2xl font-bold text-primary">{dashboardSummary.total_active_lots}</div>
-            <div className="text-xs text-muted-foreground uppercase">Active Lots</div>
-          </div>
-          <div className="bg-white border rounded-lg p-4">
-            <div className="text-2xl font-bold text-green-600">{dashboardSummary.status_counts?.CREATED || 0}</div>
-            <div className="text-xs text-muted-foreground uppercase">Created</div>
-          </div>
-          <div className="bg-white border rounded-lg p-4">
-            <div className="text-2xl font-bold text-red-600">{dashboardSummary.delayed_lots || 0}</div>
-            <div className="text-xs text-muted-foreground uppercase">Delayed</div>
-          </div>
-          <div className="bg-white border rounded-lg p-4">
-            <div className="text-2xl font-bold text-blue-600">{dashboardSummary.upcoming_completions?.length || 0}</div>
-            <div className="text-xs text-muted-foreground uppercase">Completing Soon</div>
-          </div>
-          <div className="bg-white border rounded-lg p-4 relative cursor-pointer" onClick={() => setShowNotifications(true)}>
-            <div className="text-2xl font-bold text-orange-600">{notifications.length}</div>
-            <div className="text-xs text-muted-foreground uppercase">Notifications</div>
-            {notifications.length > 0 && (
-              <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
-            )}
-          </div>
-        </div>
-      )}
-      
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Dispatch Lots</h1>
@@ -510,37 +481,13 @@ const DispatchLots = () => {
             Create multi-line lots for forecasted SKUs
           </p>
         </div>
-        <div className="flex gap-2">
-          {/* Notifications Button */}
-          <Button variant="outline" onClick={() => setShowNotifications(true)} className="relative" data-testid="notifications-btn">
-            <Bell className="w-4 h-4" />
-            {notifications.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                {notifications.length}
-              </span>
-            )}
-          </Button>
-          
-          {/* FIFO Allocation Button */}
-          <Button variant="outline" onClick={handleRunFifoAllocation} data-testid="fifo-allocation-btn">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Run FIFO
-          </Button>
-          
-          {/* Bulk Upload Button */}
-          <Button variant="outline" onClick={() => setShowBulkUploadDialog(true)} data-testid="bulk-upload-btn">
-            <Upload className="w-4 h-4 mr-2" />
-            Bulk Upload
-          </Button>
-          
-          {/* Create Lot Button */}
-          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
-            <DialogTrigger asChild>
-              <Button className="uppercase text-xs tracking-wide" data-testid="add-lot-btn">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Dispatch Lot
-              </Button>
-            </DialogTrigger>
+        <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
+          <DialogTrigger asChild>
+            <Button className="uppercase text-xs tracking-wide" data-testid="add-lot-btn">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Dispatch Lot
+            </Button>
+          </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -1011,26 +958,9 @@ const DispatchLots = () => {
 
               {/* Line Items Table */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="p-4 bg-zinc-50 border-b flex items-center justify-between">
+                <div className="p-4 bg-zinc-50 border-b">
                   <h3 className="font-bold uppercase text-sm">Line Items ({selectedLot.lines?.length || 0})</h3>
-                  {selectedLot.can_complete_with_current_inventory !== undefined && (
-                    <Badge variant={selectedLot.can_complete_with_current_inventory ? "default" : "destructive"} className="text-xs">
-                      {selectedLot.can_complete_with_current_inventory 
-                        ? "Current inventory can complete lot" 
-                        : "Insufficient inventory"}
-                    </Badge>
-                  )}
                 </div>
-                {selectedLot.estimated_completion_date && (
-                  <div className="px-4 py-2 bg-blue-50 border-b flex items-center gap-2 text-sm">
-                    <Calendar className="w-4 h-4 text-blue-600" />
-                    <span className="font-medium">Estimated Completion:</span>
-                    <span className="font-mono">{new Date(selectedLot.estimated_completion_date).toLocaleDateString()}</span>
-                    {selectedLot.delayed_lines > 0 && (
-                      <Badge variant="destructive" className="ml-2">{selectedLot.delayed_lines} delayed</Badge>
-                    )}
-                  </div>
-                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-100">
@@ -1039,55 +969,45 @@ const DispatchLots = () => {
                         <th className="px-4 py-3 text-left font-mono text-xs uppercase">SKU</th>
                         <th className="px-4 py-3 text-left font-mono text-xs uppercase">Description</th>
                         <th className="px-4 py-3 text-right font-mono text-xs uppercase">Required</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Allocated (FIFO)</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Total Avail</th>
-                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Scheduled</th>
-                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Actual</th>
-                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Status</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Available</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Pending</th>
+                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Readiness</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedLot.lines?.map((line, idx) => (
-                        <tr key={line.id || idx} className={`border-t hover:bg-zinc-50 ${line.is_delayed ? 'bg-red-50' : ''}`}>
+                        <tr key={line.id || idx} className="border-t hover:bg-zinc-50">
                           <td className="px-4 py-3 font-mono text-zinc-500">{line.line_number || idx + 1}</td>
                           <td className="px-4 py-3 font-mono font-bold">{line.sku_id}</td>
-                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[150px]" title={line.sku_description}>
+                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[200px]" title={line.sku_description}>
                             {line.sku_description || '-'}
                           </td>
                           <td className="px-4 py-3 font-mono font-bold text-right">{(line.quantity || 0).toLocaleString()}</td>
                           <td className="px-4 py-3 font-mono text-right">
-                            <span className={line.allocated_inventory >= line.quantity ? 'text-green-600 font-bold' : 'text-orange-500'}>
-                              {(line.allocated_inventory || 0).toLocaleString()}
+                            <span className={line.available_qty >= line.quantity ? 'text-green-600' : 'text-red-500'}>
+                              {(line.available_qty || 0).toLocaleString()}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-mono text-right text-zinc-500">
-                            {(line.total_available_inventory || 0).toLocaleString()}
-                            {line.can_complete_with_current_inventory && <CheckCircle2 className="inline w-3 h-3 text-green-500 ml-1" />}
-                          </td>
-                          <td className="px-4 py-3 text-center font-mono text-xs">
-                            {line.scheduled_date ? new Date(line.scheduled_date).toLocaleDateString() : '-'}
-                          </td>
-                          <td className="px-4 py-3 text-center font-mono text-xs">
-                            {line.actual_completion_date ? (
-                              <span className="text-green-600">{new Date(line.actual_completion_date).toLocaleDateString()}</span>
-                            ) : '-'}
+                          <td className="px-4 py-3 font-mono text-right">
+                            {line.pending_qty > 0 ? (
+                              <span className="text-red-500 font-bold">{line.pending_qty.toLocaleString()}</span>
+                            ) : (
+                              <span className="text-green-600">0</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <span className={`text-xs px-2 py-1 rounded border ${
-                              line.status === 'READY' ? 'bg-green-100 text-green-700 border-green-300' :
-                              line.status === 'PRODUCED' ? 'bg-blue-100 text-blue-700 border-blue-300' :
-                              line.status === 'SCHEDULED' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
-                              line.is_delayed ? 'bg-red-100 text-red-700 border-red-300' :
-                              'bg-zinc-100 text-zinc-700 border-zinc-300'
-                            }`}>
-                              {line.is_delayed ? 'DELAYED' : line.status || 'PENDING'}
-                            </span>
+                            <div className="flex items-center justify-center gap-2">
+                              {getReadinessIcon(line.readiness_status)}
+                              <span className={`text-xs font-mono px-2 py-1 rounded border ${getReadinessColor(line.readiness_status)}`}>
+                                {line.readiness_status}
+                              </span>
+                            </div>
                           </td>
                         </tr>
                       ))}
                       {(!selectedLot.lines || selectedLot.lines.length === 0) && (
                         <tr>
-                          <td colSpan={9} className="px-4 py-8 text-center text-zinc-500">
+                          <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                             No line items found
                           </td>
                         </tr>
@@ -1253,109 +1173,6 @@ const DispatchLots = () => {
                 {savingEdit ? "Saving..." : "Save Changes"}
               </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Bulk Upload Dialog */}
-      <Dialog open={showBulkUploadDialog} onOpenChange={setShowBulkUploadDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5" />
-              Bulk Upload Dispatch Lots
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="bg-zinc-50 rounded-lg p-4 text-sm">
-              <p className="font-medium mb-2">Expected Excel columns:</p>
-              <ul className="space-y-1 text-muted-foreground">
-                <li><span className="font-mono bg-zinc-200 px-1 rounded">Buyer Name</span> - Customer name (must exist)</li>
-                <li><span className="font-mono bg-zinc-200 px-1 rounded">Forecast No</span> - Forecast code (e.g., FC_202603_0001)</li>
-                <li><span className="font-mono bg-zinc-200 px-1 rounded">SKU ID</span> - SKU code (must exist)</li>
-                <li><span className="font-mono bg-zinc-200 px-1 rounded">Qty</span> - Quantity</li>
-                <li><span className="font-mono bg-zinc-200 px-1 rounded">Serial No</span> - Temporary lot grouping ID</li>
-              </ul>
-              <p className="mt-3 text-xs border-t pt-2">
-                <strong>Note:</strong> Rows with the same Serial No will be grouped into one dispatch lot with multiple lines.
-              </p>
-            </div>
-            
-            <div className="border-2 border-dashed rounded-lg p-6 text-center">
-              <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <input
-                ref={bulkFileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleBulkUpload}
-                className="hidden"
-                id="bulk-upload-input"
-              />
-              <label htmlFor="bulk-upload-input" className="cursor-pointer">
-                <Button variant="outline" disabled={bulkUploading} asChild>
-                  <span>{bulkUploading ? 'Uploading...' : 'Select Excel File'}</span>
-                </Button>
-              </label>
-              <p className="text-xs text-muted-foreground mt-2">Supports .xlsx and .xls files</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Notifications Panel */}
-      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
-        <DialogContent className="max-w-lg max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5" />
-              Notifications ({notifications.length})
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Bell className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                <p>No unread notifications</p>
-              </div>
-            ) : (
-              notifications.map((n) => (
-                <div 
-                  key={n.id} 
-                  className={`p-4 border rounded-lg ${n.priority === 'HIGH' ? 'border-red-300 bg-red-50' : 'bg-zinc-50'}`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        {n.type === 'DELAY_ALERT' && <AlertCircle className="w-4 h-4 text-red-500" />}
-                        {n.type === 'COMPLETION_ALERT' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                        <span className="font-medium text-sm">{n.title}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">{n.message}</p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {new Date(n.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleMarkNotificationRead(n.id)}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-          <div className="flex gap-2 pt-2 border-t">
-            <Button 
-              variant="outline" 
-              className="flex-1"
-              onClick={handleCheckDelaysAndCompletions}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Check for Delays
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
