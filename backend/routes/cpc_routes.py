@@ -74,6 +74,7 @@ class BranchCapacityUpdate(BaseModel):
 class ProductionScheduleCreate(BaseModel):
     dispatch_lot_id: Optional[str] = None
     sku_id: str
+    branch: str  # REQUIRED - no production without branch assignment
     target_quantity: int
     target_date: datetime
     priority: str = "MEDIUM"
@@ -539,7 +540,7 @@ async def get_production_schedules(
 
 @router.post("/production-schedules")
 async def create_production_schedule(data: ProductionScheduleCreate):
-    """Create a new production schedule from demand"""
+    """Create a new production schedule. Branch is required - no DRAFT status."""
     count = await db.production_schedules.count_documents({})
     schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
     
@@ -548,18 +549,46 @@ async def create_production_schedule(data: ProductionScheduleCreate):
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     
+    # Verify branch exists and is active
+    branch = await db.branches.find_one({"name": data.branch, "is_active": True}, {"_id": 0})
+    if not branch:
+        raise HTTPException(status_code=404, detail=f"Branch '{data.branch}' not found or inactive")
+    
+    # Check capacity for the target date
+    date_str = data.target_date.strftime("%Y-%m-%d")
+    effective_capacity = await get_effective_branch_capacity(data.branch, date_str, branch.get("capacity_units_per_day", 0))
+    
+    # Get existing schedules for this date/branch
+    day_start = data.target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    existing_schedules = await db.production_schedules.find({
+        "branch": data.branch,
+        "target_date": {"$gte": day_start, "$lt": day_end},
+        "status": {"$ne": "CANCELLED"}
+    }, {"_id": 0, "target_quantity": 1}).to_list(1000)
+    
+    existing_allocated = sum(s.get("target_quantity", 0) for s in existing_schedules)
+    available = effective_capacity - existing_allocated
+    
+    if data.target_quantity > available:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient capacity. Available: {available}, Requested: {data.target_quantity}"
+        )
+    
     schedule = {
         "id": str(uuid.uuid4()),
         "schedule_code": schedule_code,
         "dispatch_lot_id": data.dispatch_lot_id,
+        "branch": data.branch,  # Branch is always assigned
         "sku_id": data.sku_id,
         "sku_description": sku.get("description", ""),
         "target_quantity": data.target_quantity,
-        "allocated_quantity": 0,
+        "allocated_quantity": data.target_quantity,  # Fully allocated since branch assigned
         "completed_quantity": 0,
         "target_date": data.target_date,
         "priority": data.priority,
-        "status": "DRAFT",  # DRAFT, SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
+        "status": "SCHEDULED",  # Only statuses: SCHEDULED, COMPLETED, CANCELLED
         "notes": data.notes,
         "created_at": datetime.now(timezone.utc)
     }
@@ -733,11 +762,10 @@ async def auto_allocate_production(data: AutoAllocateRequest):
     
     # Update schedule
     total_allocated = schedule.get("allocated_quantity", 0) + sum(a["quantity"] for a in allocations_created)
-    new_status = "SCHEDULED" if total_allocated >= schedule["target_quantity"] else "DRAFT"
     
     await db.production_schedules.update_one(
         {"id": data.schedule_id},
-        {"$set": {"allocated_quantity": total_allocated, "status": new_status}}
+        {"$set": {"allocated_quantity": total_allocated, "status": "SCHEDULED"}}
     )
     
     return {
@@ -746,32 +774,71 @@ async def auto_allocate_production(data: AutoAllocateRequest):
         "allocations": allocations_created
     }
 
+@router.put("/production-schedules/{schedule_id}/complete")
+async def complete_production_schedule(schedule_id: str, completed_quantity: int):
+    """Mark production schedule as completed. Called by branch ops team."""
+    schedule = await db.production_schedules.find_one({"id": schedule_id})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    if schedule.get("status") == "COMPLETED":
+        raise HTTPException(status_code=400, detail="Schedule already completed")
+    
+    if schedule.get("status") == "CANCELLED":
+        raise HTTPException(status_code=400, detail="Cannot complete a cancelled schedule")
+    
+    await db.production_schedules.update_one(
+        {"id": schedule_id},
+        {"$set": {
+            "status": "COMPLETED",
+            "completed_quantity": completed_quantity,
+            "completed_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Update dispatch lot if linked
+    if schedule.get("dispatch_lot_id"):
+        await db.dispatch_lots.update_one(
+            {"id": schedule["dispatch_lot_id"]},
+            {"$set": {"status": "FULLY_PRODUCED"}}
+        )
+    
+    return {
+        "message": f"Production schedule {schedule.get('schedule_code')} completed with {completed_quantity} units",
+        "schedule_id": schedule_id
+    }
+
+@router.put("/production-schedules/{schedule_id}/cancel")
+async def cancel_production_schedule(schedule_id: str):
+    """Cancel a production schedule."""
+    schedule = await db.production_schedules.find_one({"id": schedule_id})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    if schedule.get("status") == "COMPLETED":
+        raise HTTPException(status_code=400, detail="Cannot cancel a completed schedule")
+    
+    await db.production_schedules.update_one(
+        {"id": schedule_id},
+        {"$set": {"status": "CANCELLED", "cancelled_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": f"Production schedule {schedule.get('schedule_code')} cancelled"}
+
+# Legacy endpoint - kept for backward compatibility but simplified
 @router.put("/branch-allocations/{allocation_id}/start")
 async def start_production(allocation_id: str):
-    """Mark allocation as in progress"""
-    result = await db.branch_allocations.update_one(
-        {"id": allocation_id, "status": "PENDING"},
-        {"$set": {"status": "IN_PROGRESS", "started_at": datetime.now(timezone.utc)}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=400, detail="Allocation not found or not in PENDING status")
-    
-    # Update schedule status
-    allocation = await db.branch_allocations.find_one({"id": allocation_id})
-    await db.production_schedules.update_one(
-        {"id": allocation["schedule_id"]},
-        {"$set": {"status": "IN_PROGRESS"}}
-    )
-    
-    return {"message": "Production started"}
+    """Legacy: Mark allocation as in progress - now just returns success"""
+    return {"message": "Production tracking simplified - use schedule complete endpoint"}
 
 @router.put("/branch-allocations/{allocation_id}/complete")
 async def complete_allocation(allocation_id: str, completed_quantity: int):
-    """Mark allocation as completed with actual quantity"""
+    """Legacy: Complete allocation - redirects to schedule completion"""
     allocation = await db.branch_allocations.find_one({"id": allocation_id})
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
     
+    # Mark allocation complete
     await db.branch_allocations.update_one(
         {"id": allocation_id},
         {"$set": {
@@ -787,17 +854,6 @@ async def complete_allocation(allocation_id: str, completed_quantity: int):
         {"$inc": {"completed_quantity": completed_quantity}}
     )
     
-    # Check if all allocations complete
-    schedule = await db.production_schedules.find_one({"id": allocation["schedule_id"]})
-    all_allocations = await db.branch_allocations.find({"schedule_id": allocation["schedule_id"]}).to_list(100)
-    
-    all_complete = all(a.get("status") == "COMPLETED" for a in all_allocations)
-    if all_complete:
-        await db.production_schedules.update_one(
-            {"id": allocation["schedule_id"]},
-            {"$set": {"status": "COMPLETED"}}
-        )
-    
     return {"message": f"Completed {completed_quantity} units"}
 
 # ===== Dashboard & Reports =====
@@ -807,23 +863,27 @@ async def get_cpc_dashboard():
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
     
-    # Pending schedules
-    pending_schedules = await db.production_schedules.count_documents({"status": {"$in": ["DRAFT", "SCHEDULED"]}})
-    in_progress = await db.production_schedules.count_documents({"status": "IN_PROGRESS"})
+    # Schedule counts - only SCHEDULED and COMPLETED statuses exist
+    scheduled_count = await db.production_schedules.count_documents({"status": "SCHEDULED"})
+    completed_count = await db.production_schedules.count_documents({"status": "COMPLETED"})
     
-    # Today's allocations
-    todays_allocations = await db.branch_allocations.find({
-        "planned_date": {"$gte": today, "$lt": tomorrow}
+    # Today's schedules
+    todays_schedules = await db.production_schedules.find({
+        "target_date": {"$gte": today, "$lt": tomorrow},
+        "status": {"$ne": "CANCELLED"}
     }).to_list(1000)
     
     # Branch utilization
     branches = await db.branches.find({"is_active": True}, {"_id": 0}).to_list(100)
     branch_stats = []
     for b in branches:
-        branch_allocs = [a for a in todays_allocations if a.get("branch") == b["name"]]
-        allocated = sum(a.get("allocated_quantity", 0) for a in branch_allocs)
-        completed = sum(a.get("completed_quantity", 0) for a in branch_allocs if a.get("status") == "COMPLETED")
-        capacity = b.get("capacity_units_per_day", 0)
+        branch_schedules = [s for s in todays_schedules if s.get("branch") == b["name"]]
+        allocated = sum(s.get("target_quantity", 0) for s in branch_schedules)
+        completed = sum(s.get("completed_quantity", 0) for s in branch_schedules if s.get("status") == "COMPLETED")
+        
+        # Get effective capacity for today
+        date_str = today.strftime("%Y-%m-%d")
+        capacity = await get_effective_branch_capacity(b["name"], date_str, b.get("capacity_units_per_day", 0))
         
         branch_stats.append({
             "branch": b["name"],
@@ -834,10 +894,10 @@ async def get_cpc_dashboard():
         })
     
     return {
-        "pending_schedules": pending_schedules,
-        "in_progress_schedules": in_progress,
-        "todays_planned_quantity": sum(a.get("allocated_quantity", 0) for a in todays_allocations),
-        "todays_completed_quantity": sum(a.get("completed_quantity", 0) for a in todays_allocations if a.get("status") == "COMPLETED"),
+        "scheduled_count": scheduled_count,
+        "completed_count": completed_count,
+        "todays_planned_quantity": sum(s.get("target_quantity", 0) for s in todays_schedules),
+        "todays_completed_quantity": sum(s.get("completed_quantity", 0) for s in todays_schedules if s.get("status") == "COMPLETED"),
         "branch_utilization": branch_stats
     }
 
@@ -889,38 +949,25 @@ async def get_unassigned_schedules():
 @router.post("/cpc/fix-draft-schedules")
 async def fix_draft_schedules_with_branch():
     """
-    Fix DRAFT schedules that have branch assigned - update to SCHEDULED.
-    Status workflow:
-    - SCHEDULED: Has branch, ready for production
-    - IN_PROGRESS: Production started
-    - COMPLETED: Production finished
-    - CANCELLED: Schedule cancelled
+    Legacy migration: Fix any old DRAFT schedules by updating to SCHEDULED.
+    New workflow only has: SCHEDULED, COMPLETED, CANCELLED
     """
-    # Find DRAFT schedules with branch assigned
-    drafts_with_branch = await db.production_schedules.find(
-        {
-            "status": "DRAFT",
-            "branch": {"$exists": True, "$ne": None, "$ne": ""}
-        },
-        {"_id": 0, "schedule_code": 1, "id": 1, "branch": 1}
-    ).to_list(1000)
-    
-    if not drafts_with_branch:
-        return {"message": "No DRAFT schedules with branches found", "updated": 0}
-    
-    # Update to SCHEDULED
+    # Find any remaining DRAFT schedules and update to SCHEDULED
     result = await db.production_schedules.update_many(
-        {
-            "status": "DRAFT",
-            "branch": {"$exists": True, "$ne": None, "$ne": ""}
-        },
+        {"status": "DRAFT"},
+        {"$set": {"status": "SCHEDULED"}}
+    )
+    
+    # Also fix any IN_PROGRESS to SCHEDULED (simplified workflow)
+    result2 = await db.production_schedules.update_many(
+        {"status": "IN_PROGRESS"},
         {"$set": {"status": "SCHEDULED"}}
     )
     
     return {
-        "message": f"Updated {result.modified_count} schedules from DRAFT to SCHEDULED",
-        "updated": result.modified_count,
-        "schedules": [s.get("schedule_code") for s in drafts_with_branch]
+        "message": f"Migration complete. Updated {result.modified_count} DRAFT and {result2.modified_count} IN_PROGRESS to SCHEDULED",
+        "draft_updated": result.modified_count,
+        "in_progress_updated": result2.modified_count
     }
 
 
