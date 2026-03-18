@@ -1106,42 +1106,122 @@ const Demand = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-zinc-600">
-              {uploadPreview.length} forecasts parsed from file. Review and confirm upload.
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className={`p-3 rounded-lg border ${uploadPreview.length > 0 ? 'bg-green-50 border-green-200' : 'bg-zinc-50 border-zinc-200'}`}>
+                <div className="text-2xl font-bold text-green-600">{uploadPreview.length}</div>
+                <div className="text-xs text-green-700 uppercase">Valid Forecasts</div>
+              </div>
+              <div className={`p-3 rounded-lg border ${uploadErrors.length > 0 ? 'bg-red-50 border-red-200' : 'bg-zinc-50 border-zinc-200'}`}>
+                <div className="text-2xl font-bold text-red-600">{uploadErrors.length}</div>
+                <div className="text-xs text-red-700 uppercase">Errors (will be skipped)</div>
+              </div>
+            </div>
+
+            {/* Errors Section */}
+            {uploadErrors.length > 0 && (
+              <div className="border border-red-200 rounded-lg overflow-hidden">
+                <div className="bg-red-50 px-4 py-2 flex items-center justify-between">
+                  <span className="text-sm font-bold text-red-700">
+                    <AlertTriangle className="w-4 h-4 inline mr-2" />
+                    {uploadErrors.length} rows have errors
+                  </span>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={downloadErrorReport}
+                    disabled={downloadingErrors}
+                    className="text-red-700 border-red-300 hover:bg-red-100"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {downloadingErrors ? 'Downloading...' : 'Download Error Report'}
+                  </Button>
+                </div>
+                <div className="max-h-32 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-red-100 sticky top-0">
+                      <tr>
+                        <th className="p-2 text-left text-xs text-red-800">Row</th>
+                        <th className="p-2 text-left text-xs text-red-800">SKU ID</th>
+                        <th className="p-2 text-left text-xs text-red-800">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {uploadErrors.slice(0, 10).map((err, idx) => (
+                        <tr key={idx} className="border-t border-red-100">
+                          <td className="p-2 font-mono text-red-600">{err.row_num}</td>
+                          <td className="p-2 font-mono">{err.sku_id}</td>
+                          <td className="p-2 text-red-600">{err.reason}</td>
+                        </tr>
+                      ))}
+                      {uploadErrors.length > 10 && (
+                        <tr className="border-t border-red-100 bg-red-50">
+                          <td colSpan={3} className="p-2 text-center text-red-600 text-xs">
+                            ... and {uploadErrors.length - 10} more errors. Download the full report.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            
+            {/* Valid Forecasts Table */}
+            {uploadPreview.length > 0 && (
+              <div className="border rounded-sm max-h-60 overflow-y-auto">
+                <div className="bg-green-50 px-4 py-2 text-sm font-bold text-green-700 sticky top-0">
+                  Valid Forecasts to Upload
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-50 sticky top-8">
+                    <tr>
+                      <th className="p-2 text-left font-mono text-xs">Month</th>
+                      <th className="p-2 text-left font-mono text-xs">Vertical</th>
+                      <th className="p-2 text-left font-mono text-xs">Model</th>
+                      <th className="p-2 text-left font-mono text-xs">Brand</th>
+                      <th className="p-2 text-left font-mono text-xs">SKU</th>
+                      <th className="p-2 text-left font-mono text-xs">Buyer</th>
+                      <th className="p-2 text-left font-mono text-xs">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadPreview.map((row, idx) => (
+                      <tr key={idx} className="border-t hover:bg-zinc-50">
+                        <td className="p-2 font-mono">{row.month}</td>
+                        <td className="p-2 text-zinc-600">{row.vertical || '-'}</td>
+                        <td className="p-2 text-zinc-600">{row.model || '-'}</td>
+                        <td className="p-2 text-zinc-600">{row.brand || '-'}</td>
+                        <td className="p-2 font-mono font-bold">{row.sku_id}</td>
+                        <td className="p-2 text-zinc-600">{row.buyer || '-'}</td>
+                        <td className="p-2 font-mono font-bold text-green-600">{row.quantity?.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {uploadPreview.length === 0 && uploadErrors.length === 0 && (
+              <div className="text-center py-8 text-zinc-500">
+                No data found in the uploaded file
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              <strong>Required columns:</strong> Month, SKU ID, Quantity<br/>
+              <strong>Optional columns:</strong> Vertical, Brand, Model, Buyer (auto-filled from SKU master)
             </p>
             
-            <div className="border rounded-sm max-h-60 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-zinc-50 sticky top-0">
-                  <tr>
-                    <th className="p-2 text-left font-mono text-xs">Month</th>
-                    <th className="p-2 text-left font-mono text-xs">Vertical</th>
-                    <th className="p-2 text-left font-mono text-xs">Model</th>
-                    <th className="p-2 text-left font-mono text-xs">Brand</th>
-                    <th className="p-2 text-left font-mono text-xs">SKU</th>
-                    <th className="p-2 text-left font-mono text-xs">Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadPreview.map((row, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="p-2 font-mono">{row.month}</td>
-                      <td className="p-2">{row.vertical}</td>
-                      <td className="p-2">{row.model}</td>
-                      <td className="p-2">{row.brand}</td>
-                      <td className="p-2 font-mono">{row.sku_id}</td>
-                      <td className="p-2 font-mono font-bold">{row.quantity?.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowUploadDialog(false)} className="flex-1">
+              <Button variant="outline" onClick={() => { setShowUploadDialog(false); setUploadErrors([]); }} className="flex-1">
                 Cancel
               </Button>
-              <Button onClick={handleBulkUpload} disabled={uploading} className="flex-1">
+              <Button 
+                onClick={handleBulkUpload} 
+                disabled={uploading || uploadPreview.length === 0} 
+                className="flex-1"
+              >
                 {uploading ? 'Uploading...' : `Upload ${uploadPreview.length} Forecasts`}
               </Button>
             </div>
