@@ -474,6 +474,35 @@ const DispatchLots = () => {
 
   return (
     <div className="p-6 md:p-8" data-testid="dispatch-lots-page">
+      {/* Dashboard Summary Cards */}
+      {dashboardSummary && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white border rounded-lg p-4">
+            <div className="text-2xl font-bold text-primary">{dashboardSummary.total_active_lots}</div>
+            <div className="text-xs text-muted-foreground uppercase">Active Lots</div>
+          </div>
+          <div className="bg-white border rounded-lg p-4">
+            <div className="text-2xl font-bold text-green-600">{dashboardSummary.status_counts?.CREATED || 0}</div>
+            <div className="text-xs text-muted-foreground uppercase">Created</div>
+          </div>
+          <div className="bg-white border rounded-lg p-4">
+            <div className="text-2xl font-bold text-red-600">{dashboardSummary.delayed_lots || 0}</div>
+            <div className="text-xs text-muted-foreground uppercase">Delayed</div>
+          </div>
+          <div className="bg-white border rounded-lg p-4">
+            <div className="text-2xl font-bold text-blue-600">{dashboardSummary.upcoming_completions?.length || 0}</div>
+            <div className="text-xs text-muted-foreground uppercase">Completing Soon</div>
+          </div>
+          <div className="bg-white border rounded-lg p-4 relative cursor-pointer" onClick={() => setShowNotifications(true)}>
+            <div className="text-2xl font-bold text-orange-600">{notifications.length}</div>
+            <div className="text-xs text-muted-foreground uppercase">Notifications</div>
+            {notifications.length > 0 && (
+              <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+            )}
+          </div>
+        </div>
+      )}
+      
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">Dispatch Lots</h1>
@@ -481,13 +510,37 @@ const DispatchLots = () => {
             Create multi-line lots for forecasted SKUs
           </p>
         </div>
-        <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button className="uppercase text-xs tracking-wide" data-testid="add-lot-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Dispatch Lot
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          {/* Notifications Button */}
+          <Button variant="outline" onClick={() => setShowNotifications(true)} className="relative" data-testid="notifications-btn">
+            <Bell className="w-4 h-4" />
+            {notifications.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                {notifications.length}
+              </span>
+            )}
+          </Button>
+          
+          {/* FIFO Allocation Button */}
+          <Button variant="outline" onClick={handleRunFifoAllocation} data-testid="fifo-allocation-btn">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Run FIFO
+          </Button>
+          
+          {/* Bulk Upload Button */}
+          <Button variant="outline" onClick={() => setShowBulkUploadDialog(true)} data-testid="bulk-upload-btn">
+            <Upload className="w-4 h-4 mr-2" />
+            Bulk Upload
+          </Button>
+          
+          {/* Create Lot Button */}
+          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button className="uppercase text-xs tracking-wide" data-testid="add-lot-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Dispatch Lot
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
