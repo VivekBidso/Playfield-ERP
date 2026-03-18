@@ -1085,16 +1085,6 @@ const DispatchLots = () => {
                           </td>
                         </tr>
                       ))}
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              {getReadinessIcon(line.readiness_status)}
-                              <span className={`text-xs font-mono px-2 py-1 rounded border ${getReadinessColor(line.readiness_status)}`}>
-                                {line.readiness_status}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
                       {(!selectedLot.lines || selectedLot.lines.length === 0) && (
                         <tr>
                           <td colSpan={9} className="px-4 py-8 text-center text-zinc-500">
