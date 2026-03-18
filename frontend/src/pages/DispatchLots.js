@@ -1229,6 +1229,109 @@ const DispatchLots = () => {
           </div>
         </DialogContent>
       </Dialog>
+      
+      {/* Bulk Upload Dialog */}
+      <Dialog open={showBulkUploadDialog} onOpenChange={setShowBulkUploadDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              Bulk Upload Dispatch Lots
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-zinc-50 rounded-lg p-4 text-sm">
+              <p className="font-medium mb-2">Expected Excel columns:</p>
+              <ul className="space-y-1 text-muted-foreground">
+                <li><span className="font-mono bg-zinc-200 px-1 rounded">Buyer Name</span> - Customer name (must exist)</li>
+                <li><span className="font-mono bg-zinc-200 px-1 rounded">Forecast No</span> - Forecast code (e.g., FC_202603_0001)</li>
+                <li><span className="font-mono bg-zinc-200 px-1 rounded">SKU ID</span> - SKU code (must exist)</li>
+                <li><span className="font-mono bg-zinc-200 px-1 rounded">Qty</span> - Quantity</li>
+                <li><span className="font-mono bg-zinc-200 px-1 rounded">Serial No</span> - Temporary lot grouping ID</li>
+              </ul>
+              <p className="mt-3 text-xs border-t pt-2">
+                <strong>Note:</strong> Rows with the same Serial No will be grouped into one dispatch lot with multiple lines.
+              </p>
+            </div>
+            
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+              <input
+                ref={bulkFileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleBulkUpload}
+                className="hidden"
+                id="bulk-upload-input"
+              />
+              <label htmlFor="bulk-upload-input" className="cursor-pointer">
+                <Button variant="outline" disabled={bulkUploading} asChild>
+                  <span>{bulkUploading ? 'Uploading...' : 'Select Excel File'}</span>
+                </Button>
+              </label>
+              <p className="text-xs text-muted-foreground mt-2">Supports .xlsx and .xls files</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Notifications Panel */}
+      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
+        <DialogContent className="max-w-lg max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5" />
+              Notifications ({notifications.length})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Bell className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p>No unread notifications</p>
+              </div>
+            ) : (
+              notifications.map((n) => (
+                <div 
+                  key={n.id} 
+                  className={`p-4 border rounded-lg ${n.priority === 'HIGH' ? 'border-red-300 bg-red-50' : 'bg-zinc-50'}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        {n.type === 'DELAY_ALERT' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                        {n.type === 'COMPLETION_ALERT' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                        <span className="font-medium text-sm">{n.title}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">{n.message}</p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {new Date(n.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => handleMarkNotificationRead(n.id)}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex gap-2 pt-2 border-t">
+            <Button 
+              variant="outline" 
+              className="flex-1"
+              onClick={handleCheckDelaysAndCompletions}
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Check for Delays
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
