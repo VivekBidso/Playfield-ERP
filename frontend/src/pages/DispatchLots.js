@@ -996,7 +996,7 @@ const DispatchLots = () => {
               <div className="p-4 border rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-bold uppercase">Dispatch Readiness</span>
-                  <span className="font-mono font-bold text-lg">{selectedLot.readiness_pct || 0}%</span>
+                  <span className="font-mono font-bold text-lg">{selectedLot.readiness_pct || selectedLot.lot_readiness_pct || 0}%</span>
                 </div>
                 <div className="h-3 bg-zinc-200 rounded-full overflow-hidden">
                   <div 
@@ -1005,63 +1005,138 @@ const DispatchLots = () => {
                       selectedLot.readiness_status === 'PARTIAL' ? 'bg-yellow-500' :
                       'bg-red-400'
                     }`}
-                    style={{ width: `${selectedLot.readiness_pct || 0}%` }}
+                    style={{ width: `${selectedLot.readiness_pct || selectedLot.lot_readiness_pct || 0}%` }}
                   />
+                </div>
+              </div>
+
+              {/* Inventory & Completion Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Inventory Indicator */}
+                <div className={`p-4 border rounded-lg ${
+                  selectedLot.can_complete_with_current_inventory 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-orange-50 border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {selectedLot.can_complete_with_current_inventory ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-orange-600" />
+                    )}
+                    <span className="font-bold text-sm">
+                      {selectedLot.can_complete_with_current_inventory 
+                        ? 'Current Inventory Can Complete Lot' 
+                        : 'Insufficient Current Inventory'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 ml-7">
+                    {selectedLot.can_complete_with_current_inventory 
+                      ? 'All lines have sufficient FG inventory available (regardless of FIFO allocation)' 
+                      : 'Some lines require production to fulfill the required quantity'}
+                  </p>
+                </div>
+
+                {/* Estimated Completion */}
+                <div className="p-4 border rounded-lg bg-blue-50 border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    <span className="font-bold text-sm">Estimated Completion</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold mt-1 ml-7">
+                    {selectedLot.estimated_completion_date 
+                      ? new Date(selectedLot.estimated_completion_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : 'Not Scheduled'}
+                  </p>
+                  {selectedLot.delayed_lines > 0 && (
+                    <p className="text-xs text-red-600 mt-1 ml-7">
+                      {selectedLot.delayed_lines} line(s) behind schedule
+                    </p>
+                  )}
                 </div>
               </div>
 
               {/* Line Items Table */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="p-4 bg-zinc-50 border-b">
+                <div className="p-4 bg-zinc-50 border-b flex items-center justify-between">
                   <h3 className="font-bold uppercase text-sm">Line Items ({selectedLot.lines?.length || 0})</h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">FIFO Allocated:</span>
+                    <span className="font-bold">{selectedLot.total_allocated?.toLocaleString() || 0}</span>
+                    <span className="text-muted-foreground">/ {selectedLot.total_quantity?.toLocaleString() || 0}</span>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-100">
                       <tr>
-                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">#</th>
-                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">SKU</th>
-                        <th className="px-4 py-3 text-left font-mono text-xs uppercase">Description</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Required</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Available</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Pending</th>
-                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Readiness</th>
+                        <th className="px-3 py-3 text-left font-mono text-xs uppercase">#</th>
+                        <th className="px-3 py-3 text-left font-mono text-xs uppercase">SKU</th>
+                        <th className="px-3 py-3 text-right font-mono text-xs uppercase">Required</th>
+                        <th className="px-3 py-3 text-right font-mono text-xs uppercase">FIFO Alloc</th>
+                        <th className="px-3 py-3 text-right font-mono text-xs uppercase">Total Avail</th>
+                        <th className="px-3 py-3 text-center font-mono text-xs uppercase">Scheduled</th>
+                        <th className="px-3 py-3 text-center font-mono text-xs uppercase">Actual</th>
+                        <th className="px-3 py-3 text-center font-mono text-xs uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedLot.lines?.map((line, idx) => (
-                        <tr key={line.id || idx} className="border-t hover:bg-zinc-50">
-                          <td className="px-4 py-3 font-mono text-zinc-500">{line.line_number || idx + 1}</td>
-                          <td className="px-4 py-3 font-mono font-bold">{line.sku_id}</td>
-                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[200px]" title={line.sku_description}>
-                            {line.sku_description || '-'}
+                        <tr key={line.id || idx} className={`border-t hover:bg-zinc-50 ${line.is_delayed ? 'bg-red-50' : ''}`}>
+                          <td className="px-3 py-3 font-mono text-zinc-500">{line.line_number || idx + 1}</td>
+                          <td className="px-3 py-3">
+                            <div className="font-mono font-bold">{line.sku_id}</div>
+                            <div className="text-xs text-zinc-500 truncate max-w-[150px]">{line.sku_description || line.brand || ''}</div>
                           </td>
-                          <td className="px-4 py-3 font-mono font-bold text-right">{(line.quantity || 0).toLocaleString()}</td>
-                          <td className="px-4 py-3 font-mono text-right">
-                            <span className={line.available_qty >= line.quantity ? 'text-green-600' : 'text-red-500'}>
-                              {(line.available_qty || 0).toLocaleString()}
+                          <td className="px-3 py-3 font-mono font-bold text-right">{(line.quantity || 0).toLocaleString()}</td>
+                          <td className="px-3 py-3 font-mono text-right">
+                            <span className={line.allocated_inventory >= line.quantity ? 'text-green-600 font-bold' : 'text-orange-500'}>
+                              {(line.allocated_inventory || 0).toLocaleString()}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-right">
-                            {line.pending_qty > 0 ? (
-                              <span className="text-red-500 font-bold">{line.pending_qty.toLocaleString()}</span>
-                            ) : (
-                              <span className="text-green-600">0</span>
+                            {line.allocated_inventory >= line.quantity && (
+                              <CheckCircle2 className="inline w-3 h-3 text-green-500 ml-1" />
                             )}
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              {getReadinessIcon(line.readiness_status)}
-                              <span className={`text-xs font-mono px-2 py-1 rounded border ${getReadinessColor(line.readiness_status)}`}>
-                                {line.readiness_status}
+                          <td className="px-3 py-3 font-mono text-right text-zinc-500">
+                            {(line.total_available_inventory || line.available_qty || 0).toLocaleString()}
+                            {line.can_complete_with_current_inventory && (
+                              <span className="ml-1 text-green-500 text-xs">(OK)</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-center font-mono text-xs">
+                            {line.scheduled_date ? (
+                              <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                {new Date(line.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                               </span>
-                            </div>
+                            ) : (
+                              <span className="text-zinc-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-center font-mono text-xs">
+                            {line.actual_completion_date ? (
+                              <span className="bg-green-100 text-green-700 px-2 py-1 rounded">
+                                {new Date(line.actual_completion_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                              </span>
+                            ) : (
+                              <span className="text-zinc-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className={`text-xs px-2 py-1 rounded border ${
+                              line.status === 'READY' ? 'bg-green-100 text-green-700 border-green-300' :
+                              line.status === 'PRODUCED' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                              line.status === 'SCHEDULED' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                              line.is_delayed ? 'bg-red-100 text-red-700 border-red-300' :
+                              'bg-zinc-100 text-zinc-700 border-zinc-300'
+                            }`}>
+                              {line.is_delayed ? 'DELAYED' : (line.status || line.readiness_status || 'PENDING')}
+                            </span>
                           </td>
                         </tr>
                       ))}
                       {(!selectedLot.lines || selectedLot.lines.length === 0) && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                          <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
                             No line items found
                           </td>
                         </tr>
