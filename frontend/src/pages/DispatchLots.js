@@ -80,6 +80,8 @@ const DispatchLots = () => {
   useEffect(() => {
     fetchDispatchLots();
     fetchBuyersWithForecasts();
+    fetchDashboardSummary();
+    fetchNotifications();
   }, []);
 
   // When buyer changes, fetch brands and verticals
