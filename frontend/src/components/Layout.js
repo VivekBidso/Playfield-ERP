@@ -61,6 +61,7 @@ const Layout = () => {
     { path: "/demand", label: "Demand Forecasts", icon: TrendingUp, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
+    { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/sku-subscription", label: "SKU Subscription", icon: PackageCheck, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('BRANCH_OPS_USER') },
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     { path: "/raw-materials", label: "Raw Materials", icon: Package, show: (isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('TECH_OPS_ENGINEER')) && !hasRole('DEMAND_PLANNER') && !isCPCPlanner },
@@ -69,7 +70,7 @@ const Layout = () => {
     { path: "/skus", label: "SKUs", icon: Box, show: !isCPCPlanner },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     // Production Planning removed - CPC handles all production planning from forecasts
-    { path: "/production", label: "Production", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
+    { path: "/production", label: "Production", icon: Factory, show: isAdmin },
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: isAdmin || hasRole('QUALITY_INSPECTOR') },
     { path: "/logistics", label: "Logistics", icon: Truck, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/ibt", label: "IBT Transfers", icon: ArrowLeftRight, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') || hasRole('BRANCH_OPS_USER') },

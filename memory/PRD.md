@@ -704,3 +704,51 @@ Date 2026-03-20 (no override):   Base=500, Override=None, Effective=500, Type=ba
 
 *Last updated: March 18, 2026*
 *CPC Branch Capacity Override System complete*
+
+---
+
+## 16. BRANCH OPS DASHBOARD (March 18, 2026)
+
+### Requirement:
+- User x Branch mapped view for branch operations users
+- Separate page where branch users see ONLY their assigned branch's schedules
+- Date filtering: today, week, month, or custom date range
+
+### Implementation:
+
+#### New Backend Routes (`/app/backend/routes/branch_ops_routes.py`):
+1. **GET /api/branch-ops/my-branches** - Returns user's assigned branches
+2. **GET /api/branch-ops/schedules** - Get production schedules with filters
+   - `date_filter`: today, week, month, custom
+   - `start_date`, `end_date`: For custom range
+   - `branch`: Optional specific branch filter
+   - `status`: SCHEDULED, COMPLETED, CANCELLED
+3. **GET /api/branch-ops/dashboard** - Summary stats for user's branches
+4. **PUT /api/branch-ops/schedules/{id}/complete** - Mark schedule as completed
+
+#### Security:
+- Branch ops users ONLY see schedules for their `assigned_branches`
+- Master admin sees all branches
+- Branch access is validated on all operations
+
+#### New Frontend Page (`/app/frontend/src/pages/BranchOps.js`):
+- Dashboard cards: Today's Production, Today's Quantity, This Week, Completion Rate
+- Filters: Date Filter dropdown, Branch dropdown (if multiple), Status dropdown
+- Production Schedules table with Complete buttons
+- Complete dialog with quantity input and notes
+
+#### Test Users Created:
+- `branchops@unit1.com` / `bidso123` - Assigned to Unit 1 Vedica
+
+### Files Created/Modified:
+- `backend/routes/branch_ops_routes.py` (NEW)
+- `backend/routes/__init__.py` (updated)
+- `backend/server.py` (updated)
+- `frontend/src/pages/BranchOps.js` (NEW)
+- `frontend/src/App.js` (updated)
+- `frontend/src/components/Layout.js` (updated)
+
+---
+
+*Last updated: March 18, 2026*
+*Branch Ops Dashboard complete*
