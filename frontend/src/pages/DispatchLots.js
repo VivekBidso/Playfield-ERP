@@ -1097,7 +1097,7 @@ const DispatchLots = () => {
                       ))}
                       {(!selectedLot.lines || selectedLot.lines.length === 0) && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                          <td colSpan={9} className="px-4 py-8 text-center text-zinc-500">
                             No line items found
                           </td>
                         </tr>
