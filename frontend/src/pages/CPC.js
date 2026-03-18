@@ -71,6 +71,12 @@ const CPC = () => {
   // Branch forecast view
   const [branchForecast, setBranchForecast] = useState(null);
   
+  // Dispatch Lots dialog for forecast
+  const [showForecastLotsDialog, setShowForecastLotsDialog] = useState(false);
+  const [forecastLots, setForecastLots] = useState([]);
+  const [selectedForecast, setSelectedForecast] = useState(null);
+  const [loadingForecastLots, setLoadingForecastLots] = useState(false);
+  
   // Loading
   const [loading, setLoading] = useState(true);
 
