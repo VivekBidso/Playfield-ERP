@@ -1364,6 +1364,55 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
 
 
+@router.post("/forecasts/generate-error-report")
+async def generate_forecast_error_report(errors: List[dict]):
+    """
+    Generate Excel error report for failed forecast uploads.
+    Returns downloadable Excel file with error details.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import StreamingResponse
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Upload Errors"
+    
+    # Header styling
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
+    
+    # Headers
+    headers = ["Row #", "SKU ID", "Error Reason"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data rows
+    for row_idx, error in enumerate(errors, 2):
+        ws.cell(row=row_idx, column=1, value=error.get("row_num", ""))
+        ws.cell(row=row_idx, column=2, value=error.get("sku_id", ""))
+        ws.cell(row=row_idx, column=3, value=error.get("reason", ""))
+    
+    # Column widths
+    ws.column_dimensions['A'].width = 10
+    ws.column_dimensions['B'].width = 25
+    ws.column_dimensions['C'].width = 50
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=forecast_upload_errors.xlsx"}
+    )
+
+
 # =============================================================================
 # DISPATCH LOT BULK UPLOAD
 # =============================================================================
