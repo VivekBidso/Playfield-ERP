@@ -179,7 +179,7 @@ const DispatchLots = () => {
   const fetchLotDetails = async (lotId) => {
     setLoadingDetail(true);
     try {
-      const res = await axios.get(`${API}/dispatch-lots/${lotId}/details`, { headers: getHeaders() });
+      const res = await axios.get(`${API}/dispatch-lots/${lotId}/full-details`, { headers: getHeaders() });
       setSelectedLot(res.data);
       setShowDetailDialog(true);
     } catch (error) {
@@ -187,6 +187,82 @@ const DispatchLots = () => {
       toast.error("Failed to load lot details");
     } finally {
       setLoadingDetail(false);
+    }
+  };
+  
+  const fetchDashboardSummary = async () => {
+    try {
+      const res = await axios.get(`${API}/dispatch-lots/dashboard-summary`, { headers: getHeaders() });
+      setDashboardSummary(res.data);
+    } catch (error) {
+      console.error("Failed to fetch dashboard summary:", error);
+    }
+  };
+  
+  const fetchNotifications = async () => {
+    try {
+      const res = await axios.get(`${API}/notifications?unread_only=true&limit=20`, { headers: getHeaders() });
+      setNotifications(res.data);
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
+  };
+  
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setBulkUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await axios.post(`${API}/dispatch-lots/bulk-upload`, formData, {
+        headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' }
+      });
+      
+      toast.success(res.data.message);
+      if (res.data.errors?.length > 0) {
+        toast.warning(`${res.data.errors.length} rows had errors`);
+      }
+      
+      setShowBulkUploadDialog(false);
+      fetchDispatchLots();
+      fetchDashboardSummary();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Bulk upload failed");
+    } finally {
+      setBulkUploading(false);
+      if (bulkFileInputRef.current) bulkFileInputRef.current.value = '';
+    }
+  };
+  
+  const handleRunFifoAllocation = async () => {
+    try {
+      const res = await axios.post(`${API}/dispatch-lots/run-fifo-allocation`, {}, { headers: getHeaders() });
+      toast.success(res.data.message);
+      fetchDispatchLots();
+    } catch (error) {
+      toast.error("Failed to run FIFO allocation");
+    }
+  };
+  
+  const handleCheckDelaysAndCompletions = async () => {
+    try {
+      const res = await axios.post(`${API}/dispatch-lots/check-delays-and-completions`, {}, { headers: getHeaders() });
+      toast.success(res.data.message);
+      fetchNotifications();
+    } catch (error) {
+      toast.error("Failed to check delays");
+    }
+  };
+  
+  const handleMarkNotificationRead = async (notificationId) => {
+    try {
+      await axios.put(`${API}/notifications/${notificationId}/read`, {}, { headers: getHeaders() });
+      fetchNotifications();
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
     }
   };
 
