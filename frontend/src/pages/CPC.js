@@ -953,6 +953,120 @@ const CPC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Forecast Dispatch Lots Dialog */}
+      <Dialog open={showForecastLotsDialog} onOpenChange={setShowForecastLotsDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Dispatch Lots for Forecast
+            </DialogTitle>
+            <DialogDescription>
+              {selectedForecast && (
+                <span className="font-mono font-bold text-primary">{selectedForecast.forecast_code}</span>
+              )}
+              {selectedForecast && ` - ${selectedForecast.buyer_name || ''} | ${selectedForecast.sku_id || ''}`}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {loadingForecastLots ? (
+            <div className="py-8 text-center text-muted-foreground">Loading...</div>
+          ) : forecastLots.length === 0 ? (
+            <div className="py-8 text-center">
+              <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+              <p className="text-muted-foreground">No dispatch lots linked to this forecast</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Create dispatch lots from the Dispatch module to link them to forecasts
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-zinc-50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-primary">{forecastLots.length}</div>
+                  <div className="text-xs text-muted-foreground uppercase">Dispatch Lots</div>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-green-600">
+                    {forecastLots.reduce((sum, l) => sum + (l.forecast_qty_in_lot || 0), 0).toLocaleString()}
+                  </div>
+                  <div className="text-xs text-muted-foreground uppercase">Total Qty Assigned</div>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {selectedForecast?.forecast_qty?.toLocaleString() || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground uppercase">Forecast Qty</div>
+                </div>
+              </div>
+
+              {/* Lots Table */}
+              <div className="border rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-100 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-mono text-xs uppercase">Lot Code</th>
+                      <th className="px-4 py-3 text-left font-mono text-xs uppercase">Buyer</th>
+                      <th className="px-4 py-3 text-right font-mono text-xs uppercase">Qty in Lot</th>
+                      <th className="px-4 py-3 text-center font-mono text-xs uppercase">Lines</th>
+                      <th className="px-4 py-3 text-center font-mono text-xs uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forecastLots.map((lot) => (
+                      <tr key={lot.id} className="border-t hover:bg-zinc-50">
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-bold text-primary">{lot.lot_code}</span>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-600">{lot.buyer_name || '-'}</td>
+                        <td className="px-4 py-3 font-mono font-bold text-right text-green-600">
+                          {(lot.forecast_qty_in_lot || lot.total_quantity || 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant="secondary" className="font-mono">
+                            {lot.forecast_lines?.length || lot.line_count || 0}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge className={`text-xs ${
+                            lot.status === 'DISPATCHED' ? 'bg-green-100 text-green-700' :
+                            lot.status === 'READY' ? 'bg-blue-100 text-blue-700' :
+                            lot.status === 'IN_PROGRESS' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-zinc-100 text-zinc-700'
+                          }`}>
+                            {lot.status || 'CREATED'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Forecast Lines Detail */}
+              {forecastLots.some(l => l.forecast_lines?.length > 0) && (
+                <div className="border-t pt-4">
+                  <p className="text-xs text-muted-foreground uppercase mb-2">Line Details</p>
+                  <div className="space-y-2">
+                    {forecastLots.map((lot) => (
+                      lot.forecast_lines?.map((line, idx) => (
+                        <div key={`${lot.id}-${idx}`} className="flex items-center justify-between bg-zinc-50 rounded px-3 py-2 text-sm">
+                          <span className="font-mono text-zinc-600">{lot.lot_code} / Line {line.line_number}</span>
+                          <span className="font-mono">{line.sku_id}</span>
+                          <span className="font-mono font-bold">{line.quantity?.toLocaleString()}</span>
+                          <Badge variant="outline" className="text-xs">{line.status || 'PENDING'}</Badge>
+                        </div>
+                      ))
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
