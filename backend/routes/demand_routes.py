@@ -1188,7 +1188,12 @@ async def get_dispatch_lots_with_readiness(
 # --- Bulk Upload ---
 @router.post("/forecasts/parse-excel")
 async def parse_forecast_excel(file: UploadFile = File(...)):
-    """Parse Excel/CSV file for bulk forecast upload"""
+    """
+    Parse Excel/CSV file for bulk forecast upload.
+    Required columns: Month, SKU ID, Quantity
+    Optional columns: Vertical, Brand, Model, Buyer (auto-filled from SKU master)
+    Returns validated forecasts and errors for invalid SKUs.
+    """
     import openpyxl
     import csv
     
@@ -1196,21 +1201,23 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No file provided")
     
     contents = await file.read()
-    forecasts = []
+    raw_rows = []
     
     try:
         if file.filename.endswith('.csv'):
             # Parse CSV
             text = contents.decode('utf-8')
             reader = csv.DictReader(io.StringIO(text))
-            for row in reader:
-                forecasts.append({
+            for row_num, row in enumerate(reader, start=2):
+                raw_rows.append({
+                    "row_num": row_num,
                     "month": row.get('Month', row.get('month', '')),
                     "vertical": row.get('Vertical', row.get('vertical', '')),
                     "model": row.get('Model', row.get('model', '')),
                     "brand": row.get('Brand', row.get('brand', '')),
-                    "sku_id": row.get('SKU', row.get('sku', row.get('sku_id', ''))),
-                    "quantity": int(row.get('Qty', row.get('qty', row.get('quantity', 0))) or 0)
+                    "sku_id": row.get('SKU', row.get('sku', row.get('SKU ID', row.get('sku_id', '')))),
+                    "quantity": row.get('Qty', row.get('qty', row.get('Quantity', row.get('quantity', 0)))),
+                    "buyer": row.get('Buyer', row.get('buyer', row.get('Buyer Name', '')))
                 })
         else:
             # Parse Excel
@@ -1220,33 +1227,138 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
             headers = []
             for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
                 if row_idx == 0:
-                    # Header row
-                    headers = [str(h).lower() if h else '' for h in row]
+                    # Header row - normalize headers
+                    headers = [str(h).lower().strip() if h else '' for h in row]
                     continue
                 
                 if not any(row):
                     continue
                 
                 row_data = dict(zip(headers, row))
-                forecasts.append({
-                    "month": str(row_data.get('month', '')),
-                    "vertical": str(row_data.get('vertical', '')),
-                    "model": str(row_data.get('model', '')),
-                    "brand": str(row_data.get('brand', '')),
-                    "sku_id": str(row_data.get('sku', row_data.get('sku_id', ''))),
-                    "quantity": int(row_data.get('qty', row_data.get('quantity', 0)) or 0)
+                raw_rows.append({
+                    "row_num": row_idx + 1,
+                    "month": str(row_data.get('month', '') or ''),
+                    "vertical": str(row_data.get('vertical', '') or ''),
+                    "model": str(row_data.get('model', '') or ''),
+                    "brand": str(row_data.get('brand', '') or ''),
+                    "sku_id": str(row_data.get('sku', row_data.get('sku id', row_data.get('sku_id', ''))) or ''),
+                    "quantity": row_data.get('qty', row_data.get('quantity', 0)),
+                    "buyer": str(row_data.get('buyer', row_data.get('buyer name', '')) or '')
                 })
             wb.close()
         
-        # Validate and enrich data
+        # Load SKU master data for validation and auto-fill
+        skus = await db.skus.find({}, {"_id": 0}).to_list(50000)
+        sku_map = {s.get("sku_id", "").upper(): s for s in skus}
+        
+        # Load verticals for mapping
         verticals_list = await db.verticals.find({}, {"_id": 0}).to_list(100)
         vertical_map = {v['name'].lower(): v['id'] for v in verticals_list}
+        vertical_by_id = {v['id']: v for v in verticals_list}
         
-        for f in forecasts:
-            v_name = f.get('vertical', '').lower()
-            f['vertical_id'] = vertical_map.get(v_name)
+        # Load brands for mapping
+        brands_list = await db.brands.find({}, {"_id": 0}).to_list(1000)
+        brand_by_id = {b['id']: b for b in brands_list}
         
-        return {"forecasts": forecasts, "count": len(forecasts)}
+        # Load models for mapping
+        models_list = await db.models.find({}, {"_id": 0}).to_list(5000)
+        model_by_id = {m['id']: m for m in models_list}
+        
+        # Load buyers for mapping
+        buyers_list = await db.buyers.find({"status": "ACTIVE"}, {"_id": 0}).to_list(1000)
+        buyer_map = {b['name'].lower(): b for b in buyers_list}
+        
+        # Process rows - validate and enrich
+        valid_forecasts = []
+        errors = []
+        
+        for row in raw_rows:
+            sku_id = str(row.get('sku_id', '')).strip().upper()
+            
+            # Validate required fields
+            if not sku_id:
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id or "(empty)",
+                    "reason": "SKU ID is required"
+                })
+                continue
+            
+            if not row.get('month'):
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id,
+                    "reason": "Month is required"
+                })
+                continue
+            
+            try:
+                quantity = int(row.get('quantity', 0) or 0)
+                if quantity <= 0:
+                    errors.append({
+                        "row_num": row['row_num'],
+                        "sku_id": sku_id,
+                        "reason": "Quantity must be greater than 0"
+                    })
+                    continue
+            except (ValueError, TypeError):
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id,
+                    "reason": f"Invalid quantity: {row.get('quantity')}"
+                })
+                continue
+            
+            # Validate SKU exists in system
+            sku = sku_map.get(sku_id)
+            if not sku:
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id,
+                    "reason": "SKU not found in system"
+                })
+                continue
+            
+            # Auto-fill from SKU master data
+            vertical_id = sku.get('vertical_id')
+            brand_id = sku.get('brand_id')
+            model_id = sku.get('model_id')
+            
+            vertical_name = vertical_by_id.get(vertical_id, {}).get('name', row.get('vertical', ''))
+            brand_name = brand_by_id.get(brand_id, {}).get('name', row.get('brand', ''))
+            model_name = model_by_id.get(model_id, {}).get('name', row.get('model', ''))
+            
+            # Handle buyer (optional)
+            buyer_id = None
+            buyer_name = row.get('buyer', '').strip()
+            if buyer_name:
+                buyer = buyer_map.get(buyer_name.lower())
+                if buyer:
+                    buyer_id = buyer.get('id')
+                    buyer_name = buyer.get('name')
+            
+            # Build valid forecast
+            valid_forecasts.append({
+                "row_num": row['row_num'],
+                "month": str(row['month']),
+                "vertical": vertical_name,
+                "vertical_id": vertical_id,
+                "model": model_name,
+                "model_id": model_id,
+                "brand": brand_name,
+                "brand_id": brand_id,
+                "sku_id": sku_id,
+                "quantity": quantity,
+                "buyer": buyer_name,
+                "buyer_id": buyer_id
+            })
+        
+        return {
+            "forecasts": valid_forecasts,
+            "count": len(valid_forecasts),
+            "errors": errors,
+            "error_count": len(errors)
+        }
     
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
