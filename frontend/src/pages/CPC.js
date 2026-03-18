@@ -157,6 +157,20 @@ const CPC = () => {
     }
   };
 
+  const fetchForecastDispatchLots = async (forecast) => {
+    setLoadingForecastLots(true);
+    setSelectedForecast(forecast);
+    try {
+      const res = await axios.get(`${API}/forecasts/${forecast.id}/dispatch-lots`);
+      setForecastLots(res.data);
+      setShowForecastLotsDialog(true);
+    } catch (error) {
+      toast.error("Failed to fetch dispatch lots");
+    } finally {
+      setLoadingForecastLots(false);
+    }
+  };
+
   const handleUpdateCapacity = async () => {
     try {
       await axios.put(`${API}/branches/${capacityForm.branch}/capacity`, {
