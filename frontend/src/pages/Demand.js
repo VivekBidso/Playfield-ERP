@@ -447,7 +447,7 @@ const Demand = () => {
 
   const handleBulkUpload = async () => {
     if (uploadPreview.length === 0) {
-      toast.error("No data to upload");
+      toast.error("No valid data to upload");
       return;
     }
     
@@ -463,8 +463,11 @@ const Demand = () => {
           await axios.post(`${API}/forecasts`, {
             forecast_month: new Date(row.month + "-01").toISOString(),
             vertical_id: row.vertical_id,
+            brand_id: row.brand_id,
+            model_id: row.model_id,
             sku_id: row.sku_id,
             quantity: row.quantity,
+            buyer_id: row.buyer_id || undefined,
             priority: "MEDIUM"
           }, { headers });
           successCount++;
@@ -476,11 +479,45 @@ const Demand = () => {
       toast.success(`Uploaded ${successCount} forecasts. ${errorCount > 0 ? `${errorCount} failed.` : ''}`);
       setShowUploadDialog(false);
       setUploadPreview([]);
+      setUploadErrors([]);
       fetchAllData();
     } catch (error) {
       toast.error("Bulk upload failed");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const downloadErrorReport = async () => {
+    if (uploadErrors.length === 0) return;
+    
+    setDownloadingErrors(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(
+        `${API}/forecasts/generate-error-report`,
+        uploadErrors,
+        { 
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          responseType: 'blob'
+        }
+      );
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'forecast_upload_errors.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Error report downloaded");
+    } catch (error) {
+      toast.error("Failed to download error report");
+    } finally {
+      setDownloadingErrors(false);
     }
   };
 
