@@ -1216,3 +1216,824 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
     
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+
+
+# =============================================================================
+# DISPATCH LOT BULK UPLOAD
+# =============================================================================
+
+class DispatchLotBulkUploadLine(BaseModel):
+    """Single line from bulk upload"""
+    buyer_name: str
+    forecast_no: str
+    sku_id: str
+    quantity: int
+    serial_no: int  # Temporary lot grouping identifier
+
+
+@router.post("/dispatch-lots/bulk-upload")
+async def bulk_upload_dispatch_lots(file: UploadFile = File(...)):
+    """
+    Bulk upload dispatch lots from Excel.
+    Expected columns: Buyer Name | Forecast No | SKU ID | Qty | Serial No
+    Rows with same Serial No become one dispatch lot with multiple lines.
+    """
+    import openpyxl
+    
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
+    
+    contents = await file.read()
+    
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contents))
+        ws = wb.active
+        
+        # Get headers
+        headers = [str(cell.value).lower().strip() if cell.value else "" for cell in ws[1]]
+        
+        # Map columns
+        col_map = {}
+        for idx, h in enumerate(headers):
+            if "buyer" in h and "name" in h:
+                col_map["buyer_name"] = idx
+            elif "forecast" in h:
+                col_map["forecast_no"] = idx
+            elif "sku" in h:
+                col_map["sku_id"] = idx
+            elif "qty" in h or "quantity" in h:
+                col_map["quantity"] = idx
+            elif "serial" in h:
+                col_map["serial_no"] = idx
+        
+        required = ["buyer_name", "forecast_no", "sku_id", "quantity", "serial_no"]
+        missing = [r for r in required if r not in col_map]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing columns: {missing}. Expected: Buyer Name, Forecast No, SKU ID, Qty, Serial No")
+        
+        # Parse rows and group by serial_no
+        lots_data = {}  # serial_no -> {buyer_name, lines: [...]}
+        errors = []
+        
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or not any(row):
+                continue
+            
+            try:
+                buyer_name = str(row[col_map["buyer_name"]]).strip() if row[col_map["buyer_name"]] else ""
+                forecast_no = str(row[col_map["forecast_no"]]).strip() if row[col_map["forecast_no"]] else ""
+                sku_id = str(row[col_map["sku_id"]]).strip() if row[col_map["sku_id"]] else ""
+                quantity = int(row[col_map["quantity"]] or 0)
+                serial_no = int(row[col_map["serial_no"]] or 0)
+                
+                if not buyer_name or not sku_id or quantity <= 0 or serial_no <= 0:
+                    errors.append(f"Row {row_num}: Invalid data (missing buyer/sku/qty/serial)")
+                    continue
+                
+                if serial_no not in lots_data:
+                    lots_data[serial_no] = {"buyer_name": buyer_name, "lines": []}
+                
+                lots_data[serial_no]["lines"].append({
+                    "forecast_no": forecast_no,
+                    "sku_id": sku_id,
+                    "quantity": quantity
+                })
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        wb.close()
+        
+        # Get buyers map
+        buyers = await db.buyers.find({"status": "ACTIVE"}, {"_id": 0}).to_list(1000)
+        buyer_map = {b["name"].lower(): b for b in buyers}
+        
+        # Get forecasts map
+        forecasts = await db.forecasts.find({}, {"_id": 0}).to_list(10000)
+        forecast_map = {f["forecast_code"]: f for f in forecasts}
+        
+        # Get SKUs map
+        skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+        sku_map = {s["sku_id"]: s for s in skus}
+        
+        # Create dispatch lots
+        lots_created = 0
+        lines_created = 0
+        
+        for serial_no, lot_data in sorted(lots_data.items()):
+            buyer_name = lot_data["buyer_name"]
+            buyer = buyer_map.get(buyer_name.lower())
+            
+            if not buyer:
+                errors.append(f"Serial {serial_no}: Buyer '{buyer_name}' not found")
+                continue
+            
+            # Generate lot code
+            count = await db.dispatch_lots.count_documents({})
+            lot_code = f"DL_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+            lot_id = str(uuid.uuid4())
+            
+            # Calculate total quantity and process lines
+            total_quantity = 0
+            lines_to_create = []
+            
+            for idx, line in enumerate(lot_data["lines"]):
+                sku_id = line["sku_id"]
+                sku = sku_map.get(sku_id)
+                
+                if not sku:
+                    errors.append(f"Serial {serial_no}, Line {idx+1}: SKU '{sku_id}' not found")
+                    continue
+                
+                # Find forecast
+                forecast = forecast_map.get(line["forecast_no"])
+                forecast_id = forecast["id"] if forecast else None
+                
+                line_record = {
+                    "id": str(uuid.uuid4()),
+                    "lot_id": lot_id,
+                    "lot_code": lot_code,
+                    "line_number": idx + 1,
+                    "sku_id": sku_id,
+                    "brand_id": sku.get("brand_id"),
+                    "vertical_id": sku.get("vertical_id"),
+                    "forecast_id": forecast_id,
+                    "forecast_code": line["forecast_no"],
+                    "quantity": line["quantity"],
+                    "allocated_inventory": 0,
+                    "produced_qty": 0,
+                    "dispatched_qty": 0,
+                    "scheduled_date": None,
+                    "actual_completion_date": None,
+                    "status": "PENDING",
+                    "created_at": datetime.now(timezone.utc)
+                }
+                lines_to_create.append(line_record)
+                total_quantity += line["quantity"]
+            
+            if not lines_to_create:
+                continue
+            
+            # Create lot
+            lot = {
+                "id": lot_id,
+                "lot_code": lot_code,
+                "buyer_id": buyer["id"],
+                "buyer_name": buyer["name"],
+                "target_date": None,  # Will be computed from production schedules
+                "priority": "MEDIUM",
+                "notes": f"Bulk upload - Serial #{serial_no}",
+                "status": "CREATED",
+                "total_quantity": total_quantity,
+                "total_allocated": 0,
+                "total_produced": 0,
+                "total_dispatched": 0,
+                "line_count": len(lines_to_create),
+                "estimated_completion_date": None,
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.dispatch_lots.insert_one(lot)
+            lots_created += 1
+            
+            # Create lines
+            if lines_to_create:
+                await db.dispatch_lot_lines.insert_many(lines_to_create)
+                lines_created += len(lines_to_create)
+        
+        # Run FIFO allocation after creating lots
+        await run_fifo_allocation()
+        
+        # Update lot production dates
+        await update_lot_production_dates()
+        
+        return {
+            "message": f"Bulk upload complete: {lots_created} lots created with {lines_created} lines",
+            "lots_created": lots_created,
+            "lines_created": lines_created,
+            "errors": errors[:20] if errors else []
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+
+
+# =============================================================================
+# FIFO INVENTORY ALLOCATION
+# =============================================================================
+
+async def run_fifo_allocation():
+    """
+    Auto-allocate FG inventory to dispatch lots on FIFO basis.
+    Oldest lots (by created_at) get inventory first.
+    """
+    # Get all active dispatch lots ordered by creation date (FIFO)
+    lots = await db.dispatch_lots.find(
+        {"status": {"$nin": ["DISPATCHED", "DELIVERED", "CANCELLED"]}},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(10000)
+    
+    if not lots:
+        return
+    
+    lot_ids = [lot["id"] for lot in lots]
+    
+    # Get all lines for these lots
+    all_lines = await db.dispatch_lot_lines.find(
+        {"lot_id": {"$in": lot_ids}},
+        {"_id": 0}
+    ).to_list(50000)
+    
+    # Group lines by lot_id and maintain lot order
+    lines_by_lot = {}
+    for lot in lots:
+        lines_by_lot[lot["id"]] = []
+    
+    for line in all_lines:
+        lot_id = line.get("lot_id")
+        if lot_id in lines_by_lot:
+            lines_by_lot[lot_id].append(line)
+    
+    # Get all unique SKU IDs
+    sku_ids = list(set(line.get("sku_id") for line in all_lines if line.get("sku_id")))
+    
+    # Get current inventory by SKU
+    # From FG inventory
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
+        {"sku_id": 1, "quantity": 1, "_id": 0}
+    ).to_list(50000)
+    
+    inventory_by_sku = {}
+    for inv in fg_inventory:
+        sku = inv.get("sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+    
+    # Also add from SKU current_stock if no FG inventory
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "current_stock": 1}).to_list(10000)
+    for sku in skus:
+        sid = sku.get("sku_id")
+        if sid not in inventory_by_sku or inventory_by_sku[sid] == 0:
+            inventory_by_sku[sid] = sku.get("current_stock", 0)
+    
+    # Track remaining inventory as we allocate
+    remaining_inventory = dict(inventory_by_sku)
+    
+    # Allocate inventory to lots in FIFO order
+    for lot in lots:
+        lot_id = lot["id"]
+        lines = lines_by_lot.get(lot_id, [])
+        lot_total_allocated = 0
+        
+        for line in lines:
+            sku_id = line.get("sku_id")
+            required = line.get("quantity", 0)
+            available = remaining_inventory.get(sku_id, 0)
+            
+            # Allocate what we can
+            allocated = min(required, available)
+            
+            # Update line allocation
+            await db.dispatch_lot_lines.update_one(
+                {"id": line["id"]},
+                {"$set": {
+                    "allocated_inventory": allocated,
+                    "status": "READY" if allocated >= required else ("PARTIAL" if allocated > 0 else "PENDING")
+                }}
+            )
+            
+            # Reduce remaining inventory
+            remaining_inventory[sku_id] = available - allocated
+            lot_total_allocated += allocated
+        
+        # Update lot total allocation
+        await db.dispatch_lots.update_one(
+            {"id": lot_id},
+            {"$set": {"total_allocated": lot_total_allocated}}
+        )
+
+
+@router.post("/dispatch-lots/run-fifo-allocation")
+async def trigger_fifo_allocation():
+    """Manually trigger FIFO inventory allocation"""
+    await run_fifo_allocation()
+    return {"message": "FIFO allocation completed"}
+
+
+# =============================================================================
+# PRODUCTION DATE TRACKING
+# =============================================================================
+
+async def update_lot_production_dates():
+    """
+    Update dispatch lot lines with production dates from schedules.
+    Lot completion = last production date across all lines.
+    """
+    # Get all active lots
+    lots = await db.dispatch_lots.find(
+        {"status": {"$nin": ["DISPATCHED", "DELIVERED", "CANCELLED"]}},
+        {"_id": 0}
+    ).to_list(10000)
+    
+    if not lots:
+        return
+    
+    lot_ids = [lot["id"] for lot in lots]
+    
+    # Get all lines
+    all_lines = await db.dispatch_lot_lines.find(
+        {"lot_id": {"$in": lot_ids}},
+        {"_id": 0}
+    ).to_list(50000)
+    
+    # Get forecast IDs from lines
+    forecast_ids = list(set(line.get("forecast_id") for line in all_lines if line.get("forecast_id")))
+    
+    # Get production schedules for these forecasts
+    schedules = await db.production_schedules.find(
+        {"forecast_id": {"$in": forecast_ids}, "status": {"$ne": "CANCELLED"}},
+        {"_id": 0}
+    ).to_list(50000)
+    
+    # Group schedules by forecast_id
+    schedules_by_forecast = {}
+    for s in schedules:
+        fid = s.get("forecast_id")
+        if fid:
+            if fid not in schedules_by_forecast:
+                schedules_by_forecast[fid] = []
+            schedules_by_forecast[fid].append(s)
+    
+    # Update each line with production dates
+    lines_by_lot = {}
+    for line in all_lines:
+        lot_id = line.get("lot_id")
+        if lot_id not in lines_by_lot:
+            lines_by_lot[lot_id] = []
+        
+        forecast_id = line.get("forecast_id")
+        schedules_for_line = schedules_by_forecast.get(forecast_id, [])
+        
+        # Get scheduled date (earliest) and actual completion (latest completed)
+        scheduled_date = None
+        actual_completion = None
+        
+        for s in schedules_for_line:
+            sched_date = s.get("scheduled_date") or s.get("production_date")
+            if sched_date:
+                if isinstance(sched_date, str):
+                    try:
+                        sched_date = datetime.fromisoformat(sched_date.replace('Z', '+00:00'))
+                    except:
+                        pass
+                if isinstance(sched_date, datetime):
+                    if scheduled_date is None or sched_date < scheduled_date:
+                        scheduled_date = sched_date
+            
+            # Check for completion
+            if s.get("status") in ["COMPLETED", "DONE"]:
+                comp_date = s.get("completed_at") or s.get("scheduled_date")
+                if comp_date:
+                    if isinstance(comp_date, str):
+                        try:
+                            comp_date = datetime.fromisoformat(comp_date.replace('Z', '+00:00'))
+                        except:
+                            pass
+                    if isinstance(comp_date, datetime):
+                        if actual_completion is None or comp_date > actual_completion:
+                            actual_completion = comp_date
+        
+        # Update line
+        update_data = {}
+        if scheduled_date:
+            update_data["scheduled_date"] = scheduled_date
+        if actual_completion:
+            update_data["actual_completion_date"] = actual_completion
+        
+        if update_data:
+            await db.dispatch_lot_lines.update_one(
+                {"id": line["id"]},
+                {"$set": update_data}
+            )
+        
+        # Store for lot-level calculation
+        lines_by_lot[lot_id].append({
+            **line,
+            "scheduled_date": scheduled_date,
+            "actual_completion_date": actual_completion
+        })
+    
+    # Update lot-level estimated completion (last date among all lines)
+    for lot_id, lines in lines_by_lot.items():
+        latest_date = None
+        for line in lines:
+            # Use actual if available, else scheduled
+            line_date = line.get("actual_completion_date") or line.get("scheduled_date")
+            if line_date:
+                if latest_date is None or line_date > latest_date:
+                    latest_date = line_date
+        
+        if latest_date:
+            await db.dispatch_lots.update_one(
+                {"id": lot_id},
+                {"$set": {"estimated_completion_date": latest_date}}
+            )
+
+
+@router.post("/dispatch-lots/update-production-dates")
+async def trigger_update_production_dates():
+    """Manually trigger production date update for all lots"""
+    await update_lot_production_dates()
+    return {"message": "Production dates updated for all lots"}
+
+
+# =============================================================================
+# DISPATCH LOT DETAILS WITH PRODUCTION INFO
+# =============================================================================
+
+@router.get("/dispatch-lots/{lot_id}/full-details")
+async def get_dispatch_lot_full_details(lot_id: str):
+    """
+    Get dispatch lot with full details including:
+    - Production dates (scheduled vs actual) per line
+    - FIFO allocated inventory per line
+    - Visual indicator if current inventory can complete lot
+    - Lot completion timeline
+    """
+    # Get the lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Get buyer info
+    buyer = None
+    if lot.get("buyer_id"):
+        buyer = await db.buyers.find_one({"id": lot["buyer_id"]}, {"_id": 0})
+    
+    # Get lines
+    lines = await db.dispatch_lot_lines.find({"lot_id": lot_id}, {"_id": 0}).to_list(1000)
+    
+    # Get SKU details
+    sku_ids = [line.get("sku_id") for line in lines if line.get("sku_id")]
+    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(1000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    # Get total inventory (not allocated, just total available)
+    fg_inventory = await db.fg_inventory.find(
+        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
+        {"sku_id": 1, "quantity": 1, "_id": 0}
+    ).to_list(5000)
+    
+    total_inventory_by_sku = {}
+    for inv in fg_inventory:
+        sku = inv.get("sku_id")
+        total_inventory_by_sku[sku] = total_inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+    
+    # Also add SKU current_stock
+    for sku in skus:
+        sid = sku.get("sku_id")
+        if sid not in total_inventory_by_sku or total_inventory_by_sku[sid] == 0:
+            total_inventory_by_sku[sid] = sku.get("current_stock", 0)
+    
+    # Get production schedules for forecasts in this lot
+    forecast_ids = [line.get("forecast_id") for line in lines if line.get("forecast_id")]
+    schedules = await db.production_schedules.find(
+        {"forecast_id": {"$in": forecast_ids}},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    schedules_by_forecast = {}
+    for s in schedules:
+        fid = s.get("forecast_id")
+        if fid:
+            if fid not in schedules_by_forecast:
+                schedules_by_forecast[fid] = []
+            schedules_by_forecast[fid].append(s)
+    
+    # Process lines
+    lines_enriched = []
+    latest_completion = None
+    can_complete_with_current_inventory = True
+    
+    for line in lines:
+        sku_id = line.get("sku_id")
+        sku = sku_map.get(sku_id, {})
+        required_qty = line.get("quantity", 0)
+        allocated_qty = line.get("allocated_inventory", 0)
+        total_available = total_inventory_by_sku.get(sku_id, 0)
+        
+        # Check if current inventory can complete this line (visual indicator)
+        can_complete_line = total_available >= required_qty
+        if not can_complete_line:
+            can_complete_with_current_inventory = False
+        
+        # Get production schedule info
+        forecast_id = line.get("forecast_id")
+        line_schedules = schedules_by_forecast.get(forecast_id, [])
+        
+        scheduled_date = line.get("scheduled_date")
+        actual_date = line.get("actual_completion_date")
+        
+        # Determine line status
+        line_status = line.get("status", "PENDING")
+        if allocated_qty >= required_qty:
+            line_status = "READY"
+        elif actual_date:
+            line_status = "PRODUCED"
+        elif scheduled_date:
+            line_status = "SCHEDULED"
+        
+        # Check for delay
+        is_delayed = False
+        if scheduled_date and not actual_date:
+            if isinstance(scheduled_date, str):
+                try:
+                    scheduled_date = datetime.fromisoformat(scheduled_date.replace('Z', '+00:00'))
+                except:
+                    pass
+            if isinstance(scheduled_date, datetime):
+                if scheduled_date < datetime.now(timezone.utc):
+                    is_delayed = True
+        
+        # Track latest completion for lot timeline
+        line_completion = actual_date or scheduled_date
+        if line_completion:
+            if isinstance(line_completion, str):
+                try:
+                    line_completion = datetime.fromisoformat(line_completion.replace('Z', '+00:00'))
+                except:
+                    pass
+            if isinstance(line_completion, datetime):
+                if latest_completion is None or line_completion > latest_completion:
+                    latest_completion = line_completion
+        
+        lines_enriched.append({
+            **line,
+            "sku_description": sku.get("description", ""),
+            "brand": sku.get("brand", ""),
+            "vertical": sku.get("vertical", ""),
+            "model": sku.get("model", ""),
+            "allocated_inventory": allocated_qty,
+            "total_available_inventory": total_available,
+            "can_complete_with_current_inventory": can_complete_line,
+            "readiness_pct": round((allocated_qty / required_qty * 100) if required_qty > 0 else 0, 1),
+            "scheduled_date": line.get("scheduled_date"),
+            "actual_completion_date": line.get("actual_completion_date"),
+            "production_schedules": line_schedules,
+            "status": line_status,
+            "is_delayed": is_delayed
+        })
+    
+    # Calculate lot-level stats
+    ready_lines = sum(1 for l in lines_enriched if l["status"] == "READY")
+    delayed_lines = sum(1 for l in lines_enriched if l.get("is_delayed"))
+    
+    return {
+        **lot,
+        "buyer": buyer,
+        "lines": lines_enriched,
+        "estimated_completion_date": latest_completion,
+        "can_complete_with_current_inventory": can_complete_with_current_inventory,
+        "ready_lines": ready_lines,
+        "delayed_lines": delayed_lines,
+        "total_lines": len(lines_enriched),
+        "lot_readiness_pct": round((ready_lines / len(lines_enriched) * 100) if lines_enriched else 0, 1)
+    }
+
+
+# =============================================================================
+# NOTIFICATIONS SYSTEM
+# =============================================================================
+
+@router.get("/notifications")
+async def get_notifications(
+    user_role: Optional[str] = None,
+    unread_only: bool = True,
+    limit: int = 50
+):
+    """Get notifications for dashboard"""
+    query = {}
+    if user_role:
+        query["target_roles"] = {"$in": [user_role, "all"]}
+    if unread_only:
+        query["is_read"] = False
+    
+    notifications = await db.notifications.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return notifications
+
+
+@router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str):
+    """Mark a notification as read"""
+    result = await db.notifications.update_one(
+        {"id": notification_id},
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification marked as read"}
+
+
+@router.put("/notifications/mark-all-read")
+async def mark_all_notifications_read(user_role: Optional[str] = None):
+    """Mark all notifications as read"""
+    query = {}
+    if user_role:
+        query["target_roles"] = {"$in": [user_role, "all"]}
+    
+    result = await db.notifications.update_many(
+        query,
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc)}}
+    )
+    return {"message": f"Marked {result.modified_count} notifications as read"}
+
+
+async def create_notification(
+    notification_type: str,
+    title: str,
+    message: str,
+    target_roles: List[str],
+    reference_type: Optional[str] = None,
+    reference_id: Optional[str] = None,
+    priority: str = "NORMAL"
+):
+    """Create a new notification"""
+    notification = {
+        "id": str(uuid.uuid4()),
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "target_roles": target_roles,
+        "reference_type": reference_type,
+        "reference_id": reference_id,
+        "priority": priority,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notification)
+    return notification
+
+
+@router.post("/dispatch-lots/check-delays-and-completions")
+async def check_delays_and_completions():
+    """
+    Check for:
+    1. Lines delayed (scheduled date passed, not completed) -> Notify demand team
+    2. Lots completing in 2 days -> Notify teams for QC/Dispatch prep
+    """
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+    in_two_days = today + timedelta(days=2)
+    
+    notifications_created = 0
+    
+    # 1. Check for delayed lines
+    delayed_lines = await db.dispatch_lot_lines.find({
+        "scheduled_date": {"$lt": today},
+        "actual_completion_date": None,
+        "status": {"$nin": ["READY", "COMPLETED"]}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Group by lot
+    delayed_by_lot = {}
+    for line in delayed_lines:
+        lot_id = line.get("lot_id")
+        if lot_id not in delayed_by_lot:
+            delayed_by_lot[lot_id] = []
+        delayed_by_lot[lot_id].append(line)
+    
+    for lot_id, lines in delayed_by_lot.items():
+        lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+        if not lot:
+            continue
+        
+        # Check if notification already exists for this lot today
+        existing = await db.notifications.find_one({
+            "reference_type": "dispatch_lot_delay",
+            "reference_id": lot_id,
+            "created_at": {"$gte": today}
+        })
+        
+        if not existing:
+            await create_notification(
+                notification_type="DELAY_ALERT",
+                title=f"Dispatch Lot {lot.get('lot_code')} Running Behind Schedule",
+                message=f"{len(lines)} line(s) delayed. Lot readiness timeline may be affected.",
+                target_roles=["demand_planner", "master_admin"],
+                reference_type="dispatch_lot_delay",
+                reference_id=lot_id,
+                priority="HIGH"
+            )
+            notifications_created += 1
+    
+    # 2. Check for lots completing in 2 days
+    lots_completing_soon = await db.dispatch_lots.find({
+        "estimated_completion_date": {"$gte": today, "$lte": in_two_days},
+        "status": {"$nin": ["DISPATCHED", "DELIVERED", "CANCELLED"]}
+    }, {"_id": 0}).to_list(500)
+    
+    for lot in lots_completing_soon:
+        lot_id = lot.get("id")
+        
+        # Check if notification already exists
+        existing = await db.notifications.find_one({
+            "reference_type": "dispatch_lot_completion",
+            "reference_id": lot_id,
+            "created_at": {"$gte": today - timedelta(days=2)}
+        })
+        
+        if not existing:
+            completion_date = lot.get("estimated_completion_date")
+            if isinstance(completion_date, datetime):
+                date_str = completion_date.strftime("%d %b %Y")
+            else:
+                date_str = str(completion_date)
+            
+            await create_notification(
+                notification_type="COMPLETION_ALERT",
+                title=f"Dispatch Lot {lot.get('lot_code')} Completing Soon",
+                message=f"Lot will be ready for QC and Dispatch on {date_str}. Prepare for processing.",
+                target_roles=["demand_planner", "quality_inspector", "logistics_coordinator", "master_admin"],
+                reference_type="dispatch_lot_completion",
+                reference_id=lot_id,
+                priority="NORMAL"
+            )
+            notifications_created += 1
+    
+    return {
+        "message": f"Check complete. {notifications_created} notifications created.",
+        "delayed_lots": len(delayed_by_lot),
+        "lots_completing_soon": len(lots_completing_soon)
+    }
+
+
+# =============================================================================
+# DASHBOARD SUMMARY
+# =============================================================================
+
+@router.get("/dispatch-lots/dashboard-summary")
+async def get_dispatch_lots_dashboard_summary():
+    """Get summary for dashboard: lots by status, delays, upcoming completions"""
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    in_seven_days = today + timedelta(days=7)
+    
+    # Get all active lots
+    lots = await db.dispatch_lots.find(
+        {"status": {"$nin": ["DISPATCHED", "DELIVERED", "CANCELLED"]}},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Counts by status
+    status_counts = {}
+    for lot in lots:
+        status = lot.get("status", "UNKNOWN")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    
+    # Delayed lots
+    delayed_count = 0
+    for lot in lots:
+        comp_date = lot.get("estimated_completion_date")
+        if comp_date:
+            if isinstance(comp_date, str):
+                try:
+                    comp_date = datetime.fromisoformat(comp_date.replace('Z', '+00:00'))
+                except:
+                    continue
+            if isinstance(comp_date, datetime) and comp_date < today:
+                delayed_count += 1
+    
+    # Upcoming completions (next 7 days)
+    upcoming = []
+    for lot in lots:
+        comp_date = lot.get("estimated_completion_date")
+        if comp_date:
+            if isinstance(comp_date, str):
+                try:
+                    comp_date = datetime.fromisoformat(comp_date.replace('Z', '+00:00'))
+                except:
+                    continue
+            if isinstance(comp_date, datetime) and today <= comp_date <= in_seven_days:
+                upcoming.append({
+                    "lot_code": lot.get("lot_code"),
+                    "lot_id": lot.get("id"),
+                    "buyer_name": lot.get("buyer_name"),
+                    "estimated_completion_date": comp_date,
+                    "total_quantity": lot.get("total_quantity", 0)
+                })
+    
+    # Sort upcoming by date
+    upcoming.sort(key=lambda x: x.get("estimated_completion_date") or datetime.max.replace(tzinfo=timezone.utc))
+    
+    # Unread notifications count
+    unread_notifications = await db.notifications.count_documents({"is_read": False})
+    
+    return {
+        "total_active_lots": len(lots),
+        "status_counts": status_counts,
+        "delayed_lots": delayed_count,
+        "upcoming_completions": upcoming[:10],
+        "unread_notifications": unread_notifications
+    }
