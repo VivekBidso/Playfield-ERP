@@ -1347,14 +1347,28 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
             brand_name = brand_by_id.get(brand_id, {}).get('name', row.get('brand', ''))
             model_name = model_by_id.get(model_id, {}).get('name', row.get('model', ''))
             
-            # Handle buyer (optional)
+            # Handle buyer (REQUIRED for forecast creation)
             buyer_id = None
             buyer_name = row.get('buyer', '').strip()
-            if buyer_name:
-                buyer = buyer_map.get(buyer_name.lower())
-                if buyer:
-                    buyer_id = buyer.get('id')
-                    buyer_name = buyer.get('name')
+            if not buyer_name:
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id,
+                    "reason": "Buyer is required. Add a 'Buyer' column with valid buyer names."
+                })
+                continue
+            
+            buyer = buyer_map.get(buyer_name.lower())
+            if not buyer:
+                errors.append({
+                    "row_num": row['row_num'],
+                    "sku_id": sku_id,
+                    "reason": f"Buyer '{buyer_name}' not found in system. Check buyer name spelling."
+                })
+                continue
+            
+            buyer_id = buyer.get('id')
+            buyer_name = buyer.get('name')
             
             # Build valid forecast
             valid_forecasts.append({

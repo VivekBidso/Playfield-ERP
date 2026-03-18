@@ -526,10 +526,10 @@ const Demand = () => {
   };
 
   const downloadTemplate = () => {
-    const headers = ['Month', 'Vertical', 'Model', 'Brand', 'SKU', 'Qty'];
+    const headers = ['Month', 'Vertical', 'Model', 'Brand', 'SKU', 'Qty', 'Buyer'];
     const sampleData = [
-      ['2026-03', 'Scooter', 'KS', 'BE', 'FC_KS_BE_115', '1000'],
-      ['2026-03', 'Rideon', 'SR', 'BB', 'BB_SC_SR_016', '500']
+      ['2026-03', 'Scooter', 'KS', 'BE', 'FC_KS_BE_115', '1000', 'Test Buyer Inc'],
+      ['2026-03', 'Rideon', 'SR', 'BB', 'BB_SC_SR_016', '500', 'Test Buyer Inc']
     ];
     
     let csv = headers.join(',') + '\n';
@@ -1213,8 +1213,8 @@ const Demand = () => {
             )}
 
             <p className="text-xs text-muted-foreground">
-              <strong>Required columns:</strong> Month, SKU ID, Quantity<br/>
-              <strong>Optional columns:</strong> Vertical, Brand, Model, Buyer (auto-filled from SKU master)
+              <strong>Required columns:</strong> Month, SKU ID, Quantity, Buyer<br/>
+              <strong>Optional columns:</strong> Vertical, Brand, Model (auto-filled from SKU master)
             </p>
             
             <div className="flex gap-2">
