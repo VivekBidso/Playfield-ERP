@@ -455,12 +455,20 @@ const Demand = () => {
       return;
     }
     
+    // Pre-validate: Check if all rows have buyer_id
+    const rowsWithoutBuyer = uploadPreview.filter(row => !row.buyer_id);
+    if (rowsWithoutBuyer.length > 0) {
+      toast.error(`${rowsWithoutBuyer.length} rows are missing Buyer. Please re-upload your file with a valid Buyer column.`);
+      return;
+    }
+    
     setUploading(true);
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       
       let successCount = 0;
       let errorCount = 0;
+      let lastError = '';
       
       for (const row of uploadPreview) {
         try {
@@ -471,22 +479,28 @@ const Demand = () => {
             model_id: row.model_id,
             sku_id: row.sku_id,
             quantity: row.quantity,
-            buyer_id: row.buyer_id || undefined,
+            buyer_id: row.buyer_id,
             priority: "MEDIUM"
           }, { headers });
           successCount++;
         } catch (e) {
           errorCount++;
+          lastError = e.response?.data?.detail || e.message || 'Unknown error';
         }
       }
       
-      toast.success(`Uploaded ${successCount} forecasts. ${errorCount > 0 ? `${errorCount} failed.` : ''}`);
+      if (successCount > 0) {
+        toast.success(`Uploaded ${successCount} forecasts.${errorCount > 0 ? ` ${errorCount} failed.` : ''}`);
+      } else {
+        toast.error(`All ${errorCount} forecasts failed. Last error: ${lastError}`);
+      }
+      
       setShowUploadDialog(false);
       setUploadPreview([]);
       setUploadErrors([]);
       fetchAllData();
     } catch (error) {
-      toast.error("Bulk upload failed");
+      toast.error("Bulk upload failed: " + (error.response?.data?.detail || error.message));
     } finally {
       setUploading(false);
     }
@@ -1174,8 +1188,15 @@ const Demand = () => {
             {/* Valid Forecasts Table */}
             {uploadPreview.length > 0 && (
               <div className="border rounded-sm max-h-60 overflow-y-auto">
-                <div className="bg-green-50 px-4 py-2 text-sm font-bold text-green-700 sticky top-0">
-                  Valid Forecasts to Upload
+                {/* Warning if rows missing buyer */}
+                {uploadPreview.some(row => !row.buyer_id) && (
+                  <div className="bg-red-100 border-b border-red-200 px-4 py-2 text-sm font-bold text-red-700 sticky top-0 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    {uploadPreview.filter(row => !row.buyer_id).length} rows are missing Buyer - these will fail on upload!
+                  </div>
+                )}
+                <div className={`px-4 py-2 text-sm font-bold sticky ${uploadPreview.some(row => !row.buyer_id) ? 'top-10' : 'top-0'} ${uploadPreview.every(row => row.buyer_id) ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                  {uploadPreview.filter(row => row.buyer_id).length} Valid / {uploadPreview.filter(row => !row.buyer_id).length} Missing Buyer
                 </div>
                 <table className="w-full text-sm">
                   <thead className="bg-zinc-50 sticky top-8">
@@ -1191,13 +1212,15 @@ const Demand = () => {
                   </thead>
                   <tbody>
                     {uploadPreview.map((row, idx) => (
-                      <tr key={idx} className="border-t hover:bg-zinc-50">
+                      <tr key={idx} className={`border-t hover:bg-zinc-50 ${!row.buyer_id ? 'bg-red-50' : ''}`}>
                         <td className="p-2 font-mono">{row.month}</td>
                         <td className="p-2 text-zinc-600">{row.vertical || '-'}</td>
                         <td className="p-2 text-zinc-600">{row.model || '-'}</td>
                         <td className="p-2 text-zinc-600">{row.brand || '-'}</td>
                         <td className="p-2 font-mono font-bold">{row.sku_id}</td>
-                        <td className="p-2 text-zinc-600">{row.buyer || '-'}</td>
+                        <td className={`p-2 ${row.buyer_id ? 'text-zinc-600' : 'text-red-600 font-bold'}`}>
+                          {row.buyer || <span className="text-red-500">⚠ Missing</span>}
+                        </td>
                         <td className="p-2 font-mono font-bold text-green-600">{row.quantity?.toLocaleString()}</td>
                       </tr>
                     ))}
