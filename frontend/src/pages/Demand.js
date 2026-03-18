@@ -843,7 +843,29 @@ const Demand = () => {
                         )}
                       </td>
                     )}
-                    <td className="p-4 font-mono font-bold text-sm text-primary">{f.forecast_code}</td>
+                    <td className="p-4">
+                      <button 
+                        className="font-mono font-bold text-sm text-primary hover:underline cursor-pointer flex items-center gap-1"
+                        onClick={async () => {
+                          const lots = await fetchForecastDispatchLots(f.id);
+                          setSelectedForecastLots({ forecast: f, lots: lots });
+                          // Also fetch buyer's other lots for "Add to existing" option
+                          if (f.buyer_id) {
+                            try {
+                              const buyerLotsRes = await axios.get(`${API}/dispatch-lots/by-buyer/${f.buyer_id}`, { headers: getHeaders() });
+                              setBuyerExistingLots(buyerLotsRes.data || []);
+                            } catch (e) {
+                              setBuyerExistingLots([]);
+                            }
+                          }
+                          setShowLotsDialog(true);
+                        }}
+                        title="Click to view dispatch lots"
+                      >
+                        {f.forecast_code}
+                        <Package className="w-3 h-3 opacity-50" />
+                      </button>
+                    </td>
                     <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
                     <td className="p-4 text-sm">{getBuyerName(f.buyer_id)}</td>
                     <td className="p-4 text-sm">{getVerticalDisplay(f)}</td>
