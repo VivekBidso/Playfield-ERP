@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, Package, Trash2, Search, Users, Layers, Box, X, CheckCircle2, Clock, AlertCircle, Pencil, Upload, Bell, Calendar, FileSpreadsheet, RefreshCw } from "lucide-react";
+import { Plus, Package, Trash2, Search, Users, Layers, Box, X, CheckCircle2, Clock, AlertCircle, Pencil, Upload, Bell, Calendar, FileSpreadsheet, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -244,6 +244,29 @@ const DispatchLots = () => {
       fetchDispatchLots();
     } catch (error) {
       toast.error("Failed to run FIFO allocation");
+    }
+  };
+  
+  // Download dispatch lot template
+  const downloadDispatchLotTemplate = async () => {
+    try {
+      const response = await axios.get(`${API}/dispatch-lots/template`, {
+        headers: getHeaders(),
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'dispatch_lot_template.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Template downloaded");
+    } catch (error) {
+      toast.error("Failed to download template");
     }
   };
   
@@ -525,6 +548,17 @@ const DispatchLots = () => {
           <Button variant="outline" onClick={handleRunFifoAllocation} data-testid="fifo-allocation-btn">
             <RefreshCw className="w-4 h-4 mr-2" />
             Run FIFO
+          </Button>
+          
+          {/* Download Template Button */}
+          <Button 
+            variant="outline" 
+            onClick={downloadDispatchLotTemplate}
+            className="text-xs"
+            data-testid="download-template-btn"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Template
           </Button>
           
           {/* Bulk Upload Button */}

@@ -618,5 +618,38 @@ Example:
 
 ---
 
+## 14. FORECAST EXPORT & DISPATCH LOT TEMPLATE (March 18, 2026)
+
+### New Features:
+
+#### 1. Forecast Export with Filters (Demand page)
+- **Button**: "Export Forecasts" on Demand Forecasts tab
+- **Filters available**:
+  - Start/End Month (date range)
+  - Buyer
+  - Brand
+  - Model
+  - Status (Draft/Confirmed/Converted)
+- **Output**: Excel file with columns: Forecast No, Month, Buyer Name, Vertical, Model, Brand, SKU ID, SKU Description, Forecast Qty, Dispatched Qty, Available Qty, Status, Priority
+- **Use case**: Export data for creating dispatch lot bulk uploads
+
+#### 2. Dispatch Lot Template Download (Dispatch Lots page)
+- **Button**: "Template" on Dispatch Lots header
+- **Output**: Excel file with:
+  - Main sheet: Sample data with columns (Buyer Name, Forecast No, SKU ID, Qty, Serial No)
+  - Instructions sheet: Explains how to use Serial No for grouping lines into lots
+- **Sample data**: Shows how rows with same Serial No become one lot with multiple lines
+
+### APIs Added:
+- `GET /api/forecasts/export` - Export forecasts with filters (returns Excel)
+- `GET /api/dispatch-lots/template` - Download bulk upload template (returns Excel)
+
+### Files Modified:
+- `backend/routes/demand_routes.py` - Added export and template endpoints
+- `frontend/src/pages/Demand.js` - Added Export dialog with filters
+- `frontend/src/pages/DispatchLots.js` - Added Template download button
+
+---
+
 *Last updated: March 18, 2026*
-*Demand Forecasts bulk upload re-upload fix complete*
+*Forecast Export & Dispatch Lot Template features complete*

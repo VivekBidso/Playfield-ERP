@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package, Pencil, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package, Pencil, Trash2, AlertTriangle, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +53,18 @@ const Demand = () => {
   const [uploadErrors, setUploadErrors] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [downloadingErrors, setDownloadingErrors] = useState(false);
+  
+  // Export Dialog state
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportFilters, setExportFilters] = useState({
+    startDate: "",
+    endDate: "",
+    buyer_id: "",
+    brand: "",
+    model: "",
+    status: ""
+  });
+  const [exporting, setExporting] = useState(false);
   
   // Cascading filter state for forecast form
   const [forecastForm, setForecastForm] = useState({
@@ -559,6 +571,57 @@ const Demand = () => {
     a.click();
   };
 
+  // Export forecasts with filters
+  const handleExportForecasts = async () => {
+    setExporting(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      
+      // Build query params
+      const params = new URLSearchParams();
+      if (exportFilters.startDate) params.append('start_date', new Date(exportFilters.startDate + '-01').toISOString());
+      if (exportFilters.endDate) params.append('end_date', new Date(exportFilters.endDate + '-28').toISOString());
+      if (exportFilters.buyer_id && exportFilters.buyer_id !== '_all') params.append('buyer_id', exportFilters.buyer_id);
+      if (exportFilters.brand && exportFilters.brand !== '_all') params.append('brand', exportFilters.brand);
+      if (exportFilters.model && exportFilters.model !== '_all') params.append('model', exportFilters.model);
+      if (exportFilters.status && exportFilters.status !== '_all') params.append('status', exportFilters.status);
+      
+      const response = await axios.get(`${API}/forecasts/export?${params.toString()}`, {
+        headers,
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `forecast_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Forecast data exported successfully");
+      setShowExportDialog(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to export forecasts");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Get unique brands from SKUs for export filter
+  const getUniqueBrands = () => {
+    const brandSet = new Set(skus.map(s => s.brand).filter(Boolean));
+    return Array.from(brandSet).sort();
+  };
+
+  // Get unique models from SKUs for export filter
+  const getUniqueModels = () => {
+    const modelSet = new Set(skus.map(s => s.model).filter(Boolean));
+    return Array.from(modelSet).sort();
+  };
+
   const getBuyerName = (id) => buyers.find(b => b.id === id)?.name || id || '-';
   const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id || '-';
   const getSkuDescription = (skuId) => skus.find(s => s.sku_id === skuId)?.description || skuId;
@@ -638,6 +701,14 @@ const Demand = () => {
               <Button variant="outline" onClick={downloadTemplate} className="text-xs">
                 <Download className="w-4 h-4 mr-2" />
                 Template
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowExportDialog(true)}
+                className="text-xs bg-blue-50 border-blue-200 hover:bg-blue-100"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export Forecasts
               </Button>
               <Button 
                 variant="outline" 
@@ -1522,6 +1593,139 @@ const Demand = () => {
             <Button variant="outline" onClick={() => setShowLotsDialog(false)} className="w-full">
               Close
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Forecasts Dialog */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              Export Forecasts
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-500">
+              Export forecast data to Excel for creating dispatch lot bulk uploads.
+            </p>
+            
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Start Month</Label>
+                <Input 
+                  type="month" 
+                  value={exportFilters.startDate}
+                  onChange={(e) => setExportFilters({...exportFilters, startDate: e.target.value})}
+                  className="text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">End Month</Label>
+                <Input 
+                  type="month" 
+                  value={exportFilters.endDate}
+                  onChange={(e) => setExportFilters({...exportFilters, endDate: e.target.value})}
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            
+            {/* Buyer Filter */}
+            <div>
+              <Label className="text-xs">Buyer</Label>
+              <Select 
+                value={exportFilters.buyer_id || "_all"} 
+                onValueChange={(v) => setExportFilters({...exportFilters, buyer_id: v})}
+              >
+                <SelectTrigger className="text-sm">
+                  <SelectValue placeholder="All Buyers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All Buyers</SelectItem>
+                  {buyers.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Brand & Model Filters */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Brand</Label>
+                <Select 
+                  value={exportFilters.brand || "_all"} 
+                  onValueChange={(v) => setExportFilters({...exportFilters, brand: v})}
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="All Brands" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_all">All Brands</SelectItem>
+                    {getUniqueBrands().map(brand => (
+                      <SelectItem key={brand} value={brand}>{brand}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Model</Label>
+                <Select 
+                  value={exportFilters.model || "_all"} 
+                  onValueChange={(v) => setExportFilters({...exportFilters, model: v})}
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="All Models" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_all">All Models</SelectItem>
+                    {getUniqueModels().map(model => (
+                      <SelectItem key={model} value={model}>{model}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            {/* Status Filter */}
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select 
+                value={exportFilters.status || "_all"} 
+                onValueChange={(v) => setExportFilters({...exportFilters, status: v})}
+              >
+                <SelectTrigger className="text-sm">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All Statuses</SelectItem>
+                  <SelectItem value="DRAFT">Draft</SelectItem>
+                  <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                  <SelectItem value="CONVERTED">Converted</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <strong>Tip:</strong> The exported file includes Forecast No, SKU ID, and Available Qty - 
+              perfect for creating dispatch lot bulk uploads!
+            </div>
+            
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowExportDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleExportForecasts} 
+                disabled={exporting}
+                className="flex-1"
+              >
+                {exporting ? 'Exporting...' : 'Download Excel'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

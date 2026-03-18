@@ -1450,6 +1450,249 @@ async def generate_forecast_error_report(errors: List[dict]):
 # DISPATCH LOT BULK UPLOAD
 # =============================================================================
 
+@router.get("/forecasts/export")
+async def export_forecasts(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    buyer_id: Optional[str] = None,
+    brand: Optional[str] = None,
+    model: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """
+    Export forecasts as Excel with filters.
+    Used for creating dispatch lot bulk upload data.
+    Filters: date range, buyer, brand, model, status
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import StreamingResponse
+    
+    # Build query
+    query = {}
+    
+    if start_date:
+        try:
+            start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            if "forecast_month" not in query:
+                query["forecast_month"] = {}
+            query["forecast_month"]["$gte"] = start
+        except:
+            pass
+    
+    if end_date:
+        try:
+            end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            if "forecast_month" not in query:
+                query["forecast_month"] = {}
+            query["forecast_month"]["$lte"] = end
+        except:
+            pass
+    
+    if buyer_id:
+        query["buyer_id"] = buyer_id
+    
+    if status:
+        query["status"] = status
+    
+    # Fetch forecasts
+    forecasts = await db.forecasts.find(query, {"_id": 0}).to_list(10000)
+    
+    if not forecasts:
+        raise HTTPException(status_code=404, detail="No forecasts found matching filters")
+    
+    # Load reference data
+    buyers = await db.buyers.find({}, {"_id": 0}).to_list(1000)
+    buyer_map = {b["id"]: b for b in buyers}
+    
+    skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    sku_map = {s["sku_id"]: s for s in skus}
+    
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
+    vertical_map = {v["id"]: v for v in verticals}
+    
+    models_list = await db.models.find({}, {"_id": 0}).to_list(1000)
+    model_map = {m["id"]: m for m in models_list}
+    
+    # Filter by brand/model if specified (need to filter in memory after SKU lookup)
+    filtered_forecasts = []
+    for f in forecasts:
+        sku = sku_map.get(f.get("sku_id"), {})
+        sku_brand = sku.get("brand", "")
+        sku_model = sku.get("model", "")
+        
+        # Apply brand filter
+        if brand and brand.lower() not in sku_brand.lower():
+            continue
+        
+        # Apply model filter
+        if model and model.lower() not in sku_model.lower():
+            continue
+        
+        filtered_forecasts.append(f)
+    
+    if not filtered_forecasts:
+        raise HTTPException(status_code=404, detail="No forecasts found matching brand/model filters")
+    
+    # Create Excel workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Forecast Export"
+    
+    # Header styling
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    
+    # Headers matching dispatch lot upload format
+    headers = ["Forecast No", "Month", "Buyer Name", "Vertical", "Model", "Brand", "SKU ID", "SKU Description", "Forecast Qty", "Dispatched Qty", "Available Qty", "Status", "Priority"]
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data rows
+    for row_idx, f in enumerate(filtered_forecasts, 2):
+        buyer = buyer_map.get(f.get("buyer_id"), {})
+        sku = sku_map.get(f.get("sku_id"), {})
+        vertical = vertical_map.get(f.get("vertical_id"), {})
+        
+        forecast_month = f.get("forecast_month")
+        if isinstance(forecast_month, datetime):
+            month_str = forecast_month.strftime("%Y-%m")
+        elif isinstance(forecast_month, str):
+            month_str = forecast_month[:7]
+        else:
+            month_str = ""
+        
+        dispatched = f.get("dispatched_quantity", 0) or 0
+        forecast_qty = f.get("quantity", 0)
+        available = max(0, forecast_qty - dispatched)
+        
+        ws.cell(row=row_idx, column=1, value=f.get("forecast_code", ""))
+        ws.cell(row=row_idx, column=2, value=month_str)
+        ws.cell(row=row_idx, column=3, value=buyer.get("name", ""))
+        ws.cell(row=row_idx, column=4, value=vertical.get("name", "") or sku.get("vertical", ""))
+        ws.cell(row=row_idx, column=5, value=sku.get("model", ""))
+        ws.cell(row=row_idx, column=6, value=sku.get("brand", ""))
+        ws.cell(row=row_idx, column=7, value=f.get("sku_id", ""))
+        ws.cell(row=row_idx, column=8, value=sku.get("description", ""))
+        ws.cell(row=row_idx, column=9, value=forecast_qty)
+        ws.cell(row=row_idx, column=10, value=dispatched)
+        ws.cell(row=row_idx, column=11, value=available)
+        ws.cell(row=row_idx, column=12, value=f.get("status", ""))
+        ws.cell(row=row_idx, column=13, value=f.get("priority", ""))
+    
+    # Set column widths
+    col_widths = [18, 10, 25, 15, 15, 15, 20, 35, 12, 12, 12, 12, 10]
+    for idx, width in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"forecast_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.get("/dispatch-lots/template")
+async def download_dispatch_lot_template():
+    """
+    Download Excel template for dispatch lot bulk upload.
+    Columns: Buyer Name | Forecast No | SKU ID | Qty | Serial No
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.comments import Comment
+    from fastapi.responses import StreamingResponse
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Dispatch Lot Upload"
+    
+    # Header styling
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="16A34A", end_color="16A34A", fill_type="solid")
+    
+    # Headers
+    headers = ["Buyer Name", "Forecast No", "SKU ID", "Qty", "Serial No"]
+    comments = [
+        "Exact buyer name as in system",
+        "Forecast code (e.g., FC_202603_0001)",
+        "SKU ID (e.g., CC_KS_BE_188)",
+        "Quantity for this line",
+        "Lot grouping number - same Serial No = same lot"
+    ]
+    
+    for col, (header, comment) in enumerate(zip(headers, comments), 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.comment = Comment(comment, "System")
+    
+    # Sample data rows
+    sample_data = [
+        ["Test Buyer Inc", "FC_202603_0001", "CC_KS_BE_188", 500, 1],
+        ["Test Buyer Inc", "FC_202603_0001", "CC_KS_BE_189", 300, 1],
+        ["Test Buyer Inc", "FC_202603_0002", "CC_KS_BE_002", 200, 2],
+    ]
+    
+    for row_idx, row_data in enumerate(sample_data, 2):
+        for col_idx, value in enumerate(row_data, 1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+    
+    # Instructions sheet
+    ws_help = wb.create_sheet("Instructions")
+    instructions = [
+        ["DISPATCH LOT BULK UPLOAD INSTRUCTIONS"],
+        [""],
+        ["COLUMNS:"],
+        ["Buyer Name - Must match exactly with buyer name in system (case-insensitive)"],
+        ["Forecast No - The forecast code to link this dispatch to (e.g., FC_202603_0001)"],
+        ["SKU ID - Valid SKU ID from the system"],
+        ["Qty - Quantity for this line item (must be > 0)"],
+        ["Serial No - Temporary grouping number. Rows with SAME Serial No become ONE dispatch lot"],
+        [""],
+        ["EXAMPLE:"],
+        ["Serial No 1: Creates lot with 2 lines (CC_KS_BE_188: 500, CC_KS_BE_189: 300)"],
+        ["Serial No 2: Creates separate lot with 1 line (CC_KS_BE_002: 200)"],
+        [""],
+        ["TIP: Use the Forecast Export feature to get valid Forecast Numbers and SKU IDs"],
+    ]
+    
+    for row_idx, row in enumerate(instructions, 1):
+        cell = ws_help.cell(row=row_idx, column=1, value=row[0] if row else "")
+        if row_idx == 1:
+            cell.font = Font(bold=True, size=14)
+    
+    ws_help.column_dimensions['A'].width = 80
+    
+    # Set column widths on main sheet
+    col_widths = [25, 20, 20, 10, 12]
+    for idx, width in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=dispatch_lot_template.xlsx"}
+    )
+
+
 class DispatchLotBulkUploadLine(BaseModel):
     """Single line from bulk upload"""
     buyer_name: str
