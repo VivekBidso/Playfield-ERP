@@ -1011,9 +1011,26 @@ const DispatchLots = () => {
 
               {/* Line Items Table */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="p-4 bg-zinc-50 border-b">
+                <div className="p-4 bg-zinc-50 border-b flex items-center justify-between">
                   <h3 className="font-bold uppercase text-sm">Line Items ({selectedLot.lines?.length || 0})</h3>
+                  {selectedLot.can_complete_with_current_inventory !== undefined && (
+                    <Badge variant={selectedLot.can_complete_with_current_inventory ? "default" : "destructive"} className="text-xs">
+                      {selectedLot.can_complete_with_current_inventory 
+                        ? "✓ Current inventory can complete lot" 
+                        : "⚠ Insufficient inventory"}
+                    </Badge>
+                  )}
                 </div>
+                {selectedLot.estimated_completion_date && (
+                  <div className="px-4 py-2 bg-blue-50 border-b flex items-center gap-2 text-sm">
+                    <Calendar className="w-4 h-4 text-blue-600" />
+                    <span className="font-medium">Estimated Completion:</span>
+                    <span className="font-mono">{new Date(selectedLot.estimated_completion_date).toLocaleDateString()}</span>
+                    {selectedLot.delayed_lines > 0 && (
+                      <Badge variant="destructive" className="ml-2">{selectedLot.delayed_lines} delayed</Badge>
+                    )}
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-100">
@@ -1022,32 +1039,52 @@ const DispatchLots = () => {
                         <th className="px-4 py-3 text-left font-mono text-xs uppercase">SKU</th>
                         <th className="px-4 py-3 text-left font-mono text-xs uppercase">Description</th>
                         <th className="px-4 py-3 text-right font-mono text-xs uppercase">Required</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Available</th>
-                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Pending</th>
-                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Readiness</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Allocated (FIFO)</th>
+                        <th className="px-4 py-3 text-right font-mono text-xs uppercase">Total Avail</th>
+                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Scheduled</th>
+                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Actual</th>
+                        <th className="px-4 py-3 text-center font-mono text-xs uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedLot.lines?.map((line, idx) => (
-                        <tr key={line.id || idx} className="border-t hover:bg-zinc-50">
+                        <tr key={line.id || idx} className={`border-t hover:bg-zinc-50 ${line.is_delayed ? 'bg-red-50' : ''}`}>
                           <td className="px-4 py-3 font-mono text-zinc-500">{line.line_number || idx + 1}</td>
                           <td className="px-4 py-3 font-mono font-bold">{line.sku_id}</td>
-                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[200px]" title={line.sku_description}>
+                          <td className="px-4 py-3 text-zinc-600 truncate max-w-[150px]" title={line.sku_description}>
                             {line.sku_description || '-'}
                           </td>
                           <td className="px-4 py-3 font-mono font-bold text-right">{(line.quantity || 0).toLocaleString()}</td>
                           <td className="px-4 py-3 font-mono text-right">
-                            <span className={line.available_qty >= line.quantity ? 'text-green-600' : 'text-red-500'}>
-                              {(line.available_qty || 0).toLocaleString()}
+                            <span className={line.allocated_inventory >= line.quantity ? 'text-green-600 font-bold' : 'text-orange-500'}>
+                              {(line.allocated_inventory || 0).toLocaleString()}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-mono text-right">
-                            {line.pending_qty > 0 ? (
-                              <span className="text-red-500 font-bold">{line.pending_qty.toLocaleString()}</span>
-                            ) : (
-                              <span className="text-green-600">0</span>
-                            )}
+                          <td className="px-4 py-3 font-mono text-right text-zinc-500">
+                            {(line.total_available_inventory || 0).toLocaleString()}
+                            {line.can_complete_with_current_inventory && <span className="text-green-500 ml-1">✓</span>}
                           </td>
+                          <td className="px-4 py-3 text-center font-mono text-xs">
+                            {line.scheduled_date ? new Date(line.scheduled_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center font-mono text-xs">
+                            {line.actual_completion_date ? (
+                              <span className="text-green-600">{new Date(line.actual_completion_date).toLocaleDateString()}</span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-xs px-2 py-1 rounded border ${
+                              line.status === 'READY' ? 'bg-green-100 text-green-700 border-green-300' :
+                              line.status === 'PRODUCED' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                              line.status === 'SCHEDULED' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
+                              line.is_delayed ? 'bg-red-100 text-red-700 border-red-300' :
+                              'bg-zinc-100 text-zinc-700 border-zinc-300'
+                            }`}>
+                              {line.is_delayed ? 'DELAYED' : line.status || 'PENDING'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center gap-2">
                               {getReadinessIcon(line.readiness_status)}
