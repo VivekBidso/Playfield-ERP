@@ -424,7 +424,16 @@ const CPC = () => {
                   <tbody>
                     {demandForecasts.map((f) => (
                       <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_scheduled ? 'opacity-50' : ''}`}>
-                        <td className="p-4 font-mono text-sm font-bold text-primary">{f.forecast_code}</td>
+                        <td className="p-4">
+                          <button 
+                            className="font-mono text-sm font-bold text-primary hover:underline cursor-pointer flex items-center gap-1"
+                            onClick={() => fetchForecastDispatchLots(f)}
+                            title="Click to view dispatch lots"
+                          >
+                            {f.forecast_code}
+                            <ExternalLink className="w-3 h-3 opacity-50" />
+                          </button>
+                        </td>
                         <td className="p-4 text-sm">{f.buyer_name || '-'}</td>
                         <td className="p-4">
                           <div className="font-mono text-sm font-bold">{f.sku_id || f.vertical_name}</div>
