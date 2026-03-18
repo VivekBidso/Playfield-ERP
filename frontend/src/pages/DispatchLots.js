@@ -64,6 +64,18 @@ const DispatchLots = () => {
   const [loadingBrands, setLoadingBrands] = useState(false);
   const [loadingVerticals, setLoadingVerticals] = useState(false);
   const [loadingSkus, setLoadingSkus] = useState(false);
+  
+  // Bulk Upload state
+  const [showBulkUploadDialog, setShowBulkUploadDialog] = useState(false);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const bulkFileInputRef = useRef(null);
+  
+  // Notifications state
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  
+  // Dashboard summary
+  const [dashboardSummary, setDashboardSummary] = useState(null);
 
   useEffect(() => {
     fetchDispatchLots();
