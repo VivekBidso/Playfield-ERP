@@ -1135,41 +1135,98 @@ const Demand = () => {
             
             {/* Linked Dispatch Lots */}
             {selectedForecastLots.lots.length > 0 ? (
-              <div className="border rounded overflow-hidden">
-                <div className="bg-zinc-100 px-4 py-2 text-xs font-bold uppercase">Linked Dispatch Lots</div>
-                <table className="w-full text-sm">
-                  <thead className="bg-zinc-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-mono text-xs uppercase">Lot Code</th>
-                      <th className="px-4 py-2 text-right font-mono text-xs uppercase">Quantity</th>
-                      <th className="px-4 py-2 text-center font-mono text-xs uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedForecastLots.lots.map((lot, i) => (
-                      <tr key={i} className="border-t hover:bg-zinc-50">
-                        <td className="px-4 py-3 font-mono font-bold text-primary">{lot.lot_code}</td>
-                        <td className="px-4 py-3 font-mono text-right">{(lot.total_quantity || lot.required_quantity)?.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-xs font-mono px-2 py-1 rounded border ${
-                            lot.status === 'DISPATCHED' || lot.status === 'DELIVERED' ? 'bg-green-100 text-green-700 border-green-300' :
-                            lot.status === 'CREATED' ? 'bg-zinc-100 border-zinc-300' :
-                            'bg-yellow-100 text-yellow-700 border-yellow-300'
-                          }`}>{lot.status}</span>
-                        </td>
+              <div className="space-y-4">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{selectedForecastLots.lots.length}</div>
+                    <div className="text-xs text-blue-700 uppercase">Dispatch Lots</div>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      {selectedForecastLots.lots.reduce((sum, l) => sum + (l.forecast_qty_in_lot || l.total_quantity || 0), 0).toLocaleString()}
+                    </div>
+                    <div className="text-xs text-green-700 uppercase">Total Qty Assigned</div>
+                  </div>
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-zinc-600">
+                      {selectedForecastLots.forecast?.quantity?.toLocaleString() || 0}
+                    </div>
+                    <div className="text-xs text-zinc-500 uppercase">Forecast Qty</div>
+                  </div>
+                </div>
+
+                {/* Lots Table */}
+                <div className="border rounded overflow-hidden">
+                  <div className="bg-zinc-100 px-4 py-2 text-xs font-bold uppercase">Linked Dispatch Lots</div>
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-mono text-xs uppercase">Lot Code</th>
+                        <th className="px-4 py-2 text-left font-mono text-xs uppercase">Buyer</th>
+                        <th className="px-4 py-2 text-right font-mono text-xs uppercase">Qty in Lot</th>
+                        <th className="px-4 py-2 text-center font-mono text-xs uppercase">Lines</th>
+                        <th className="px-4 py-2 text-center font-mono text-xs uppercase">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-zinc-50 border-t">
-                    <tr>
-                      <td className="px-4 py-2 font-bold text-right">Total:</td>
-                      <td className="px-4 py-2 font-mono font-bold text-right">
-                        {selectedForecastLots.lots.reduce((sum, l) => sum + (l.total_quantity || l.required_quantity || 0), 0).toLocaleString()}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selectedForecastLots.lots.map((lot, i) => (
+                        <tr key={i} className="border-t hover:bg-zinc-50">
+                          <td className="px-4 py-3 font-mono font-bold text-primary">{lot.lot_code}</td>
+                          <td className="px-4 py-3 text-sm text-zinc-600">{lot.buyer_name || '-'}</td>
+                          <td className="px-4 py-3 font-mono font-bold text-right text-green-600">
+                            {(lot.forecast_qty_in_lot || lot.total_quantity || lot.required_quantity || 0).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="bg-zinc-100 text-zinc-700 text-xs px-2 py-1 rounded font-mono">
+                              {lot.forecast_lines?.length || lot.line_count || 1}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-xs font-mono px-2 py-1 rounded border ${
+                              lot.status === 'DISPATCHED' || lot.status === 'DELIVERED' ? 'bg-green-100 text-green-700 border-green-300' :
+                              lot.status === 'READY' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                              lot.status === 'CREATED' ? 'bg-zinc-100 border-zinc-300' :
+                              'bg-yellow-100 text-yellow-700 border-yellow-300'
+                            }`}>{lot.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-zinc-50 border-t">
+                      <tr>
+                        <td colSpan={2} className="px-4 py-2 font-bold text-right">Total:</td>
+                        <td className="px-4 py-2 font-mono font-bold text-right text-green-600">
+                          {selectedForecastLots.lots.reduce((sum, l) => sum + (l.forecast_qty_in_lot || l.total_quantity || l.required_quantity || 0), 0).toLocaleString()}
+                        </td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Line Details */}
+                {selectedForecastLots.lots.some(l => l.forecast_lines?.length > 0) && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-zinc-100 px-4 py-2 text-xs font-bold uppercase">Line Details</div>
+                    <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
+                      {selectedForecastLots.lots.map((lot) => (
+                        lot.forecast_lines?.map((line, idx) => (
+                          <div key={`${lot.id}-${idx}`} className="flex items-center justify-between bg-zinc-50 rounded px-3 py-2 text-sm">
+                            <span className="font-mono text-zinc-600">{lot.lot_code} / Line {line.line_number}</span>
+                            <span className="font-mono">{line.sku_id}</span>
+                            <span className="font-mono font-bold">{line.quantity?.toLocaleString()}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              line.status === 'READY' ? 'bg-green-100 text-green-700' :
+                              line.status === 'PENDING' ? 'bg-zinc-100 text-zinc-600' :
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>{line.status || 'PENDING'}</span>
+                          </div>
+                        ))
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-4 text-center text-zinc-500 border rounded-lg bg-zinc-50">
