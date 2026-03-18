@@ -1062,7 +1062,7 @@ const DispatchLots = () => {
                           </td>
                           <td className="px-4 py-3 font-mono text-right text-zinc-500">
                             {(line.total_available_inventory || 0).toLocaleString()}
-                            {line.can_complete_with_current_inventory && <span className="text-green-500 ml-1">✓</span>}
+                            {line.can_complete_with_current_inventory && <CheckCircle2 className="inline w-3 h-3 text-green-500 ml-1" />}
                           </td>
                           <td className="px-4 py-3 text-center font-mono text-xs">
                             {line.scheduled_date ? new Date(line.scheduled_date).toLocaleDateString() : '-'}
