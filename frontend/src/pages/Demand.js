@@ -50,7 +50,9 @@ const Demand = () => {
   const [showForecastDialog, setShowForecastDialog] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadPreview, setUploadPreview] = useState([]);
+  const [uploadErrors, setUploadErrors] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [downloadingErrors, setDownloadingErrors] = useState(false);
   
   // Cascading filter state for forecast form
   const [forecastForm, setForecastForm] = useState({
