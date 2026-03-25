@@ -20,6 +20,55 @@ A complete factory management system that tracks everything from raw materials t
 
 ---
 
+## 1.1 SKU ARCHITECTURE (NEW - March 2026)
+
+**Two-Level SKU Structure:**
+
+### Bidso SKU (Base Product)
+- **Format:** `{VerticalCode}_{ModelCode}_{NumericCode}`
+- **Example:** `KS_PE_001` (Kids Scooter, Pulse model, #001)
+- **Purpose:** Internal/base product definition
+- **Contains:** Common BOM shared by all branded variants
+
+### Buyer SKU (Branded Variant)
+- **Format:** `{BrandCode}_{BidsoSKU}`
+- **Example:** `BE_KS_PE_001` (Baybee brand variant of KS_PE_001)
+- **Purpose:** Customer-facing product with brand-specific additions
+- **Contains:** Brand-specific BOM items (labels, packaging, etc.)
+
+**Hierarchy:**
+```
+Vertical (e.g., Kids Scooter - KS)
+└── Model (e.g., Pulse - PE)
+    └── Bidso SKU (KS_PE_001)
+        ├── Common BOM (shared components)
+        ├── Buyer SKU: BE_KS_PE_001 (Baybee variant)
+        ├── Buyer SKU: FC_KS_PE_001 (Firstcry variant)
+        └── Buyer SKU: WM_KS_PE_001 (Walmart variant)
+```
+
+**BOM Structure:**
+1. **Common BOM** - Locked at Bidso SKU level (core components)
+2. **Brand-specific BOM** - Additional RM per brand (labels, packaging)
+3. **Full BOM for Buyer SKU** = Common BOM + Brand-specific BOM
+
+**Key Collections:**
+- `bidso_skus` - Base product definitions
+- `buyer_skus` - Branded variants
+- `common_bom` - Core BOMs locked at Bidso level
+- `brand_specific_bom` - Brand additions
+
+**API Endpoints:**
+- `GET/POST /api/sku-management/bidso-skus`
+- `GET/POST /api/sku-management/buyer-skus`
+- `POST /api/sku-management/buyer-skus/bulk-create`
+- `GET/POST /api/sku-management/bom/common/{bidso_sku_id}`
+- `POST /api/sku-management/bom/common/{bidso_sku_id}/lock`
+- `GET/POST /api/sku-management/bom/brand-specific/{bidso_sku_id}/{brand_id}`
+- `GET /api/sku-management/bom/full/{buyer_sku_id}`
+
+---
+
 ## 2. MODULES & FEATURES
 
 ### 2.1 DASHBOARD MODULE

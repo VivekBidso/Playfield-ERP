@@ -1,0 +1,871 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { 
+  Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const SKUManagement = () => {
+  const [activeTab, setActiveTab] = useState("bidso");
+  
+  // Data
+  const [bidsoSKUs, setBidsoSKUs] = useState([]);
+  const [buyerSKUs, setBuyerSKUs] = useState([]);
+  const [verticals, setVerticals] = useState([]);
+  const [models, setModels] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  // Filters
+  const [filterVertical, setFilterVertical] = useState("");
+  const [filterModel, setFilterModel] = useState("");
+  const [filterBrand, setFilterBrand] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Selected items
+  const [selectedBidso, setSelectedBidso] = useState(null);
+  const [selectedBuyer, setSelectedBuyer] = useState(null);
+  
+  // Dialogs
+  const [showBidsoDialog, setShowBidsoDialog] = useState(false);
+  const [showBuyerDialog, setShowBuyerDialog] = useState(false);
+  const [showBOMDialog, setShowBOMDialog] = useState(false);
+  const [showBulkCreateDialog, setShowBulkCreateDialog] = useState(false);
+  
+  // Forms
+  const [bidsoForm, setBidsoForm] = useState({
+    vertical_id: "",
+    model_id: "",
+    numeric_code: "",
+    name: "",
+    description: ""
+  });
+  const [buyerForm, setBuyerForm] = useState({
+    bidso_sku_id: "",
+    brand_id: "",
+    name: "",
+    description: ""
+  });
+  const [suggestedCode, setSuggestedCode] = useState("");
+  const [previewSKUID, setPreviewSKUID] = useState("");
+  
+  // BOM
+  const [commonBOM, setCommonBOM] = useState([]);
+  const [brandSpecificBOM, setBrandSpecificBOM] = useState([]);
+  const [bomLocked, setBomLocked] = useState(false);
+  
+  // Stats
+  const [stats, setStats] = useState({
+    bidso_skus: 0,
+    buyer_skus: 0,
+    common_boms: 0
+  });
+
+  useEffect(() => {
+    fetchMasterData();
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "bidso") {
+      fetchBidsoSKUs();
+    } else {
+      fetchBuyerSKUs();
+    }
+  }, [activeTab, filterVertical, filterModel, filterBrand]);
+
+  const fetchMasterData = async () => {
+    try {
+      const [verticalsRes, modelsRes, brandsRes] = await Promise.all([
+        axios.get(`${API}/verticals`),
+        axios.get(`${API}/models`),
+        axios.get(`${API}/brands`)
+      ]);
+      setVerticals(verticalsRes.data.filter(v => v.status === 'ACTIVE'));
+      setModels(modelsRes.data.filter(m => m.status === 'ACTIVE'));
+      setBrands(brandsRes.data.filter(b => b.status === 'ACTIVE'));
+    } catch (error) {
+      toast.error("Failed to fetch master data");
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await axios.get(`${API}/sku-management/migration-stats`);
+      setStats(res.data);
+    } catch (error) {
+      console.error("Failed to fetch stats");
+    }
+  };
+
+  const fetchBidsoSKUs = async () => {
+    setLoading(true);
+    try {
+      let url = `${API}/sku-management/bidso-skus?`;
+      if (filterVertical) url += `vertical_id=${filterVertical}&`;
+      if (filterModel) url += `model_id=${filterModel}&`;
+      if (searchQuery) url += `search=${searchQuery}&`;
+      
+      const res = await axios.get(url);
+      setBidsoSKUs(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch Bidso SKUs");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchBuyerSKUs = async () => {
+    setLoading(true);
+    try {
+      let url = `${API}/sku-management/buyer-skus?`;
+      if (filterBrand) url += `brand_id=${filterBrand}&`;
+      if (selectedBidso) url += `bidso_sku_id=${selectedBidso.bidso_sku_id}&`;
+      if (searchQuery) url += `search=${searchQuery}&`;
+      
+      const res = await axios.get(url);
+      setBuyerSKUs(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch Buyer SKUs");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchNextCode = async (verticalId, modelId) => {
+    if (!verticalId || !modelId) return;
+    try {
+      const res = await axios.get(`${API}/sku-management/bidso-skus/next-code?vertical_id=${verticalId}&model_id=${modelId}`);
+      setSuggestedCode(res.data.suggested_code);
+      setPreviewSKUID(res.data.preview_sku_id);
+      setBidsoForm(prev => ({ ...prev, numeric_code: res.data.suggested_code }));
+    } catch (error) {
+      console.error("Failed to get next code");
+    }
+  };
+
+  const handleCreateBidso = async () => {
+    try {
+      await axios.post(`${API}/sku-management/bidso-skus`, bidsoForm);
+      toast.success("Bidso SKU created successfully");
+      setShowBidsoDialog(false);
+      setBidsoForm({ vertical_id: "", model_id: "", numeric_code: "", name: "", description: "" });
+      setSuggestedCode("");
+      setPreviewSKUID("");
+      fetchBidsoSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to create Bidso SKU");
+    }
+  };
+
+  const handleCreateBuyer = async () => {
+    try {
+      await axios.post(`${API}/sku-management/buyer-skus`, buyerForm);
+      toast.success("Buyer SKU created successfully");
+      setShowBuyerDialog(false);
+      setBuyerForm({ bidso_sku_id: "", brand_id: "", name: "", description: "" });
+      fetchBuyerSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to create Buyer SKU");
+    }
+  };
+
+  const handleBulkCreateBuyerSKUs = async (brandIds) => {
+    if (!selectedBidso || brandIds.length === 0) return;
+    try {
+      const res = await axios.post(
+        `${API}/sku-management/buyer-skus/bulk-create?bidso_sku_id=${selectedBidso.bidso_sku_id}`,
+        brandIds
+      );
+      toast.success(`Created ${res.data.created} Buyer SKUs, ${res.data.skipped} skipped`);
+      setShowBulkCreateDialog(false);
+      fetchBuyerSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error("Failed to bulk create Buyer SKUs");
+    }
+  };
+
+  const handleViewBOM = async (bidsoSKU) => {
+    setSelectedBidso(bidsoSKU);
+    try {
+      const res = await axios.get(`${API}/sku-management/bom/common/${bidsoSKU.bidso_sku_id}`);
+      setCommonBOM(res.data.items || []);
+      setBomLocked(res.data.is_locked || false);
+      setShowBOMDialog(true);
+    } catch (error) {
+      toast.error("Failed to fetch BOM");
+    }
+  };
+
+  const handleLockBOM = async () => {
+    if (!selectedBidso) return;
+    try {
+      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/lock`);
+      toast.success("BOM locked successfully");
+      setBomLocked(true);
+    } catch (error) {
+      toast.error("Failed to lock BOM");
+    }
+  };
+
+  const handleUnlockBOM = async () => {
+    if (!selectedBidso) return;
+    try {
+      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/unlock`);
+      toast.success("BOM unlocked");
+      setBomLocked(false);
+    } catch (error) {
+      toast.error("Failed to unlock BOM");
+    }
+  };
+
+  const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || "";
+  const getModelName = (id) => models.find(m => m.id === id)?.name || "";
+  const getBrandName = (id) => brands.find(b => b.id === id)?.name || "";
+  const getFilteredModels = () => filterVertical ? models.filter(m => m.vertical_id === filterVertical) : models;
+
+  return (
+    <div className="p-6 space-y-6" data-testid="sku-management-page">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">SKU Management</h1>
+          <p className="text-gray-500 mt-1">Manage Bidso SKUs (base products) and Buyer SKUs (branded variants)</p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Package className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Bidso SKUs</p>
+                <p className="text-2xl font-bold">{stats.bidso_skus}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <Layers className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Buyer SKUs</p>
+                <p className="text-2xl font-bold">{stats.buyer_skus}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <FileSpreadsheet className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Common BOMs</p>
+                <p className="text-2xl font-bold">{stats.common_boms}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <Layers className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Brands</p>
+                <p className="text-2xl font-bold">{brands.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="bidso" data-testid="bidso-tab">
+            <Package className="h-4 w-4 mr-2" />
+            Bidso SKUs (Base Products)
+          </TabsTrigger>
+          <TabsTrigger value="buyer" data-testid="buyer-tab">
+            <Layers className="h-4 w-4 mr-2" />
+            Buyer SKUs (Branded Variants)
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Bidso SKUs Tab */}
+        <TabsContent value="bidso" className="space-y-4">
+          {/* Filters & Actions */}
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex gap-3 flex-wrap">
+              <Select value={filterVertical} onValueChange={(v) => { setFilterVertical(v === "all" ? "" : v); setFilterModel(""); }}>
+                <SelectTrigger className="w-[180px]" data-testid="filter-vertical">
+                  <SelectValue placeholder="All Verticals" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Verticals</SelectItem>
+                  {verticals.map(v => (
+                    <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Select value={filterModel} onValueChange={(v) => setFilterModel(v === "all" ? "" : v)} disabled={!filterVertical}>
+                <SelectTrigger className="w-[180px]" data-testid="filter-model">
+                  <SelectValue placeholder="All Models" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Models</SelectItem>
+                  {getFilteredModels().map(m => (
+                    <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search SKU ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 w-[200px]"
+                  data-testid="search-input"
+                />
+              </div>
+              
+              <Button variant="outline" onClick={fetchBidsoSKUs}>
+                <Search className="h-4 w-4 mr-2" />
+                Search
+              </Button>
+            </div>
+            
+            <Button onClick={() => setShowBidsoDialog(true)} data-testid="create-bidso-btn">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Bidso SKU
+            </Button>
+          </div>
+
+          {/* Bidso SKUs Table */}
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bidso SKU ID</TableHead>
+                    <TableHead>Vertical</TableHead>
+                    <TableHead>Model</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Buyer SKUs</TableHead>
+                    <TableHead>BOM Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : bidsoSKUs.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        No Bidso SKUs found. Create your first one!
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    bidsoSKUs.map(sku => (
+                      <TableRow key={sku.id} data-testid={`bidso-row-${sku.bidso_sku_id}`}>
+                        <TableCell>
+                          <span className="font-mono font-medium text-blue-600">{sku.bidso_sku_id}</span>
+                        </TableCell>
+                        <TableCell>{sku.vertical_name || sku.vertical_code}</TableCell>
+                        <TableCell>{sku.model_name || sku.model_code}</TableCell>
+                        <TableCell>{sku.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{sku.buyer_sku_count || 0} variants</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {sku.has_bom ? (
+                            sku.bom_locked ? (
+                              <Badge className="bg-green-100 text-green-700">
+                                <Lock className="h-3 w-3 mr-1" />
+                                Locked
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline">BOM Set</Badge>
+                            )
+                          ) : (
+                            <Badge variant="outline" className="text-gray-400">No BOM</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleViewBOM(sku)}
+                              data-testid={`view-bom-${sku.bidso_sku_id}`}
+                            >
+                              <FileSpreadsheet className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => {
+                                setSelectedBidso(sku);
+                                setBuyerForm({ ...buyerForm, bidso_sku_id: sku.bidso_sku_id });
+                                setShowBuyerDialog(true);
+                              }}
+                              data-testid={`add-buyer-${sku.bidso_sku_id}`}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => {
+                                setSelectedBidso(sku);
+                                setShowBulkCreateDialog(true);
+                              }}
+                              data-testid={`bulk-create-${sku.bidso_sku_id}`}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Buyer SKUs Tab */}
+        <TabsContent value="buyer" className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex gap-3 flex-wrap">
+              <Select value={filterBrand} onValueChange={(v) => setFilterBrand(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-[180px]" data-testid="filter-brand">
+                  <SelectValue placeholder="All Brands" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {brands.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search Buyer SKU..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 w-[200px]"
+                />
+              </div>
+              
+              <Button variant="outline" onClick={fetchBuyerSKUs}>
+                <Search className="h-4 w-4 mr-2" />
+                Search
+              </Button>
+            </div>
+          </div>
+
+          {/* Buyer SKUs Table */}
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Buyer SKU ID</TableHead>
+                    <TableHead>Brand</TableHead>
+                    <TableHead>Parent Bidso SKU</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : buyerSKUs.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        No Buyer SKUs found. Create from a Bidso SKU first.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    buyerSKUs.map(sku => (
+                      <TableRow key={sku.id} data-testid={`buyer-row-${sku.buyer_sku_id}`}>
+                        <TableCell>
+                          <span className="font-mono font-medium text-green-600">{sku.buyer_sku_id}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge>{sku.brand_code}</Badge>
+                          <span className="ml-2 text-sm text-gray-500">{sku.brand_name}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-blue-600">{sku.bidso_sku_id}</span>
+                        </TableCell>
+                        <TableCell>{sku.name}</TableCell>
+                        <TableCell>
+                          <Badge variant={sku.status === 'ACTIVE' ? 'default' : 'secondary'}>
+                            {sku.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="sm">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Create Bidso SKU Dialog */}
+      <Dialog open={showBidsoDialog} onOpenChange={setShowBidsoDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Bidso SKU</DialogTitle>
+            <DialogDescription>
+              Create a base product (Bidso SKU) that can have multiple branded variants (Buyer SKUs).
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Vertical *</Label>
+                <Select 
+                  value={bidsoForm.vertical_id} 
+                  onValueChange={(v) => {
+                    setBidsoForm({ ...bidsoForm, vertical_id: v, model_id: "" });
+                    setSuggestedCode("");
+                    setPreviewSKUID("");
+                  }}
+                >
+                  <SelectTrigger data-testid="bidso-vertical-select">
+                    <SelectValue placeholder="Select Vertical" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {verticals.map(v => (
+                      <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>Model *</Label>
+                <Select 
+                  value={bidsoForm.model_id} 
+                  onValueChange={(v) => {
+                    setBidsoForm({ ...bidsoForm, model_id: v });
+                    fetchNextCode(bidsoForm.vertical_id, v);
+                  }}
+                  disabled={!bidsoForm.vertical_id}
+                >
+                  <SelectTrigger data-testid="bidso-model-select">
+                    <SelectValue placeholder="Select Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.filter(m => m.vertical_id === bidsoForm.vertical_id).map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div>
+              <Label>Numeric Code</Label>
+              <div className="flex gap-2">
+                <Input 
+                  value={bidsoForm.numeric_code}
+                  onChange={(e) => setBidsoForm({ ...bidsoForm, numeric_code: e.target.value })}
+                  placeholder="Auto-generated"
+                  data-testid="bidso-numeric-code"
+                />
+                {suggestedCode && (
+                  <Badge variant="outline" className="whitespace-nowrap">
+                    Suggested: {suggestedCode}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            
+            {previewSKUID && (
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-gray-600">Preview SKU ID:</p>
+                <p className="text-lg font-mono font-bold text-blue-600">{previewSKUID}</p>
+              </div>
+            )}
+            
+            <div>
+              <Label>Name</Label>
+              <Input 
+                value={bidsoForm.name}
+                onChange={(e) => setBidsoForm({ ...bidsoForm, name: e.target.value })}
+                placeholder="Product name"
+                data-testid="bidso-name"
+              />
+            </div>
+            
+            <div>
+              <Label>Description</Label>
+              <Input 
+                value={bidsoForm.description}
+                onChange={(e) => setBidsoForm({ ...bidsoForm, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setShowBidsoDialog(false)}>Cancel</Button>
+              <Button 
+                onClick={handleCreateBidso}
+                disabled={!bidsoForm.vertical_id || !bidsoForm.model_id}
+                data-testid="create-bidso-submit"
+              >
+                Create Bidso SKU
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Buyer SKU Dialog */}
+      <Dialog open={showBuyerDialog} onOpenChange={setShowBuyerDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Buyer SKU</DialogTitle>
+            <DialogDescription>
+              Create a branded variant of {selectedBidso?.bidso_sku_id || "a Bidso SKU"}.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {selectedBidso && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Parent Bidso SKU:</p>
+                <p className="font-mono font-bold text-blue-600">{selectedBidso.bidso_sku_id}</p>
+                <p className="text-sm text-gray-500">{selectedBidso.name}</p>
+              </div>
+            )}
+            
+            <div>
+              <Label>Brand *</Label>
+              <Select 
+                value={buyerForm.brand_id} 
+                onValueChange={(v) => setBuyerForm({ ...buyerForm, brand_id: v })}
+              >
+                <SelectTrigger data-testid="buyer-brand-select">
+                  <SelectValue placeholder="Select Brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {buyerForm.brand_id && selectedBidso && (
+              <div className="p-3 bg-green-50 rounded-lg">
+                <p className="text-sm text-gray-600">Buyer SKU ID will be:</p>
+                <p className="text-lg font-mono font-bold text-green-600">
+                  {brands.find(b => b.id === buyerForm.brand_id)?.code}_{selectedBidso.bidso_sku_id}
+                </p>
+              </div>
+            )}
+            
+            <div>
+              <Label>Name (optional)</Label>
+              <Input 
+                value={buyerForm.name}
+                onChange={(e) => setBuyerForm({ ...buyerForm, name: e.target.value })}
+                placeholder="Auto-generated from brand + product"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setShowBuyerDialog(false)}>Cancel</Button>
+              <Button 
+                onClick={handleCreateBuyer}
+                disabled={!buyerForm.brand_id || !buyerForm.bidso_sku_id}
+                data-testid="create-buyer-submit"
+              >
+                Create Buyer SKU
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Create Buyer SKUs Dialog */}
+      <Dialog open={showBulkCreateDialog} onOpenChange={setShowBulkCreateDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Create Buyer SKUs</DialogTitle>
+            <DialogDescription>
+              Create Buyer SKUs for multiple brands from {selectedBidso?.bidso_sku_id}.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-gray-600">Select brands to create Buyer SKUs:</p>
+            
+            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+              {brands.map(brand => (
+                <label 
+                  key={brand.id} 
+                  className="flex items-center gap-2 p-2 border rounded hover:bg-gray-50 cursor-pointer"
+                >
+                  <input 
+                    type="checkbox" 
+                    id={`brand-${brand.id}`}
+                    className="rounded"
+                    data-brand-id={brand.id}
+                  />
+                  <span className="font-mono text-sm">{brand.code}</span>
+                  <span className="text-sm text-gray-500">{brand.name}</span>
+                </label>
+              ))}
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setShowBulkCreateDialog(false)}>Cancel</Button>
+              <Button 
+                onClick={() => {
+                  const selectedBrands = Array.from(document.querySelectorAll('[data-brand-id]:checked'))
+                    .map(el => el.dataset.brandId);
+                  handleBulkCreateBuyerSKUs(selectedBrands);
+                }}
+                data-testid="bulk-create-submit"
+              >
+                Create Selected
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View BOM Dialog */}
+      <Dialog open={showBOMDialog} onOpenChange={setShowBOMDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Common BOM - {selectedBidso?.bidso_sku_id}</DialogTitle>
+            <DialogDescription>
+              This BOM is shared by all Buyer SKU variants of this Bidso SKU.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {bomLocked ? (
+                  <Badge className="bg-green-100 text-green-700">
+                    <Lock className="h-3 w-3 mr-1" />
+                    BOM Locked
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">BOM Editable</Badge>
+                )}
+              </div>
+              
+              <div className="flex gap-2">
+                {bomLocked ? (
+                  <Button variant="outline" size="sm" onClick={handleUnlockBOM}>
+                    <Unlock className="h-4 w-4 mr-2" />
+                    Unlock BOM
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={handleLockBOM} disabled={commonBOM.length === 0}>
+                    <Lock className="h-4 w-4 mr-2" />
+                    Lock BOM
+                  </Button>
+                )}
+              </div>
+            </div>
+            
+            <Separator />
+            
+            {commonBOM.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <FileSpreadsheet className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                <p>No BOM items defined yet.</p>
+                <p className="text-sm">Add raw materials to define the common BOM.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>RM ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Unit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {commonBOM.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-mono">{item.rm_id}</TableCell>
+                      <TableCell>{item.rm_name || "-"}</TableCell>
+                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell>{item.unit}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default SKUManagement;

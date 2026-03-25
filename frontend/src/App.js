@@ -9,6 +9,7 @@ import RMInward from "@/pages/RMInward";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
 import SKUSubscription from "@/pages/SKUSubscription";
+import SKUManagement from "@/pages/SKUManagement";
 import VendorManagement from "@/pages/VendorManagement";
 // ProductionPlanning page removed - CPC handles all production planning from forecasts
 import Production from "@/pages/Production";
@@ -86,6 +87,7 @@ function App() {
             <Route path="skus" element={<SKUs />} />
             <Route path="sku-mapping" element={<SKUMapping />} />
             <Route path="sku-subscription" element={<SKUSubscription />} />
+            <Route path="sku-management" element={<SKUManagement />} />
             <Route path="vendors" element={<VendorManagement />} />
             {/* Production Planning removed - use CPC module for forecast-driven planning */}
             <Route path="production" element={<Production />} />

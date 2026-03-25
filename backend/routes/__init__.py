@@ -12,6 +12,7 @@ from .report_routes import router as report_router
 from .vendor_routes import router as vendor_router
 from .event_routes import router as event_router
 from .branch_ops_routes import router as branch_ops_router
+from .sku_management_routes import router as sku_management_router
 
 __all__ = [
     'tech_ops_router',
@@ -26,5 +27,6 @@ __all__ = [
     'report_router',
     'vendor_router',
     'event_router',
-    'branch_ops_router'
+    'branch_ops_router',
+    'sku_management_router'
 ]

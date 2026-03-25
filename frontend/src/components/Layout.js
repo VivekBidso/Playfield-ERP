@@ -58,6 +58,7 @@ const Layout = () => {
     { path: "/master-dashboard", label: "Master Dashboard", icon: Gauge, show: isAdmin },
     { path: "/user-management", label: "User Management", icon: Users, show: isAdmin },
     { path: "/techops", label: "Tech Ops", icon: Settings, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
+    { path: "/sku-management", label: "SKU Management", icon: Box, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     { path: "/demand", label: "Demand Forecasts", icon: TrendingUp, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
@@ -67,7 +68,7 @@ const Layout = () => {
     { path: "/raw-materials", label: "Raw Materials", icon: Package, show: (isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('TECH_OPS_ENGINEER')) && !hasRole('DEMAND_PLANNER') && !isCPCPlanner },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
-    { path: "/skus", label: "SKUs", icon: Box, show: !isCPCPlanner },
+    { path: "/skus", label: "SKUs (Legacy)", icon: Box, show: !isCPCPlanner && isAdmin },
     { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     // Production Planning removed - CPC handles all production planning from forecasts
     { path: "/production", label: "Production", icon: Factory, show: isAdmin },

@@ -37,7 +37,8 @@ from routes import (
     report_router,
     vendor_router,
     event_router,
-    branch_ops_router
+    branch_ops_router,
+    sku_management_router
 )
 
 # Include all routers
@@ -54,6 +55,7 @@ api_router.include_router(procurement_router)
 api_router.include_router(cpc_router)
 api_router.include_router(event_router)
 api_router.include_router(branch_ops_router)
+api_router.include_router(sku_management_router)
 
 # Register main router
 app.include_router(api_router)
