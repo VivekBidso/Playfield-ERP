@@ -3,7 +3,7 @@ import axios from "axios";
 import { 
   Package, Search, Filter, Tag, Check, X, Edit, 
   ChevronDown, ChevronRight, Bell, Clock, CheckCircle,
-  XCircle, AlertCircle, Layers, Box
+  XCircle, AlertCircle, Layers, Box, Copy, Eye
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,8 +45,14 @@ const RMRepository = () => {
   const [models, setModels] = useState([]);
   const [rmRequests, setRmRequests] = useState([]);
   const [buyerSkuRequests, setBuyerSkuRequests] = useState([]);
+  const [bidsoCloneRequests, setBidsoCloneRequests] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingSkuCount, setPendingSkuCount] = useState(0);
+  const [pendingCloneCount, setPendingCloneCount] = useState(0);
+  
+  // Clone request detail
+  const [showCloneDetailDialog, setShowCloneDetailDialog] = useState(false);
+  const [selectedCloneRequest, setSelectedCloneRequest] = useState(null);
   
   // Loading
   const [loading, setLoading] = useState(false);
@@ -90,6 +96,7 @@ const RMRepository = () => {
     fetchMasterData();
     fetchPendingCount();
     fetchPendingSkuCount();
+    fetchPendingCloneCount();
   }, []);
 
   useEffect(() => {
@@ -99,6 +106,8 @@ const RMRepository = () => {
       fetchRMRequests();
     } else if (activeTab === "sku-requests") {
       fetchBuyerSkuRequests();
+    } else if (activeTab === "clone-requests") {
+      fetchBidsoCloneRequests();
     }
   }, [activeTab, filters, currentPage]);
 
@@ -205,6 +214,53 @@ const RMRepository = () => {
       fetchPendingSkuCount();
     } catch (error) {
       toast.error(`Failed to ${action.toLowerCase()} request`);
+    }
+  };
+
+  // Bidso Clone Request functions
+  const fetchPendingCloneCount = async () => {
+    try {
+      const res = await axios.get(`${API}/demand-hub/bidso-clone-requests/pending-count`);
+      setPendingCloneCount(res.data.pending_count);
+    } catch (error) {
+      console.error("Failed to fetch pending clone count");
+    }
+  };
+
+  const fetchBidsoCloneRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/demand-hub/bidso-clone-requests`);
+      setBidsoCloneRequests(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch Bidso Clone requests");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewCloneDetail = async (request) => {
+    try {
+      const res = await axios.get(`${API}/demand-hub/bidso-clone-requests/${request.id}`);
+      setSelectedCloneRequest(res.data);
+      setShowCloneDetailDialog(true);
+    } catch (error) {
+      toast.error("Failed to load request details");
+    }
+  };
+
+  const handleReviewBidsoCloneRequest = async (requestId, action, notes = "") => {
+    try {
+      await axios.post(`${API}/demand-hub/bidso-clone-requests/${requestId}/review`, {
+        action,
+        review_notes: notes
+      });
+      toast.success(`Request ${action.toLowerCase()}ed`);
+      setShowCloneDetailDialog(false);
+      fetchBidsoCloneRequests();
+      fetchPendingCloneCount();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} request`);
     }
   };
 
@@ -409,6 +465,13 @@ const RMRepository = () => {
             Buyer SKU Requests
             {pendingSkuCount > 0 && (
               <Badge className="ml-2 bg-blue-500">{pendingSkuCount}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="clone-requests" data-testid="clone-requests-tab">
+            <Copy className="h-4 w-4 mr-2" />
+            Bidso SKU Clone
+            {pendingCloneCount > 0 && (
+              <Badge className="ml-2 bg-green-500">{pendingCloneCount}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -931,6 +994,134 @@ const RMRepository = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Bidso Clone Requests Tab */}
+        <TabsContent value="clone-requests" className="space-y-4">
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Proposed Name</TableHead>
+                    <TableHead>Source SKU</TableHead>
+                    <TableHead>Modifications</TableHead>
+                    <TableHead>Requested By</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : bidsoCloneRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        No Bidso SKU clone requests
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    bidsoCloneRequests.map(req => (
+                      <TableRow key={req.id} data-testid={`clone-request-row-${req.id}`}>
+                        <TableCell>
+                          {req.status === "PENDING" && (
+                            <Badge className="bg-orange-100 text-orange-700">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Pending
+                            </Badge>
+                          )}
+                          {req.status === "APPROVED" && (
+                            <Badge className="bg-green-100 text-green-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Approved
+                            </Badge>
+                          )}
+                          {req.status === "REJECTED" && (
+                            <Badge className="bg-red-100 text-red-700">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rejected
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium">{req.proposed_name}</span>
+                          {req.proposed_description && (
+                            <p className="text-xs text-gray-500 truncate max-w-[200px]">{req.proposed_description}</p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <span className="font-mono text-sm">{req.source_bidso_sku_id}</span>
+                            <p className="text-xs text-gray-400">{req.source_bidso_sku_name}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-xs">
+                              {req.bom_modifications?.length || 0} modified
+                            </Badge>
+                            {req.bom_modifications?.filter(m => m.action === "CREATE_NEW").length > 0 && (
+                              <Badge className="bg-blue-100 text-blue-700 text-xs ml-1">
+                                +{req.bom_modifications.filter(m => m.action === "CREATE_NEW").length} new RM
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {req.requester_name || "Unknown"}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-500">
+                          {new Date(req.requested_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          {req.status === "PENDING" ? (
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handleViewCloneDetail(req)}
+                                data-testid={`view-clone-${req.id}`}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleReviewBidsoCloneRequest(req.id, "APPROVE")}
+                                data-testid={`approve-clone-${req.id}`}
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={() => handleReviewBidsoCloneRequest(req.id, "REJECT")}
+                                data-testid={`reject-clone-${req.id}`}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-500">
+                              {req.created_bidso_sku_id && (
+                                <span className="font-mono text-green-600">{req.created_bidso_sku_id}</span>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Edit Tags Dialog */}
@@ -1192,6 +1383,146 @@ const RMRepository = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clone Request Detail Dialog */}
+      <Dialog open={showCloneDetailDialog} onOpenChange={setShowCloneDetailDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="h-5 w-5" />
+              Bidso SKU Clone Request
+            </DialogTitle>
+            <DialogDescription>
+              Review the clone request details and BOM modifications
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedCloneRequest && (
+            <div className="space-y-4 mt-4">
+              {/* Request Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-gray-500">Proposed Name</Label>
+                  <p className="font-medium">{selectedCloneRequest.proposed_name}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Source SKU</Label>
+                  <p className="font-mono">{selectedCloneRequest.source_bidso_sku_id}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Requested By</Label>
+                  <p>{selectedCloneRequest.requester_name}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Requested At</Label>
+                  <p>{new Date(selectedCloneRequest.requested_at).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {selectedCloneRequest.proposed_description && (
+                <div>
+                  <Label className="text-xs text-gray-500">Description</Label>
+                  <p className="text-sm text-gray-600">{selectedCloneRequest.proposed_description}</p>
+                </div>
+              )}
+
+              {/* BOM Summary */}
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-semibold text-sm mb-2">BOM Summary</h4>
+                <div className="flex gap-4 text-sm">
+                  <span>Total Items: <strong>{selectedCloneRequest.total_bom_items}</strong></span>
+                  <span>Locked: <strong>{selectedCloneRequest.locked_items_count}</strong></span>
+                  <span>Modified: <strong>{selectedCloneRequest.bom_modifications?.length || 0}</strong></span>
+                </div>
+              </div>
+
+              {/* Modifications List */}
+              {selectedCloneRequest.bom_modifications?.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-sm mb-2">BOM Modifications</h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Action</TableHead>
+                          <TableHead>Original RM</TableHead>
+                          <TableHead>New RM</TableHead>
+                          <TableHead>New Colour</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedCloneRequest.bom_modifications.map((mod, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                mod.action === "CREATE_NEW" ? "bg-blue-50 text-blue-700" :
+                                mod.action === "SWAP_COLOUR" ? "bg-purple-50 text-purple-700" :
+                                "bg-orange-50 text-orange-700"
+                              }>
+                                {mod.action.replace("_", " ")}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">{mod.original_rm_id}</TableCell>
+                            <TableCell>
+                              {mod.action === "CREATE_NEW" ? (
+                                <div>
+                                  <span className="text-blue-600 font-medium">[NEW]</span>
+                                  <p className="text-xs text-gray-500">{mod.new_rm_name}</p>
+                                </div>
+                              ) : (
+                                <span className="font-mono text-sm">{mod.new_rm_id}</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {mod.new_colour && <Badge variant="secondary">{mod.new_colour}</Badge>}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* What will happen on approval */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                <h5 className="font-semibold text-blue-800 mb-1">On Approval:</h5>
+                <ul className="list-disc list-inside text-blue-700 space-y-1">
+                  <li>New Bidso SKU will be created: <code>{selectedCloneRequest.source_vertical_code}_{selectedCloneRequest.source_model_code}_XXX</code></li>
+                  {selectedCloneRequest.bom_modifications?.filter(m => m.action === "CREATE_NEW").length > 0 && (
+                    <li>{selectedCloneRequest.bom_modifications.filter(m => m.action === "CREATE_NEW").length} new RM(s) will be created</li>
+                  )}
+                  <li>Common BOM will be copied with modifications applied</li>
+                </ul>
+              </div>
+
+              {/* Actions */}
+              {selectedCloneRequest.status === "PENDING" && (
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <Button variant="outline" onClick={() => setShowCloneDetailDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="destructive"
+                    onClick={() => handleReviewBidsoCloneRequest(selectedCloneRequest.id, "REJECT")}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Reject
+                  </Button>
+                  <Button 
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => handleReviewBidsoCloneRequest(selectedCloneRequest.id, "APPROVE")}
+                    data-testid="approve-clone-detail"
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    Approve & Create
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

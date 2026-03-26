@@ -4,8 +4,9 @@ import useAuthStore from "@/store/authStore";
 import { 
   Package, Plus, Search, Clock, CheckCircle, XCircle, 
   Tag, Box, FileText, ChevronRight, AlertCircle, Layers,
-  Upload, Paperclip, Trash2, Download, File
+  Upload, Paperclip, Trash2, Download, File, Copy
 } from "lucide-react";
+import CloneBidsoSKU from "@/components/CloneBidsoSKU";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -452,6 +453,10 @@ const DemandHub = () => {
             <Tag className="h-4 w-4 mr-2" />
             Request RM
           </TabsTrigger>
+          <TabsTrigger value="clone-sku" data-testid="clone-sku-tab">
+            <Copy className="h-4 w-4 mr-2" />
+            Clone Bidso SKU
+          </TabsTrigger>
           <TabsTrigger value="my-requests" data-testid="my-requests-tab">
             <FileText className="h-4 w-4 mr-2" />
             My Requests
@@ -677,6 +682,11 @@ const DemandHub = () => {
           </Card>
         </TabsContent>
 
+        {/* Clone Bidso SKU Tab */}
+        <TabsContent value="clone-sku" className="space-y-4">
+          <CloneBidsoSKU />
+        </TabsContent>
+
         {/* My Requests Tab */}
         <TabsContent value="my-requests" className="space-y-4">
           <Card>
@@ -714,6 +724,11 @@ const DemandHub = () => {
                               <Box className="h-3 w-3 mr-1" />
                               Buyer SKU
                             </Badge>
+                          ) : req.type === "BIDSO_CLONE" ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700">
+                              <Copy className="h-3 w-3 mr-1" />
+                              Clone SKU
+                            </Badge>
                           ) : (
                             <Badge variant="outline" className="bg-purple-50 text-purple-700">
                               <Tag className="h-3 w-3 mr-1" />
@@ -727,6 +742,11 @@ const DemandHub = () => {
                               <span className="font-mono font-medium">{req.buyer_sku_id}</span>
                               <p className="text-xs text-gray-500">Base: {req.bidso_sku_id}</p>
                             </div>
+                          ) : req.type === "BIDSO_CLONE" ? (
+                            <div>
+                              <span className="font-medium">{req.proposed_name}</span>
+                              <p className="text-xs text-gray-500">Source: {req.source_bidso_sku_id}</p>
+                            </div>
                           ) : (
                             <div>
                               <span className="font-medium">{req.requested_name}</span>
@@ -738,6 +758,8 @@ const DemandHub = () => {
                           <div className="flex flex-wrap gap-1">
                             {req.type === "BUYER_SKU" ? (
                               <Badge variant="secondary">{req.brand_code}</Badge>
+                            ) : req.type === "BIDSO_CLONE" ? (
+                              <Badge variant="secondary">{req.bom_modifications?.length || 0} mods</Badge>
                             ) : (
                               req.brands?.map(b => (
                                 <Badge key={b.code} variant="secondary">{b.code}</Badge>
@@ -771,7 +793,7 @@ const DemandHub = () => {
                         <TableCell>
                           {req.status === "APPROVED" && (
                             <span className="font-mono text-xs text-green-600">
-                              {req.type === "BUYER_SKU" ? req.buyer_sku_id : req.created_rm_id}
+                              {req.type === "BUYER_SKU" ? req.buyer_sku_id : req.type === "BIDSO_CLONE" ? req.created_bidso_sku_id : req.created_rm_id}
                             </span>
                           )}
                           {req.status === "REJECTED" && req.review_notes && (
