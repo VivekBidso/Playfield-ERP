@@ -37,6 +37,15 @@ const DispatchLots = () => {
   const [editLines, setEditLines] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
   
+  // Add Line to Edit state
+  const [buyerForecasts, setBuyerForecasts] = useState([]);
+  const [loadingBuyerForecasts, setLoadingBuyerForecasts] = useState(false);
+  const [addLineForm, setAddLineForm] = useState({
+    forecast_id: "",
+    quantity: 0
+  });
+  const [showAddLineSection, setShowAddLineSection] = useState(false);
+  
   // Cascade filter data
   const [buyersWithForecasts, setBuyersWithForecasts] = useState([]);
   const [brandsForBuyer, setBrandsForBuyer] = useState([]);
@@ -303,7 +312,78 @@ const DispatchLots = () => {
       quantity: l.quantity,
       forecast_id: l.forecast_id
     })) || []);
+    setShowAddLineSection(false);
+    setAddLineForm({ forecast_id: "", quantity: 0 });
+    setBuyerForecasts([]);
     setShowEditDialog(true);
+    
+    // Fetch forecasts for this buyer
+    if (lot.buyer_id) {
+      fetchBuyerForecasts(lot.buyer_id);
+    }
+  };
+  
+  const fetchBuyerForecasts = async (buyerId) => {
+    setLoadingBuyerForecasts(true);
+    try {
+      const res = await axios.get(`${API}/forecasts?buyer_id=${buyerId}`, { headers: getHeaders() });
+      // Filter to only show confirmed forecasts with remaining quantity
+      const availableForecasts = (res.data || []).filter(f => 
+        f.status === 'CONFIRMED' && 
+        (f.quantity - (f.dispatch_allocated || 0)) > 0
+      );
+      setBuyerForecasts(availableForecasts);
+    } catch (error) {
+      console.error("Failed to fetch buyer forecasts:", error);
+      setBuyerForecasts([]);
+    } finally {
+      setLoadingBuyerForecasts(false);
+    }
+  };
+  
+  const handleAddNewLine = () => {
+    if (!addLineForm.forecast_id) {
+      toast.error("Please select a forecast");
+      return;
+    }
+    if (addLineForm.quantity <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+    
+    const selectedForecast = buyerForecasts.find(f => f.id === addLineForm.forecast_id);
+    if (!selectedForecast) {
+      toast.error("Invalid forecast selected");
+      return;
+    }
+    
+    const availableQty = selectedForecast.quantity - (selectedForecast.dispatch_allocated || 0);
+    if (addLineForm.quantity > availableQty) {
+      toast.error(`Quantity exceeds available (${availableQty.toLocaleString()})`);
+      return;
+    }
+    
+    // Check if this SKU is already in the lot
+    if (editLines.some(l => l.sku_id === selectedForecast.sku_id)) {
+      toast.error("This SKU is already in the dispatch lot. Update the existing line instead.");
+      return;
+    }
+    
+    // Add new line
+    const newLine = {
+      id: null, // New line, no ID yet
+      sku_id: selectedForecast.sku_id,
+      sku_description: selectedForecast.sku_description || `${selectedForecast.vertical || ''} - ${selectedForecast.model || ''}`.trim() || '-',
+      brand_id: selectedForecast.brand_id || null,
+      vertical_id: selectedForecast.vertical_id || null,
+      quantity: addLineForm.quantity,
+      forecast_id: selectedForecast.id
+    };
+    
+    setEditLines([...editLines, newLine]);
+    setAddLineForm({ forecast_id: "", quantity: 0 });
+    setShowAddLineSection(false);
+    toast.success("Line added successfully");
   };
 
   const handleEditLineQuantity = (index, newQty) => {
@@ -1312,9 +1392,114 @@ const DispatchLots = () => {
                 </table>
               </div>
               
-              <p className="text-xs text-zinc-500 mt-2">
-                Note: You can adjust quantities or remove lines. Adding new SKUs requires creating a new lot.
-              </p>
+              {/* Add New Line Section */}
+              {!showAddLineSection ? (
+                <Button 
+                  variant="outline" 
+                  className="w-full mt-3 border-dashed"
+                  onClick={() => setShowAddLineSection(true)}
+                  data-testid="add-line-btn"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Line from Forecast
+                </Button>
+              ) : (
+                <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="text-sm font-bold text-blue-800">Add New Line</Label>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 w-6 p-0"
+                      onClick={() => {
+                        setShowAddLineSection(false);
+                        setAddLineForm({ forecast_id: "", quantity: 0 });
+                      }}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  
+                  {loadingBuyerForecasts ? (
+                    <p className="text-sm text-zinc-500">Loading forecasts...</p>
+                  ) : buyerForecasts.length === 0 ? (
+                    <p className="text-sm text-zinc-500">No available forecasts for this buyer</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-xs text-zinc-600">Select Forecast</Label>
+                        <Select 
+                          value={addLineForm.forecast_id || "_none"} 
+                          onValueChange={(v) => {
+                            const fc = buyerForecasts.find(f => f.id === v);
+                            setAddLineForm({
+                              ...addLineForm, 
+                              forecast_id: v === "_none" ? "" : v,
+                              quantity: fc ? Math.min(fc.quantity - (fc.dispatch_allocated || 0), 100) : 0
+                            });
+                          }}
+                        >
+                          <SelectTrigger data-testid="add-line-forecast-select">
+                            <SelectValue placeholder="Select a forecast" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none" disabled>Select a forecast</SelectItem>
+                            {buyerForecasts.map(fc => {
+                              const available = fc.quantity - (fc.dispatch_allocated || 0);
+                              const isAlreadyAdded = editLines.some(l => l.sku_id === fc.sku_id);
+                              return (
+                                <SelectItem 
+                                  key={fc.id} 
+                                  value={fc.id}
+                                  disabled={isAlreadyAdded}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-mono text-xs">{fc.sku_id || 'All SKUs'}</span>
+                                    <span className="text-xs text-zinc-500">
+                                      {fc.vertical} / {fc.brand} / {fc.model} — Avail: {available.toLocaleString()}
+                                      {isAlreadyAdded && ' (Already in lot)'}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {addLineForm.forecast_id && (
+                        <>
+                          <div>
+                            <Label className="text-xs text-zinc-600">
+                              Quantity (Available: {(() => {
+                                const fc = buyerForecasts.find(f => f.id === addLineForm.forecast_id);
+                                return fc ? (fc.quantity - (fc.dispatch_allocated || 0)).toLocaleString() : 0;
+                              })()})
+                            </Label>
+                            <Input
+                              type="number"
+                              value={addLineForm.quantity}
+                              onChange={(e) => setAddLineForm({...addLineForm, quantity: parseInt(e.target.value) || 0})}
+                              min={1}
+                              className="font-mono"
+                              data-testid="add-line-quantity"
+                            />
+                          </div>
+                          
+                          <Button 
+                            onClick={handleAddNewLine}
+                            className="w-full"
+                            data-testid="confirm-add-line-btn"
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add to Lot
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Save Button */}
