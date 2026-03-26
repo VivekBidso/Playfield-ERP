@@ -104,6 +104,7 @@ function App() {
             <Route path="ibt" element={<IBT />} />
             <Route path="events" element={<Events />} />
             <Route path="branch-ops" element={<BranchOps />} />
+            <Route path="rm-repository" element={<RMRepository />} />
           </Route>
         </Routes>
       </BrowserRouter>

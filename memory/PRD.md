@@ -566,14 +566,19 @@ Example:
 ## 10. PENDING TASKS
 
 ### P1 - High Priority
+- Define Bidso SKU BOM creation workflow (how to author a new BOM for new products)
 - Consolidate IBT routes into logistics_routes.py
 
 ### P2 - Medium Priority
+- Implement Zoho Books API Integration (playbook ready, needs credentials)
+- RM Shortage Report UI (backend endpoint exists)
 - Auto-generate dispatch lots from forecasts
 - Lot status workflow automation
 - Production vs Forecast tracking dashboard
 
 ### P3 - Future
+- Auto-populate Brand column for Buyers (from dispatch data)
+- Dispatch Lot Notifications (dashboard alerts)
 - Barcode scanning
 - Real-time dashboard with auto-refresh
 - Multi-month production planning view
@@ -799,5 +804,85 @@ Date 2026-03-20 (no override):   Base=500, Override=None, Effective=500, Type=ba
 
 ---
 
-*Last updated: March 18, 2026*
-*Branch Ops Dashboard complete*
+## 17. RM REPOSITORY & TAGGING SYSTEM (March 26, 2026)
+
+### Requirement:
+- Raw Materials (RM) can be tagged with Brand, Vertical, and Model metadata
+- Demand Planners can request new RMs to be created
+- Tech Ops engineers approve/reject RM requests
+- Dedicated page for Tech Ops to manage RM tags and approve requests
+
+### Data Model Updates (`raw_materials` collection):
+| Field | Type | Description |
+|-------|------|-------------|
+| `brand_ids` | Array | List of brand IDs this RM can be used with |
+| `vertical_ids` | Array | List of vertical IDs this RM belongs to |
+| `model_ids` | Array | List of model IDs this RM belongs to |
+| `is_brand_specific` | Boolean | Whether RM is brand-specific (labels, packaging) |
+
+### New Collection: `rm_requests`
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Request ID |
+| `requested_by` | String | User ID of requester |
+| `requester_name` | String | Name of requester |
+| `category` | String | RM category (LB, PM, etc.) |
+| `requested_name` | String | Name/description for new RM |
+| `description` | String | Detailed description |
+| `brand_ids` | Array | Brands this RM is for |
+| `buyer_sku_id` | String | Optional Buyer SKU reference |
+| `status` | Enum | PENDING / APPROVED / REJECTED |
+| `created_rm_id` | String | RM ID created upon approval |
+| `requested_at` | DateTime | Request timestamp |
+| `reviewed_at` | DateTime | Review timestamp |
+| `reviewed_by` | String | Reviewer user ID |
+| `review_notes` | String | Notes from reviewer |
+
+### API Endpoints:
+
+**RM Tagging:**
+- `GET /api/raw-materials/by-tags` - Get RMs with tag filters (brand, vertical, model, category)
+- `PUT /api/raw-materials/{rm_id}` - Update RM tags (brand_ids, vertical_ids, model_ids, is_brand_specific)
+- `POST /api/raw-materials/{rm_id}/tag` - Add tags to RM (preserves existing)
+
+**RM Requests:**
+- `GET /api/rm-requests` - Get all RM requests (optionally filter by status)
+- `GET /api/rm-requests/pending-count` - Get count of pending requests
+- `POST /api/rm-requests` - Create new RM request (Demand Planner)
+- `POST /api/rm-requests/{request_id}/review` - Approve/Reject request (Tech Ops)
+
+### Frontend Page: `/rm-repository`
+
+**RM Repository Tab:**
+- Stats cards: Total RMs, Tagged RMs, Brand Specific, Pending Requests
+- Filters: Search, Category, Brand, Vertical, Model, Brand Specific
+- Table: RM ID, Category, Name, Brands, Verticals, Models, Brand Specific, Actions
+- Bulk tag operations (select multiple RMs, add tags to all)
+- Edit Tags dialog for individual RMs
+
+**RM Requests Tab:**
+- Table: Status, Category, Requested Name, For Brands, Buyer SKU, Requested By, Date, Actions
+- Quick Approve/Reject buttons for pending requests
+- Shows created RM ID for approved requests
+
+### Access Control:
+- Tech Ops Engineer: Full access to tag management and request approval
+- Master Admin: Full access
+- Demand Planner: Can create RM requests, view repository (read-only)
+
+### Migration Notes:
+- 1,843 existing RMs were auto-tagged based on legacy BOM relationships
+- Total RMs: 2,576
+- Auto-tagging script analyzed BOM configurations to infer brand/vertical/model associations
+
+### Files Created/Modified:
+- `backend/routes/rm_routes.py` - Updated with tagging and request endpoints
+- `backend/models/core.py` - Updated RawMaterial model with tag fields
+- `frontend/src/pages/RMRepository.js` - NEW RM Repository page
+- `frontend/src/App.js` - Added /rm-repository route
+- `frontend/src/components/Layout.js` - Added sidebar navigation
+
+---
+
+*Last updated: March 26, 2026*
+*RM Repository & Tagging System complete*

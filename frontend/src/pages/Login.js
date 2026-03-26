@@ -163,9 +163,9 @@ const Login = () => {
 
           <div className="mt-6 p-4 bg-zinc-50 border border-zinc-200 rounded-sm">
             <p className="text-xs text-zinc-600 font-mono">
-              <strong>System Admin:</strong><br />
-              Email: admin@factory.com<br />
-              Password: admin123
+              <strong>Quick Login:</strong><br />
+              Select a test account above to auto-fill credentials.<br />
+              Password for all test accounts: <strong>bidso123</strong>
             </p>
           </div>
         </div>

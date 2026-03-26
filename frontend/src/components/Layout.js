@@ -59,6 +59,7 @@ const Layout = () => {
     { path: "/user-management", label: "User Management", icon: Users, show: isAdmin },
     { path: "/techops", label: "Tech Ops", icon: Settings, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     { path: "/sku-management", label: "SKU Management", icon: Box, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
+    { path: "/rm-repository", label: "RM Repository", icon: Package, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     { path: "/demand", label: "Demand Forecasts", icon: TrendingUp, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
