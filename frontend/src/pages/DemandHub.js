@@ -20,6 +20,55 @@ import { toast } from "sonner";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// RM Categories with their required fields (matching bulk upload templates)
+const RM_CATEGORIES = {
+  "LB": { 
+    name: "Labels", 
+    description: "Product labels and stickers",
+    fields: [
+      { key: "type", label: "Type", required: true, placeholder: "e.g., Main Label, Warning Label" },
+      { key: "buyer_sku", label: "Buyer SKU", required: true, placeholder: "e.g., BE_KS_PE_001" },
+      { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 5", type: "number" },
+      { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs, sheets" }
+    ]
+  },
+  "PM": { 
+    name: "Packaging", 
+    description: "Boxes, cartons, packaging materials",
+    fields: [
+      { key: "model", label: "Model", required: true, placeholder: "e.g., Kids Scooter Box" },
+      { key: "type", label: "Type", required: true, placeholder: "e.g., Inner Box, Outer Carton" },
+      { key: "specs", label: "Specifications", required: true, placeholder: "e.g., 45x30x20 cm, 5-ply" },
+      { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee, Firstcry" },
+      { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 500", type: "number" },
+      { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
+    ]
+  },
+  "BS": { 
+    name: "Brand Assets", 
+    description: "Brand-specific inserts, manuals, etc.",
+    fields: [
+      { key: "position", label: "Position/Location", required: true, placeholder: "e.g., Inside Box, On Product" },
+      { key: "type", label: "Type", required: true, placeholder: "e.g., Manual, Warranty Card, Insert" },
+      { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee" },
+      { key: "buyer_sku", label: "Buyer SKU", required: false, placeholder: "e.g., BE_KS_PE_001" },
+      { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 20", type: "number" },
+      { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
+    ]
+  },
+  "STK": { 
+    name: "Stickers", 
+    description: "Promotional stickers, warranty stickers",
+    fields: [
+      { key: "type", label: "Type", required: true, placeholder: "e.g., Warranty, Promo, QC Pass" },
+      { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee" },
+      { key: "buyer_sku", label: "Buyer SKU", required: false, placeholder: "e.g., BE_KS_PE_001" },
+      { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 1", type: "number" },
+      { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
+    ]
+  }
+};
+
 const DemandHub = () => {
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState("buyer-sku");
@@ -60,8 +109,12 @@ const DemandHub = () => {
     requested_name: "",
     description: "",
     brand_ids: [],
-    buyer_sku_id: ""
+    buyer_sku_id: "",
+    category_data: {}
   });
+  
+  // Buyer SKU search for RM form
+  const [buyerSkuSearch, setBuyerSkuSearch] = useState([]);
   
   // Dialogs
   const [showBuyerSkuDialog, setShowBuyerSkuDialog] = useState(false);
@@ -164,21 +217,56 @@ const DemandHub = () => {
   };
 
   const handleCreateRmRequest = async () => {
-    if (!rmForm.requested_name || rmForm.brand_ids.length === 0) {
-      toast.error("Please enter a name and select at least one brand");
+    // Validate required fields
+    const categoryConfig = RM_CATEGORIES[rmForm.category];
+    const missingFields = [];
+    
+    if (!rmForm.requested_name) missingFields.push("RM Name");
+    if (rmForm.brand_ids.length === 0) missingFields.push("Brands");
+    
+    // Check category-specific required fields
+    categoryConfig.fields.forEach(field => {
+      if (field.required && !rmForm.category_data[field.key]) {
+        missingFields.push(field.label);
+      }
+    });
+    
+    if (missingFields.length > 0) {
+      toast.error(`Please fill required fields: ${missingFields.join(", ")}`);
       return;
     }
     
     try {
-      await axios.post(`${API}/rm-requests`, rmForm);
+      await axios.post(`${API}/rm-requests`, {
+        ...rmForm,
+        category_data: rmForm.category_data
+      });
       toast.success("RM request created");
       setShowRmDialog(false);
-      setRmForm({ category: "LB", requested_name: "", description: "", brand_ids: [], buyer_sku_id: "" });
+      setRmForm({ category: "LB", requested_name: "", description: "", brand_ids: [], buyer_sku_id: "", category_data: {} });
       fetchSummary();
       fetchMyRequests();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to create request");
     }
+  };
+
+  const handleRmCategoryChange = (newCategory) => {
+    setRmForm({ 
+      ...rmForm, 
+      category: newCategory,
+      category_data: {} // Reset category data when category changes
+    });
+  };
+
+  const updateCategoryData = (key, value) => {
+    setRmForm({
+      ...rmForm,
+      category_data: {
+        ...rmForm.category_data,
+        [key]: value
+      }
+    });
   };
 
   const getFilteredModels = () => {
@@ -688,29 +776,32 @@ const DemandHub = () => {
 
       {/* RM Request Dialog */}
       <Dialog open={showRmDialog} onOpenChange={setShowRmDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Request New Raw Material</DialogTitle>
             <DialogDescription>
-              Request a {rmCategories.find(c => c.code === rmForm.category)?.name || rmForm.category} for Tech Ops to create.
+              Request a {RM_CATEGORIES[rmForm.category]?.name || rmForm.category} for Tech Ops to create.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 mt-4">
+            {/* Category Selection */}
             <div>
-              <Label>Category</Label>
-              <Select value={rmForm.category} onValueChange={(v) => setRmForm({ ...rmForm, category: v })}>
+              <Label>Category *</Label>
+              <Select value={rmForm.category} onValueChange={handleRmCategoryChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {rmCategories.map(c => (
-                    <SelectItem key={c.code} value={c.code}>{c.code} - {c.name}</SelectItem>
+                  {Object.entries(RM_CATEGORIES).map(([code, config]) => (
+                    <SelectItem key={code} value={code}>{code} - {config.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-gray-500 mt-1">{RM_CATEGORIES[rmForm.category]?.description}</p>
             </div>
             
+            {/* RM Name */}
             <div>
               <Label>RM Name *</Label>
               <Input
@@ -721,19 +812,39 @@ const DemandHub = () => {
               />
             </div>
             
-            <div>
-              <Label>Description</Label>
-              <Textarea
-                value={rmForm.description}
-                onChange={(e) => setRmForm({ ...rmForm, description: e.target.value })}
-                placeholder="Detailed specifications, size, color, artwork reference..."
-                rows={3}
-              />
+            {/* Category-Specific Fields */}
+            <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
+              <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                {RM_CATEGORIES[rmForm.category]?.name} Details
+              </h4>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {RM_CATEGORIES[rmForm.category]?.fields.map(field => (
+                  <div key={field.key} className={field.key === 'specs' || field.key === 'buyer_sku' ? 'col-span-2' : ''}>
+                    <Label className="text-xs">
+                      {field.label} {field.required && <span className="text-red-500">*</span>}
+                    </Label>
+                    <Input
+                      type={field.type || "text"}
+                      value={rmForm.category_data[field.key] || ""}
+                      onChange={(e) => updateCategoryData(field.key, e.target.value)}
+                      placeholder={field.placeholder}
+                      className="h-9 text-sm"
+                      data-testid={`rm-field-${field.key}`}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
             
+            {/* Brands */}
             <div>
               <Label>For Brands *</Label>
-              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[60px]">
+              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[50px] bg-white">
+                {rmForm.brand_ids.length === 0 && (
+                  <span className="text-xs text-gray-400">No brands selected</span>
+                )}
                 {rmForm.brand_ids.map(bid => (
                   <Badge key={bid} variant="secondary" className="pr-1">
                     {getBrandCode(bid)} - {getBrandName(bid)}
@@ -765,24 +876,25 @@ const DemandHub = () => {
               </Select>
             </div>
             
+            {/* Additional Notes */}
             <div>
-              <Label>For Buyer SKU (Optional)</Label>
-              <Input
-                value={rmForm.buyer_sku_id}
-                onChange={(e) => setRmForm({ ...rmForm, buyer_sku_id: e.target.value })}
-                placeholder="e.g., BE_KS_PE_001"
-                className="font-mono"
+              <Label>Additional Notes</Label>
+              <Textarea
+                value={rmForm.description}
+                onChange={(e) => setRmForm({ ...rmForm, description: e.target.value })}
+                placeholder="Any additional specifications, artwork references, color codes..."
+                rows={2}
+                className="text-sm"
               />
-              <p className="text-xs text-gray-500 mt-1">Link this RM to a specific Buyer SKU</p>
             </div>
             
-            <div className="flex justify-end gap-2 pt-4">
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
               <Button variant="outline" onClick={() => setShowRmDialog(false)}>
                 Cancel
               </Button>
               <Button 
                 onClick={handleCreateRmRequest}
-                disabled={!rmForm.requested_name || rmForm.brand_ids.length === 0}
                 data-testid="submit-rm-request"
               >
                 Submit Request

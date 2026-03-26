@@ -75,6 +75,7 @@ class RMRequest(BaseModel):
     category: str  # LB, PM, BA (Brand Asset), etc.
     requested_name: str  # e.g., "Baybee Kids Scooter Label"
     description: str = ""
+    category_data: Dict[str, Any] = {}  # Category-specific fields (type, specs, etc.)
     
     # Tagging (what this RM is for)
     brand_ids: List[str] = []
@@ -85,6 +86,7 @@ class RMRequest(BaseModel):
     # Workflow
     status: str = "PENDING"  # PENDING, APPROVED, REJECTED, CREATED
     requested_by: Optional[str] = None
+    requester_name: str = ""
     requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Approval
@@ -101,6 +103,7 @@ class RMRequestCreate(BaseModel):
     category: str
     requested_name: str
     description: str = ""
+    category_data: Dict[str, Any] = {}  # Category-specific fields
     brand_ids: List[str] = []
     vertical_ids: List[str] = []
     model_ids: List[str] = []

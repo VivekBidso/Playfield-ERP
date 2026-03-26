@@ -554,11 +554,13 @@ async def create_rm_request(data: dict, current_user: User = Depends(get_current
         category=data.get("category", "LB"),
         requested_name=data.get("requested_name", ""),
         description=data.get("description", ""),
+        category_data=data.get("category_data", {}),
         brand_ids=data.get("brand_ids", []),
         vertical_ids=data.get("vertical_ids", []),
         model_ids=data.get("model_ids", []),
         buyer_sku_id=data.get("buyer_sku_id"),
-        requested_by=current_user.id
+        requested_by=current_user.id,
+        requester_name=current_user.name
     )
     
     doc = request.model_dump()
@@ -598,11 +600,20 @@ async def review_rm_request(request_id: str, data: dict, current_user: User = De
         seq = await get_next_rm_sequence(category)
         rm_id = f"{category}_{seq:05d}"
         
+        # Use category_data from the request (or override from review data)
+        request_category_data = request.get("category_data", {})
+        review_category_data = data.get("category_data")
+        final_category_data = review_category_data if review_category_data else request_category_data
+        
+        # Add the requested name to category_data if not present
+        if "name" not in final_category_data:
+            final_category_data["name"] = request.get("requested_name", "")
+        
         # Create the RM
         rm = RawMaterial(
             rm_id=rm_id,
             category=category,
-            category_data=data.get("category_data", {"name": request.get("requested_name", "")}),
+            category_data=final_category_data,
             brand_ids=request.get("brand_ids", []),
             vertical_ids=request.get("vertical_ids", []),
             model_ids=request.get("model_ids", []),
@@ -622,7 +633,7 @@ async def review_rm_request(request_id: str, data: dict, current_user: User = De
     )
     
     return {
-        "message": f"Request {action.lower()}ed",
+        "message": f"Request {'approved' if action == 'APPROVE' else 'rejected'}",
         "created_rm_id": update_data.get("created_rm_id")
     }
 
