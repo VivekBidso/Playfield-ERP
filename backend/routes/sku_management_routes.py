@@ -23,7 +23,7 @@ from models.sku_models import (
     BrandSpecificBOM, BrandSpecificBOMCreate,
     FullBOM, SKUMigrationResult
 )
-from services.utils import get_current_user, serialize_doc
+from services.utils import get_current_user, serialize_doc, get_next_rm_sequence, generate_rm_name
 
 router = APIRouter(prefix="/sku-management", tags=["SKU Management"])
 
@@ -882,3 +882,316 @@ async def get_migration_stats():
         "old_skus": old_sku_count,
         "collections_created": ["bidso_skus", "buyer_skus", "common_bom", "brand_specific_bom"]
     }
+
+
+# ============ Clone & Customize Bidso SKU ============
+
+@router.get("/bidso-skus/{bidso_sku_id}/bom-for-clone")
+async def get_bom_for_clone(bidso_sku_id: str):
+    """
+    Get Common BOM of a Bidso SKU formatted for cloning.
+    Returns BOM items with edit permissions based on category:
+    - INP, INM: Editable (colour change only)
+    - ACC: Editable (colour change or complete swap)
+    - Others (ELC, SP, etc.): Locked
+    """
+    # Get the Bidso SKU
+    bidso_sku = await db.bidso_skus.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
+    if not bidso_sku:
+        raise HTTPException(status_code=404, detail="Bidso SKU not found")
+    
+    # Get the Common BOM
+    common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
+    if not common_bom or not common_bom.get("items"):
+        raise HTTPException(status_code=404, detail="No BOM found for this Bidso SKU")
+    
+    # Enrich BOM items with RM details and edit permissions
+    enriched_items = []
+    for item in common_bom.get("items", []):
+        rm_id = item.get("rm_id")
+        rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+        
+        if rm:
+            category = rm.get("category", "")
+            category_data = rm.get("category_data", {})
+            
+            # Determine edit type based on category
+            if category in ["INP", "INM"]:
+                edit_type = "COLOUR_ONLY"  # Can only change colour variant
+            elif category == "ACC":
+                edit_type = "COLOUR_OR_SWAP"  # Can change colour or swap entirely
+            else:
+                edit_type = "LOCKED"  # Cannot edit
+            
+            enriched_items.append({
+                "rm_id": rm_id,
+                "rm_name": category_data.get("name", ""),
+                "category": category,
+                "category_data": category_data,
+                "quantity": item.get("quantity", 1),
+                "unit": item.get("unit", "nos"),
+                "edit_type": edit_type,
+                "colour": category_data.get("colour", ""),
+                "model_name": category_data.get("model_name", ""),
+                "part_name": category_data.get("part_name", ""),
+            })
+    
+    return {
+        "source_sku": bidso_sku,
+        "bom_items": enriched_items,
+        "total_items": len(enriched_items),
+        "editable_count": len([i for i in enriched_items if i["edit_type"] != "LOCKED"]),
+        "locked_count": len([i for i in enriched_items if i["edit_type"] == "LOCKED"])
+    }
+
+
+@router.get("/raw-materials/colour-variants/{rm_id}")
+async def get_colour_variants(rm_id: str):
+    """
+    Find colour variants of an RM (same base part, different colours).
+    For INP/INM: Same mould_code/model_name + part_name, different colour
+    For ACC: Same type + model_name + specs, different colour
+    """
+    # Get the source RM
+    source_rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+    if not source_rm:
+        raise HTTPException(status_code=404, detail="RM not found")
+    
+    category = source_rm.get("category", "")
+    category_data = source_rm.get("category_data", {})
+    
+    query = {"category": category, "rm_id": {"$ne": rm_id}}
+    
+    if category == "INP":
+        # Match by mould_code, model_name, part_name
+        query["category_data.mould_code"] = category_data.get("mould_code")
+        query["category_data.model_name"] = category_data.get("model_name")
+        query["category_data.part_name"] = category_data.get("part_name")
+    elif category == "INM":
+        # Match by model_name, part_name
+        query["category_data.model_name"] = category_data.get("model_name")
+        query["category_data.part_name"] = category_data.get("part_name")
+    elif category == "ACC":
+        # Match by type, model_name, specs
+        query["category_data.type"] = category_data.get("type")
+        query["category_data.model_name"] = category_data.get("model_name")
+        query["category_data.specs"] = category_data.get("specs")
+    else:
+        return {"variants": [], "message": "Category does not support colour variants"}
+    
+    # Find variants
+    variants = await db.raw_materials.find(query, {"_id": 0}).to_list(100)
+    
+    # Format response
+    result = []
+    for v in variants:
+        v_data = v.get("category_data", {})
+        result.append({
+            "rm_id": v.get("rm_id"),
+            "category": v.get("category"),
+            "colour": v_data.get("colour", "N/A"),
+            "name": v_data.get("name", ""),
+            "category_data": v_data
+        })
+    
+    return {
+        "source_rm": {
+            "rm_id": rm_id,
+            "colour": category_data.get("colour", "N/A"),
+            "name": category_data.get("name", "")
+        },
+        "variants": result,
+        "total_variants": len(result)
+    }
+
+
+@router.get("/raw-materials/search-for-swap")
+async def search_rm_for_swap(
+    category: str,
+    search: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    Search RMs for swapping (ACC category).
+    Returns RMs in same category that can replace current RM.
+    """
+    query = {"category": category}
+    
+    rms = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
+    
+    # Apply search filter
+    if search:
+        search_lower = search.lower()
+        rms = [rm for rm in rms if 
+               search_lower in rm.get("rm_id", "").lower() or
+               search_lower in rm.get("category_data", {}).get("name", "").lower() or
+               search_lower in rm.get("category_data", {}).get("type", "").lower() or
+               search_lower in rm.get("category_data", {}).get("model_name", "").lower()]
+    
+    # Format response
+    result = []
+    for rm in rms[:limit]:
+        cd = rm.get("category_data", {})
+        result.append({
+            "rm_id": rm.get("rm_id"),
+            "category": rm.get("category"),
+            "name": cd.get("name", ""),
+            "type": cd.get("type", ""),
+            "model_name": cd.get("model_name", ""),
+            "specs": cd.get("specs", ""),
+            "colour": cd.get("colour", ""),
+            "category_data": cd
+        })
+    
+    return {"results": result, "total": len(result)}
+
+
+@router.post("/bidso-skus/clone")
+async def clone_bidso_sku(data: dict, current_user = Depends(get_current_user)):
+    """
+    Create a new Bidso SKU by cloning an existing one with modifications.
+    
+    Request body:
+    {
+        "source_bidso_sku_id": "KS_PE_001",
+        "name": "Kids Scooter - Red",
+        "description": "Red colour variant",
+        "bom_modifications": [
+            {"original_rm_id": "INP_001", "new_rm_id": "INP_003"},  // Colour swap
+            {"original_rm_id": "ACC_010", "new_rm_id": "ACC_015"}   // ACC replacement
+        ],
+        "new_rms_to_create": [  // Optional: Create new RMs on-the-fly
+            {
+                "category": "INP",
+                "category_data": {"mould_code": "M001", "model_name": "Body", "part_name": "Shell", "colour": "Red", "mb": "Red MB"},
+                "replaces_rm_id": "INP_001"
+            }
+        ]
+    }
+    """
+    source_sku_id = data.get("source_bidso_sku_id")
+    if not source_sku_id:
+        raise HTTPException(status_code=400, detail="source_bidso_sku_id is required")
+    
+    # Get source Bidso SKU
+    source_sku = await db.bidso_skus.find_one({"bidso_sku_id": source_sku_id}, {"_id": 0})
+    if not source_sku:
+        raise HTTPException(status_code=404, detail="Source Bidso SKU not found")
+    
+    # Get source BOM
+    source_bom = await db.common_bom.find_one({"bidso_sku_id": source_sku_id}, {"_id": 0})
+    if not source_bom:
+        raise HTTPException(status_code=404, detail="Source BOM not found")
+    
+    # Generate new Bidso SKU ID
+    vertical_code = source_sku.get("vertical_code")
+    model_code = source_sku.get("model_code")
+    numeric_code = await get_next_numeric_code(vertical_code, model_code)
+    new_bidso_sku_id = f"{vertical_code}_{model_code}_{numeric_code}"
+    
+    # Check if already exists
+    existing = await db.bidso_skus.find_one({"bidso_sku_id": new_bidso_sku_id})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Bidso SKU {new_bidso_sku_id} already exists")
+    
+    # Create new RMs on-the-fly if specified
+    new_rm_mapping = {}  # original_rm_id -> new_rm_id
+    new_rms_to_create = data.get("new_rms_to_create", [])
+    
+    from services.utils import get_next_rm_sequence, generate_rm_name
+    
+    for new_rm_data in new_rms_to_create:
+        category = new_rm_data.get("category")
+        category_data = new_rm_data.get("category_data", {})
+        replaces_rm_id = new_rm_data.get("replaces_rm_id")
+        
+        # Generate RM ID
+        seq = await get_next_rm_sequence(category)
+        new_rm_id = f"{category}_{seq:05d}"
+        
+        # Generate name from nomenclature
+        rm_name = generate_rm_name(category, category_data)
+        if rm_name:
+            category_data["name"] = rm_name
+        
+        # Create the RM
+        new_rm = {
+            "id": str(uuid.uuid4()),
+            "rm_id": new_rm_id,
+            "category": category,
+            "category_data": category_data,
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user.id
+        }
+        await db.raw_materials.insert_one(new_rm)
+        
+        if replaces_rm_id:
+            new_rm_mapping[replaces_rm_id] = new_rm_id
+    
+    # Process BOM modifications
+    bom_modifications = data.get("bom_modifications", [])
+    for mod in bom_modifications:
+        original_rm_id = mod.get("original_rm_id")
+        new_rm_id = mod.get("new_rm_id")
+        if original_rm_id and new_rm_id:
+            new_rm_mapping[original_rm_id] = new_rm_id
+    
+    # Create new BOM by copying source and applying modifications
+    new_bom_items = []
+    for item in source_bom.get("items", []):
+        rm_id = item.get("rm_id")
+        
+        # Check if this RM should be swapped
+        if rm_id in new_rm_mapping:
+            new_rm_id = new_rm_mapping[rm_id]
+            # Get new RM name
+            new_rm = await db.raw_materials.find_one({"rm_id": new_rm_id}, {"_id": 0})
+            rm_name = new_rm.get("category_data", {}).get("name", "") if new_rm else ""
+            new_bom_items.append({
+                "rm_id": new_rm_id,
+                "rm_name": rm_name,
+                "quantity": item.get("quantity", 1),
+                "unit": item.get("unit", "nos")
+            })
+        else:
+            # Keep original
+            new_bom_items.append(item)
+    
+    # Create new Bidso SKU
+    new_bidso_sku = {
+        "id": str(uuid.uuid4()),
+        "bidso_sku_id": new_bidso_sku_id,
+        "vertical_id": source_sku.get("vertical_id"),
+        "vertical_code": vertical_code,
+        "model_id": source_sku.get("model_id"),
+        "model_code": model_code,
+        "numeric_code": numeric_code,
+        "name": data.get("name", f"{source_sku.get('name', '')} - Variant"),
+        "description": data.get("description", f"Cloned from {source_sku_id}"),
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.id
+    }
+    await db.bidso_skus.insert_one(new_bidso_sku)
+    
+    # Create new Common BOM
+    new_common_bom = {
+        "id": str(uuid.uuid4()),
+        "bidso_sku_id": new_bidso_sku_id,
+        "items": new_bom_items,
+        "is_locked": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.id
+    }
+    await db.common_bom.insert_one(new_common_bom)
+    
+    return {
+        "message": "Bidso SKU cloned successfully",
+        "new_bidso_sku_id": new_bidso_sku_id,
+        "source_bidso_sku_id": source_sku_id,
+        "bom_items_count": len(new_bom_items),
+        "modifications_applied": len(new_rm_mapping),
+        "new_rms_created": len(new_rms_to_create)
+    }
+
