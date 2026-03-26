@@ -76,6 +76,7 @@ class RMRequest(BaseModel):
     requested_name: str  # e.g., "Baybee Kids Scooter Label"
     description: str = ""
     category_data: Dict[str, Any] = {}  # Category-specific fields (type, specs, etc.)
+    artwork_files: List[Dict[str, Any]] = []  # Uploaded artwork file references
     
     # Tagging (what this RM is for)
     brand_ids: List[str] = []

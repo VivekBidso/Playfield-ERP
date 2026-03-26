@@ -555,6 +555,7 @@ async def create_rm_request(data: dict, current_user: User = Depends(get_current
         requested_name=data.get("requested_name", ""),
         description=data.get("description", ""),
         category_data=data.get("category_data", {}),
+        artwork_files=data.get("artwork_files", []),
         brand_ids=data.get("brand_ids", []),
         vertical_ids=data.get("vertical_ids", []),
         model_ids=data.get("model_ids", []),

@@ -39,7 +39,8 @@ from routes import (
     event_router,
     branch_ops_router,
     sku_management_router,
-    demand_hub_router
+    demand_hub_router,
+    upload_router
 )
 
 # Include all routers
@@ -58,6 +59,7 @@ api_router.include_router(event_router)
 api_router.include_router(branch_ops_router)
 api_router.include_router(sku_management_router)
 api_router.include_router(demand_hub_router)
+api_router.include_router(upload_router)
 
 # Register main router
 app.include_router(api_router)

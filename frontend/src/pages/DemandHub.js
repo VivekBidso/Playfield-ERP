@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
 import { 
   Package, Plus, Search, Clock, CheckCircle, XCircle, 
-  Tag, Box, FileText, ChevronRight, AlertCircle, Layers
+  Tag, Box, FileText, ChevronRight, AlertCircle, Layers,
+  Upload, Paperclip, Trash2, Download, File
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,9 @@ import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Categories that support artwork file uploads
+const ARTWORK_CATEGORIES = ["LB", "BS", "PM"];
 
 // RM Categories with their required fields (matching bulk upload templates)
 const RM_CATEGORIES = {
@@ -110,8 +114,13 @@ const DemandHub = () => {
     description: "",
     brand_ids: [],
     buyer_sku_id: "",
-    category_data: {}
+    category_data: {},
+    artwork_files: []  // Array of uploaded file references
   });
+  
+  // File upload state
+  const fileInputRef = useRef(null);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
   
   // Buyer SKU search for RM form
   const [buyerSkuSearch, setBuyerSkuSearch] = useState([]);
@@ -239,11 +248,12 @@ const DemandHub = () => {
     try {
       await axios.post(`${API}/rm-requests`, {
         ...rmForm,
-        category_data: rmForm.category_data
+        category_data: rmForm.category_data,
+        artwork_files: rmForm.artwork_files
       });
       toast.success("RM request created");
       setShowRmDialog(false);
-      setRmForm({ category: "LB", requested_name: "", description: "", brand_ids: [], buyer_sku_id: "", category_data: {} });
+      setRmForm({ category: "LB", requested_name: "", description: "", brand_ids: [], buyer_sku_id: "", category_data: {}, artwork_files: [] });
       fetchSummary();
       fetchMyRequests();
     } catch (error) {
@@ -255,7 +265,8 @@ const DemandHub = () => {
     setRmForm({ 
       ...rmForm, 
       category: newCategory,
-      category_data: {} // Reset category data when category changes
+      category_data: {}, // Reset category data when category changes
+      artwork_files: []  // Reset artwork files when category changes
     });
   };
 
@@ -267,6 +278,76 @@ const DemandHub = () => {
         [key]: value
       }
     });
+  };
+
+  // File upload handlers
+  const handleFileUpload = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    
+    const allowedExtensions = ['.ai', '.pdf', '.cdr', '.eps', '.svg', '.psd'];
+    const validFiles = Array.from(files).filter(file => {
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      return allowedExtensions.includes(ext);
+    });
+    
+    if (validFiles.length === 0) {
+      toast.error(`Invalid file type. Allowed: ${allowedExtensions.join(', ')}`);
+      return;
+    }
+    
+    setUploadingFiles(true);
+    
+    try {
+      const formData = new FormData();
+      validFiles.forEach(file => formData.append('files', file));
+      
+      const res = await axios.post(`${API}/uploads/rm-artwork`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (res.data.uploaded && res.data.uploaded.length > 0) {
+        setRmForm({
+          ...rmForm,
+          artwork_files: [...rmForm.artwork_files, ...res.data.uploaded]
+        });
+        toast.success(`${res.data.uploaded.length} file(s) uploaded`);
+      }
+      
+      if (res.data.errors && res.data.errors.length > 0) {
+        res.data.errors.forEach(err => toast.error(`${err.filename}: ${err.error}`));
+      }
+    } catch (error) {
+      toast.error("Failed to upload files");
+    } finally {
+      setUploadingFiles(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveFile = async (storedName) => {
+    try {
+      await axios.delete(`${API}/uploads/rm-artwork/${storedName}`);
+      setRmForm({
+        ...rmForm,
+        artwork_files: rmForm.artwork_files.filter(f => f.stored_name !== storedName)
+      });
+      toast.success("File removed");
+    } catch (error) {
+      toast.error("Failed to remove file");
+    }
+  };
+
+  const getFileIcon = (fileType) => {
+    switch (fileType) {
+      case 'PDF': return <FileText className="h-4 w-4 text-red-500" />;
+      case 'AI': return <File className="h-4 w-4 text-orange-500" />;
+      case 'CDR': return <File className="h-4 w-4 text-green-500" />;
+      default: return <File className="h-4 w-4 text-gray-500" />;
+    }
   };
 
   const getFilteredModels = () => {
@@ -887,6 +968,93 @@ const DemandHub = () => {
                 className="text-sm"
               />
             </div>
+            
+            {/* Artwork File Upload - Only for LB, BS, PM */}
+            {ARTWORK_CATEGORIES.includes(rmForm.category) && (
+              <div className="border rounded-lg p-4 bg-blue-50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Paperclip className="h-4 w-4" />
+                    Artwork Files
+                  </h4>
+                  <span className="text-xs text-gray-500">Accepts: .ai, .pdf, .cdr, .eps, .svg, .psd</span>
+                </div>
+                
+                {/* Uploaded Files List */}
+                {rmForm.artwork_files.length > 0 && (
+                  <div className="space-y-2">
+                    {rmForm.artwork_files.map((file, idx) => (
+                      <div 
+                        key={idx} 
+                        className="flex items-center justify-between bg-white p-2 rounded border"
+                      >
+                        <div className="flex items-center gap-2">
+                          {getFileIcon(file.file_type)}
+                          <div>
+                            <p className="text-sm font-medium truncate max-w-[200px]">{file.original_name}</p>
+                            <p className="text-xs text-gray-500">{file.file_type} • {file.size_display}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            onClick={() => window.open(`${API}/uploads/rm-artwork/${file.stored_name}`, '_blank')}
+                            title="Download"
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                            onClick={() => handleRemoveFile(file.stored_name)}
+                            title="Remove"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Upload Button */}
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".ai,.pdf,.cdr,.eps,.svg,.psd"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    data-testid="artwork-file-input"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingFiles}
+                    className="w-full"
+                  >
+                    {uploadingFiles ? (
+                      <>
+                        <span className="animate-spin mr-2">⏳</span>
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Artwork Files
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-gray-500 mt-1 text-center">Max 50MB per file</p>
+                </div>
+              </div>
+            )}
             
             {/* Action Buttons */}
             <div className="flex justify-end gap-2 pt-4 border-t">
