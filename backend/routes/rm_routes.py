@@ -353,3 +353,282 @@ async def delete_raw_material(rm_id: str, current_user: User = Depends(get_curre
     await db.branch_rm_inventory.delete_many({"rm_id": rm_id})
     
     return {"message": f"Raw material {rm_id} deleted"}
+
+
+# ============ RM Tagging Endpoints ============
+
+@router.put("/raw-materials/{rm_id}")
+async def update_raw_material(rm_id: str, data: dict):
+    """Update a raw material - especially for brand/model/vertical tagging"""
+    from models import RawMaterialUpdate
+    
+    existing = await db.raw_materials.find_one({"rm_id": rm_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    update_fields = {}
+    
+    # Handle optional fields
+    if "category_data" in data and data["category_data"] is not None:
+        update_fields["category_data"] = data["category_data"]
+    if "low_stock_threshold" in data and data["low_stock_threshold"] is not None:
+        update_fields["low_stock_threshold"] = data["low_stock_threshold"]
+    if "brand_ids" in data:
+        update_fields["brand_ids"] = data["brand_ids"] or []
+    if "vertical_ids" in data:
+        update_fields["vertical_ids"] = data["vertical_ids"] or []
+    if "model_ids" in data:
+        update_fields["model_ids"] = data["model_ids"] or []
+    if "is_brand_specific" in data:
+        update_fields["is_brand_specific"] = data["is_brand_specific"]
+    if "status" in data and data["status"]:
+        update_fields["status"] = data["status"]
+    
+    if update_fields:
+        update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.raw_materials.update_one(
+            {"rm_id": rm_id},
+            {"$set": update_fields}
+        )
+    
+    return {"message": f"Raw material {rm_id} updated"}
+
+
+@router.get("/raw-materials/by-tags")
+async def get_raw_materials_by_tags(
+    brand_id: Optional[str] = None,
+    vertical_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    is_brand_specific: Optional[bool] = None,
+    category: Optional[str] = None
+):
+    """Get RMs filtered by brand/vertical/model tags"""
+    query = {"status": {"$ne": "INACTIVE"}}
+    
+    if brand_id:
+        query["brand_ids"] = brand_id
+    if vertical_id:
+        query["vertical_ids"] = vertical_id
+    if model_id:
+        query["model_ids"] = model_id
+    if is_brand_specific is not None:
+        query["is_brand_specific"] = is_brand_specific
+    if category:
+        query["category"] = category
+    
+    rms = await db.raw_materials.find(query, {"_id": 0}).to_list(10000)
+    
+    # Enrich with names
+    for rm in rms:
+        # Get brand names
+        if rm.get("brand_ids"):
+            brands = await db.brands.find({"id": {"$in": rm["brand_ids"]}}, {"_id": 0, "code": 1, "name": 1}).to_list(100)
+            rm["brands"] = brands
+        else:
+            rm["brands"] = []
+        
+        # Get vertical names
+        if rm.get("vertical_ids"):
+            verticals = await db.verticals.find({"id": {"$in": rm["vertical_ids"]}}, {"_id": 0, "code": 1, "name": 1}).to_list(100)
+            rm["verticals"] = verticals
+        else:
+            rm["verticals"] = []
+        
+        # Get model names
+        if rm.get("model_ids"):
+            models = await db.models.find({"id": {"$in": rm["model_ids"]}}, {"_id": 0, "code": 1, "name": 1}).to_list(100)
+            rm["models"] = models
+        else:
+            rm["models"] = []
+    
+    return rms
+
+
+@router.post("/raw-materials/{rm_id}/tag")
+async def tag_raw_material(rm_id: str, data: dict):
+    """Add tags to a raw material (brands, verticals, models)"""
+    existing = await db.raw_materials.find_one({"rm_id": rm_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    update_ops = {}
+    
+    # Add to arrays (avoid duplicates)
+    if "brand_ids" in data and data["brand_ids"]:
+        update_ops["$addToSet"] = update_ops.get("$addToSet", {})
+        update_ops["$addToSet"]["brand_ids"] = {"$each": data["brand_ids"]}
+    
+    if "vertical_ids" in data and data["vertical_ids"]:
+        update_ops["$addToSet"] = update_ops.get("$addToSet", {})
+        update_ops["$addToSet"]["vertical_ids"] = {"$each": data["vertical_ids"]}
+    
+    if "model_ids" in data and data["model_ids"]:
+        update_ops["$addToSet"] = update_ops.get("$addToSet", {})
+        update_ops["$addToSet"]["model_ids"] = {"$each": data["model_ids"]}
+    
+    if "is_brand_specific" in data:
+        update_ops["$set"] = update_ops.get("$set", {})
+        update_ops["$set"]["is_brand_specific"] = data["is_brand_specific"]
+    
+    if update_ops:
+        update_ops["$set"] = update_ops.get("$set", {})
+        update_ops["$set"]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.raw_materials.update_one({"rm_id": rm_id}, update_ops)
+    
+    return {"message": f"Tags added to {rm_id}"}
+
+
+@router.post("/raw-materials/{rm_id}/untag")
+async def untag_raw_material(rm_id: str, data: dict):
+    """Remove tags from a raw material"""
+    existing = await db.raw_materials.find_one({"rm_id": rm_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    update_ops = {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+    
+    if "brand_ids" in data and data["brand_ids"]:
+        update_ops["$pull"] = update_ops.get("$pull", {})
+        update_ops["$pullAll"] = {"brand_ids": data["brand_ids"]}
+    
+    if "vertical_ids" in data and data["vertical_ids"]:
+        update_ops["$pullAll"] = update_ops.get("$pullAll", {})
+        update_ops["$pullAll"]["vertical_ids"] = data["vertical_ids"]
+    
+    if "model_ids" in data and data["model_ids"]:
+        update_ops["$pullAll"] = update_ops.get("$pullAll", {})
+        update_ops["$pullAll"]["model_ids"] = data["model_ids"]
+    
+    await db.raw_materials.update_one({"rm_id": rm_id}, update_ops)
+    
+    return {"message": f"Tags removed from {rm_id}"}
+
+
+# ============ RM Request Workflow ============
+
+@router.get("/rm-requests")
+async def get_rm_requests(
+    status: Optional[str] = None,
+    requested_by: Optional[str] = None
+):
+    """Get all RM requests"""
+    query = {}
+    if status:
+        query["status"] = status
+    if requested_by:
+        query["requested_by"] = requested_by
+    
+    requests = await db.rm_requests.find(query, {"_id": 0}).sort("requested_at", -1).to_list(1000)
+    
+    # Enrich with user names and tag names
+    for req in requests:
+        # Requester name
+        if req.get("requested_by"):
+            user = await db.users.find_one({"id": req["requested_by"]}, {"_id": 0, "name": 1})
+            req["requester_name"] = user["name"] if user else None
+        
+        # Reviewer name
+        if req.get("reviewed_by"):
+            user = await db.users.find_one({"id": req["reviewed_by"]}, {"_id": 0, "name": 1})
+            req["reviewer_name"] = user["name"] if user else None
+        
+        # Brand names
+        if req.get("brand_ids"):
+            brands = await db.brands.find({"id": {"$in": req["brand_ids"]}}, {"_id": 0, "code": 1, "name": 1}).to_list(100)
+            req["brands"] = brands
+        
+        # Buyer SKU info
+        if req.get("buyer_sku_id"):
+            buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": req["buyer_sku_id"]}, {"_id": 0, "name": 1})
+            req["buyer_sku_name"] = buyer_sku["name"] if buyer_sku else None
+    
+    return requests
+
+
+@router.post("/rm-requests")
+async def create_rm_request(data: dict, current_user: User = Depends(get_current_user)):
+    """Create a new RM request (Demand team)"""
+    from models import RMRequest
+    
+    request = RMRequest(
+        category=data.get("category", "LB"),
+        requested_name=data.get("requested_name", ""),
+        description=data.get("description", ""),
+        brand_ids=data.get("brand_ids", []),
+        vertical_ids=data.get("vertical_ids", []),
+        model_ids=data.get("model_ids", []),
+        buyer_sku_id=data.get("buyer_sku_id"),
+        requested_by=current_user.id
+    )
+    
+    doc = request.model_dump()
+    doc["requested_at"] = doc["requested_at"].isoformat()
+    await db.rm_requests.insert_one(doc)
+    
+    return {"message": "RM request created", "id": request.id}
+
+
+@router.post("/rm-requests/{request_id}/review")
+async def review_rm_request(request_id: str, data: dict, current_user: User = Depends(get_current_user)):
+    """Review (approve/reject) an RM request (Tech Ops)"""
+    request = await db.rm_requests.find_one({"id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="RM request not found")
+    
+    if request.get("status") != "PENDING":
+        raise HTTPException(status_code=400, detail="Request already reviewed")
+    
+    action = data.get("action", "").upper()
+    review_notes = data.get("review_notes", "")
+    
+    if action not in ["APPROVE", "REJECT"]:
+        raise HTTPException(status_code=400, detail="Invalid action. Use APPROVE or REJECT")
+    
+    update_data = {
+        "reviewed_by": current_user.id,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "review_notes": review_notes
+    }
+    
+    if action == "REJECT":
+        update_data["status"] = "REJECTED"
+    else:
+        # Approve and create RM
+        category = request.get("category", "LB")
+        seq = await get_next_rm_sequence(category)
+        rm_id = f"{category}_{seq:05d}"
+        
+        # Create the RM
+        rm = RawMaterial(
+            rm_id=rm_id,
+            category=category,
+            category_data=data.get("category_data", {"name": request.get("requested_name", "")}),
+            brand_ids=request.get("brand_ids", []),
+            vertical_ids=request.get("vertical_ids", []),
+            model_ids=request.get("model_ids", []),
+            is_brand_specific=True
+        )
+        
+        rm_doc = rm.model_dump()
+        rm_doc["created_at"] = rm_doc["created_at"].isoformat()
+        await db.raw_materials.insert_one(rm_doc)
+        
+        update_data["status"] = "APPROVED"
+        update_data["created_rm_id"] = rm_id
+    
+    await db.rm_requests.update_one(
+        {"id": request_id},
+        {"$set": update_data}
+    )
+    
+    return {
+        "message": f"Request {action.lower()}ed",
+        "created_rm_id": update_data.get("created_rm_id")
+    }
+
+
+@router.get("/rm-requests/pending-count")
+async def get_pending_rm_requests_count():
+    """Get count of pending RM requests (for notifications)"""
+    count = await db.rm_requests.count_documents({"status": "PENDING"})
+    return {"pending_count": count}

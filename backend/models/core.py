@@ -6,7 +6,7 @@ import uuid
 
 
 class RawMaterial(BaseModel):
-    """Global RM definition with L1/L2 support"""
+    """Global RM definition with L1/L2 support and brand/model tagging"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     rm_id: str
@@ -23,6 +23,13 @@ class RawMaterial(BaseModel):
     secondary_l1_rm_id: Optional[str] = None  # Powder coating RM (INM only)
     powder_qty_grams: Optional[float] = None  # Predefined powder coating qty in grams
     coating_scrap_factor: float = 0.10  # Coating waste factor (INM only)
+    
+    # === NEW: Brand/Model/Vertical Tagging (Optional, Multiple) ===
+    brand_ids: List[str] = []  # Optional: Tag to multiple brands
+    vertical_ids: List[str] = []  # Optional: Tag to multiple verticals
+    model_ids: List[str] = []  # Optional: Tag to multiple models
+    is_brand_specific: bool = False  # Flag for brand-specific RMs (labels, assets, etc.)
+    
     status: str = "ACTIVE"  # ACTIVE, INACTIVE, DISCONTINUED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
@@ -41,6 +48,71 @@ class RawMaterialCreate(BaseModel):
     secondary_l1_rm_id: Optional[str] = None
     powder_qty_grams: Optional[float] = None
     coating_scrap_factor: float = 0.10
+    # NEW: Optional tagging
+    brand_ids: List[str] = []
+    vertical_ids: List[str] = []
+    model_ids: List[str] = []
+    is_brand_specific: bool = False
+
+
+class RawMaterialUpdate(BaseModel):
+    """Update RM - especially for tagging"""
+    category_data: Optional[Dict[str, Any]] = None
+    low_stock_threshold: Optional[float] = None
+    brand_ids: Optional[List[str]] = None
+    vertical_ids: Optional[List[str]] = None
+    model_ids: Optional[List[str]] = None
+    is_brand_specific: Optional[bool] = None
+    status: Optional[str] = None
+
+
+class RMRequest(BaseModel):
+    """RM Request - Demand team requests, Tech Ops approves"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
+    # Request details
+    category: str  # LB, PM, BA (Brand Asset), etc.
+    requested_name: str  # e.g., "Baybee Kids Scooter Label"
+    description: str = ""
+    
+    # Tagging (what this RM is for)
+    brand_ids: List[str] = []
+    vertical_ids: List[str] = []
+    model_ids: List[str] = []
+    buyer_sku_id: Optional[str] = None  # If specific to a Buyer SKU
+    
+    # Workflow
+    status: str = "PENDING"  # PENDING, APPROVED, REJECTED, CREATED
+    requested_by: Optional[str] = None
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # Approval
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_notes: str = ""
+    
+    # Created RM (after approval)
+    created_rm_id: Optional[str] = None
+
+
+class RMRequestCreate(BaseModel):
+    """Create RM Request"""
+    category: str
+    requested_name: str
+    description: str = ""
+    brand_ids: List[str] = []
+    vertical_ids: List[str] = []
+    model_ids: List[str] = []
+    buyer_sku_id: Optional[str] = None
+
+
+class RMRequestReview(BaseModel):
+    """Review (Approve/Reject) RM Request"""
+    action: str  # APPROVE, REJECT
+    review_notes: str = ""
+    # If approving, these override the request
+    category_data: Optional[Dict[str, Any]] = None
 
 
 class BranchRMInventory(BaseModel):

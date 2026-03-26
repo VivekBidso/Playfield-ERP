@@ -1,6 +1,7 @@
 """Pydantic models for the application"""
 from .core import (
-    RawMaterial, RawMaterialCreate,
+    RawMaterial, RawMaterialCreate, RawMaterialUpdate,
+    RMRequest, RMRequestCreate, RMRequestReview,
     BranchRMInventory,
     SKU, SKUCreate,
     BranchSKUInventory,
