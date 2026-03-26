@@ -10,7 +10,8 @@ from database import db
 from models import User, RawMaterial, RawMaterialCreate, ActivateItemRequest
 from services.utils import (
     get_current_user, check_master_admin, check_branch_access,
-    get_next_rm_sequence, serialize_doc, RM_CATEGORIES, BRANCHES
+    get_next_rm_sequence, serialize_doc, RM_CATEGORIES, BRANCHES,
+    generate_rm_name
 )
 from services.rbac_service import require_permission
 
@@ -87,6 +88,11 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
                 if field in row_data:
                     category_data[field] = row_data[field]
             
+            # Generate RM name from category_data based on nomenclature
+            rm_name = generate_rm_name(category, category_data)
+            if rm_name:
+                category_data["name"] = rm_name
+            
             # Create RM
             seq = await get_next_rm_sequence(category)
             rm_id = f"{category}_{seq:05d}"
@@ -148,6 +154,11 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
             for field in category_fields:
                 if field in row_data and row_data[field]:
                     category_data[field] = row_data[field]
+            
+            # Generate RM name from category_data based on nomenclature
+            rm_name = generate_rm_name(cat, category_data)
+            if rm_name:
+                category_data["name"] = rm_name
             
             # Check for existing
             existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
@@ -606,9 +617,12 @@ async def review_rm_request(request_id: str, data: dict, current_user: User = De
         review_category_data = data.get("category_data")
         final_category_data = review_category_data if review_category_data else request_category_data
         
-        # Add the requested name to category_data if not present
-        if "name" not in final_category_data:
-            final_category_data["name"] = request.get("requested_name", "")
+        # Generate or use the requested name based on nomenclature
+        rm_name = generate_rm_name(category, final_category_data)
+        if not rm_name:
+            # Fallback to requested_name if nomenclature-based name couldn't be generated
+            rm_name = request.get("requested_name", "")
+        final_category_data["name"] = rm_name
         
         # Create the RM
         rm = RawMaterial(

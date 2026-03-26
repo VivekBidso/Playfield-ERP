@@ -525,14 +525,46 @@ BRANCHES = [
 ]
 
 RM_CATEGORIES = {
-    "INP": {"name": "In-house Plastic", "fields": ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"]},
-    "INM": {"name": "In-house Metal", "fields": ["process", "model_name", "part_name", "specs", "per_unit_weight", "unit"]},
-    "ACC": {"name": "Accessories", "fields": ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"]},
-    "ELC": {"name": "Electric Components", "fields": ["model", "type", "specs", "per_unit_weight", "unit"]},
-    "SP": {"name": "Spares", "fields": ["type", "specs", "per_unit_weight", "unit"]},
-    "BS": {"name": "Brand Assets", "fields": ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"]},
-    "PM": {"name": "Packaging", "fields": ["model", "type", "specs", "brand", "per_unit_weight", "unit"]},
-    "LB": {"name": "Labels", "fields": ["type", "buyer_sku", "per_unit_weight", "unit"]}
+    "INP": {
+        "name": "In-house Plastic", 
+        "fields": ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"],
+        "nameFormat": ["mould_code", "model_name", "part_name", "colour", "mb"]
+    },
+    "INM": {
+        "name": "In-house Metal", 
+        "fields": ["model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"],
+        "nameFormat": ["model_name", "part_name", "colour", "mb"]
+    },
+    "ACC": {
+        "name": "Accessories", 
+        "fields": ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"],
+        "nameFormat": ["type", "model_name", "specs", "colour"]
+    },
+    "ELC": {
+        "name": "Electric Components", 
+        "fields": ["model", "type", "specs", "per_unit_weight", "unit"],
+        "nameFormat": ["model", "type", "specs"]
+    },
+    "SP": {
+        "name": "Spares", 
+        "fields": ["type", "specs", "per_unit_weight", "unit"],
+        "nameFormat": ["type", "specs"]
+    },
+    "BS": {
+        "name": "Brand Assets", 
+        "fields": ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"],
+        "nameFormat": ["position", "type", "brand", "buyer_sku"]
+    },
+    "PM": {
+        "name": "Packaging", 
+        "fields": ["model", "type", "specs", "brand", "per_unit_weight", "unit"],
+        "nameFormat": ["model", "type", "specs", "brand"]
+    },
+    "LB": {
+        "name": "Labels", 
+        "fields": ["type", "buyer_sku", "per_unit_weight", "unit"],
+        "nameFormat": ["type", "buyer_sku"]
+    }
 }
 
 @router.get("/branches")
