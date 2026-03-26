@@ -1190,9 +1190,9 @@ async def get_dispatch_lots_with_readiness(
 async def parse_forecast_excel(file: UploadFile = File(...)):
     """
     Parse Excel/CSV file for bulk forecast upload.
-    Required columns: Month, SKU ID, Quantity
-    Optional columns: Vertical, Brand, Model, Buyer (auto-filled from SKU master)
-    Returns validated forecasts and errors for invalid SKUs.
+    Required columns: Month, SKU (SKU ID), Customer Code, Qty (Quantity)
+    Vertical, Brand, Model are auto-filled from SKU master data.
+    Returns validated forecasts and errors for invalid entries.
     """
     import openpyxl
     import csv
@@ -1212,15 +1212,12 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
                 raw_rows.append({
                     "row_num": row_num,
                     "month": row.get('Month', row.get('month', '')),
-                    "vertical": row.get('Vertical', row.get('vertical', '')),
-                    "model": row.get('Model', row.get('model', '')),
-                    "brand": row.get('Brand', row.get('brand', '')),
                     "sku_id": row.get('SKU', row.get('sku', row.get('SKU ID', row.get('sku_id', '')))),
                     "quantity": row.get('Qty', row.get('qty', row.get('Quantity', row.get('quantity', 0)))),
-                    "buyer": row.get('Buyer', row.get('buyer', row.get('Buyer Name', '')))
+                    "customer_code": row.get('Customer Code', row.get('customer_code', row.get('Customer_Code', '')))
                 })
         else:
-            # Parse Excel
+            # Parse Excel - only read the first sheet (Forecast Upload)
             wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True)
             ws = wb.active
             
@@ -1238,7 +1235,7 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
                     break
             
             if not headers:
-                raise HTTPException(status_code=400, detail="Could not find header row. Expected columns: Month, SKU ID, Qty")
+                raise HTTPException(status_code=400, detail="Could not find header row. Expected columns: Month, SKU, Customer Code, Qty")
             
             # Parse data rows (starting after header)
             for row_idx, row in enumerate(ws.iter_rows(min_row=header_row_idx + 2, values_only=True)):
@@ -1257,12 +1254,9 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
                 raw_rows.append({
                     "row_num": header_row_idx + 2 + row_idx,
                     "month": month_val,
-                    "vertical": str(row_data.get('vertical', '') or ''),
-                    "model": str(row_data.get('model', '') or ''),
-                    "brand": str(row_data.get('brand', '') or ''),
                     "sku_id": str(row_data.get('sku', row_data.get('sku id', row_data.get('sku_id', ''))) or ''),
                     "quantity": row_data.get('qty', row_data.get('quantity', 0)),
-                    "buyer": str(row_data.get('buyer', row_data.get('buyer name', '')) or '')
+                    "customer_code": str(row_data.get('customer code', row_data.get('customer_code', '')) or '')
                 })
             wb.close()
         
@@ -1272,7 +1266,6 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
         
         # Load verticals for mapping
         verticals_list = await db.verticals.find({}, {"_id": 0}).to_list(100)
-        vertical_map = {v['name'].lower(): v['id'] for v in verticals_list}
         vertical_by_id = {v['id']: v for v in verticals_list}
         
         # Load brands for mapping
@@ -1283,9 +1276,9 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
         models_list = await db.models.find({}, {"_id": 0}).to_list(5000)
         model_by_id = {m['id']: m for m in models_list}
         
-        # Load buyers for mapping
+        # Load buyers for mapping by customer_code
         buyers_list = await db.buyers.find({"status": "ACTIVE"}, {"_id": 0}).to_list(1000)
-        buyer_map = {b['name'].lower(): b for b in buyers_list}
+        buyer_by_code = {b.get('customer_code', '').upper(): b for b in buyers_list if b.get('customer_code')}
         
         # Process rows - validate and enrich
         valid_forecasts = []
@@ -1343,31 +1336,31 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
             brand_id = sku.get('brand_id')
             model_id = sku.get('model_id')
             
-            vertical_name = vertical_by_id.get(vertical_id, {}).get('name', row.get('vertical', ''))
-            brand_name = brand_by_id.get(brand_id, {}).get('name', row.get('brand', ''))
-            model_name = model_by_id.get(model_id, {}).get('name', row.get('model', ''))
+            vertical_name = vertical_by_id.get(vertical_id, {}).get('name', '')
+            brand_name = brand_by_id.get(brand_id, {}).get('name', '')
+            model_name = model_by_id.get(model_id, {}).get('name', '')
             
-            # Handle buyer (REQUIRED for forecast creation)
-            buyer_id = None
-            buyer_name = row.get('buyer', '').strip()
-            if not buyer_name:
+            # Handle customer code (REQUIRED for forecast creation)
+            customer_code = str(row.get('customer_code', '')).strip().upper()
+            if not customer_code:
                 errors.append({
                     "row_num": row['row_num'],
                     "sku_id": sku_id,
-                    "reason": "Buyer is required. Add a 'Buyer' column with valid buyer names."
+                    "reason": "Customer Code is required. Use codes from the 'Buyer Master' sheet."
                 })
                 continue
             
-            buyer = buyer_map.get(buyer_name.lower())
+            buyer = buyer_by_code.get(customer_code)
             if not buyer:
                 errors.append({
                     "row_num": row['row_num'],
                     "sku_id": sku_id,
-                    "reason": f"Buyer '{buyer_name}' not found in system. Check buyer name spelling."
+                    "reason": f"Customer Code '{customer_code}' not found. Check the 'Buyer Master' sheet for valid codes."
                 })
                 continue
             
             buyer_id = buyer.get('id')
+            buyer_name = buyer.get('name', '')
             buyer_name = buyer.get('name')
             
             # Build valid forecast

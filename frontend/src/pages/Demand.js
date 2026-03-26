@@ -551,24 +551,81 @@ const Demand = () => {
     }
   };
 
-  const downloadTemplate = () => {
-    const headers = ['Month', 'Vertical', 'Model', 'Brand', 'SKU', 'Qty', 'Buyer'];
-    const sampleData = [
-      ['2026-03', 'Scooter', 'KS', 'BE', 'FC_KS_BE_115', '1000', 'Test Buyer Inc'],
-      ['2026-03', 'Rideon', 'SR', 'BB', 'BB_SC_SR_016', '500', 'Test Buyer Inc']
-    ];
-    
-    let csv = headers.join(',') + '\n';
-    sampleData.forEach(row => {
-      csv += row.join(',') + '\n';
-    });
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'forecast_template.csv';
-    a.click();
+  const downloadTemplate = async () => {
+    try {
+      // Fetch buyers for the reference sheet
+      const buyersRes = await axios.get(`${API}/buyers`);
+      const buyersList = buyersRes.data || [];
+      
+      // Create workbook with two sheets
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+      
+      // Sheet 1: Forecast Upload Template
+      const forecastHeaders = ['Month', 'SKU', 'Customer Code', 'Qty'];
+      const forecastSample = [
+        ['2026-03', 'FC_KS_BE_115', 'CUST001', 1000],
+        ['2026-03', 'BB_SC_SR_016', 'CUST002', 500]
+      ];
+      const forecastData = [forecastHeaders, ...forecastSample];
+      const forecastSheet = XLSX.utils.aoa_to_sheet(forecastData);
+      
+      // Set column widths
+      forecastSheet['!cols'] = [
+        { wch: 12 },  // Month
+        { wch: 20 },  // SKU
+        { wch: 15 },  // Customer Code
+        { wch: 10 }   // Qty
+      ];
+      
+      XLSX.utils.book_append_sheet(wb, forecastSheet, 'Forecast Upload');
+      
+      // Sheet 2: Buyer Master (Reference)
+      const buyerHeaders = ['Customer Code', 'Customer Name', 'Status'];
+      const buyerData = [buyerHeaders];
+      buyersList.forEach(buyer => {
+        buyerData.push([
+          buyer.customer_code || '',
+          buyer.name || '',
+          buyer.status || 'ACTIVE'
+        ]);
+      });
+      const buyerSheet = XLSX.utils.aoa_to_sheet(buyerData);
+      
+      // Set column widths for buyer sheet
+      buyerSheet['!cols'] = [
+        { wch: 15 },  // Customer Code
+        { wch: 40 },  // Customer Name
+        { wch: 10 }   // Status
+      ];
+      
+      XLSX.utils.book_append_sheet(wb, buyerSheet, 'Buyer Master');
+      
+      // Download
+      XLSX.writeFile(wb, 'forecast_upload_template.xlsx');
+      toast.success("Template downloaded with Buyer Master reference");
+    } catch (error) {
+      console.error("Template download error:", error);
+      // Fallback to simple CSV if XLSX fails
+      const headers = ['Month', 'SKU', 'Customer Code', 'Qty'];
+      const sampleData = [
+        ['2026-03', 'FC_KS_BE_115', 'CUST001', '1000'],
+        ['2026-03', 'BB_SC_SR_016', 'CUST002', '500']
+      ];
+      
+      let csv = headers.join(',') + '\n';
+      sampleData.forEach(row => {
+        csv += row.join(',') + '\n';
+      });
+      
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'forecast_template.csv';
+      a.click();
+      toast.info("Basic template downloaded (without buyer reference)");
+    }
   };
 
   // Export forecasts with filters
