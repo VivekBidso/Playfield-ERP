@@ -619,6 +619,15 @@ async def get_bidso_clone_request_detail(request_id: str):
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
+    # Get requester name
+    requester = await db.users.find_one({"id": request.get("requested_by")}, {"_id": 0, "name": 1})
+    request["requester_name"] = requester.get("name") if requester else "Unknown"
+    
+    # Get reviewer name if reviewed
+    if request.get("reviewed_by"):
+        reviewer = await db.users.find_one({"id": request.get("reviewed_by")}, {"_id": 0, "name": 1})
+        request["reviewer_name"] = reviewer.get("name") if reviewer else "Tech Ops"
+    
     # Get source BOM for full context
     source_bom = await db.common_bom.find_one(
         {"bidso_sku_id": request.get("source_bidso_sku_id")}, 

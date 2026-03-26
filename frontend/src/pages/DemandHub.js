@@ -4,7 +4,7 @@ import useAuthStore from "@/store/authStore";
 import { 
   Package, Plus, Search, Clock, CheckCircle, XCircle, 
   Tag, Box, FileText, ChevronRight, AlertCircle, Layers,
-  Upload, Paperclip, Trash2, Download, File, Copy
+  Upload, Paperclip, Trash2, Download, File, Copy, Eye, RefreshCw
 } from "lucide-react";
 import CloneBidsoSKU from "@/components/CloneBidsoSKU";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,13 @@ const DemandHub = () => {
   // Dialogs
   const [showBuyerSkuDialog, setShowBuyerSkuDialog] = useState(false);
   const [showRmDialog, setShowRmDialog] = useState(false);
+  
+  // Clone request detail view
+  const [showCloneDetailDialog, setShowCloneDetailDialog] = useState(false);
+  const [selectedCloneRequest, setSelectedCloneRequest] = useState(null);
+  
+  // Resubmit clone request
+  const [resubmitSourceRequest, setResubmitSourceRequest] = useState(null);
 
   useEffect(() => {
     fetchMasterData();
@@ -194,6 +201,25 @@ const DemandHub = () => {
     } catch (error) {
       console.error("Failed to fetch Bidso SKUs");
     }
+  };
+
+  const handleViewCloneRequest = async (request) => {
+    try {
+      const res = await axios.get(`${API}/demand-hub/bidso-clone-requests/${request.id}`);
+      setSelectedCloneRequest(res.data);
+      setShowCloneDetailDialog(true);
+    } catch (error) {
+      toast.error("Failed to load request details");
+    }
+  };
+
+  const handleResubmitClone = (request) => {
+    // Set the source request for resubmission
+    setResubmitSourceRequest(request);
+    setShowCloneDetailDialog(false);
+    // Switch to clone tab with the pre-filled data
+    setActiveTab("clone-sku");
+    toast.info("Edit the clone request and submit again");
   };
 
   const handleSelectBidsoSku = async (sku) => {
@@ -684,7 +710,10 @@ const DemandHub = () => {
 
         {/* Clone Bidso SKU Tab */}
         <TabsContent value="clone-sku" className="space-y-4">
-          <CloneBidsoSKU />
+          <CloneBidsoSKU 
+            resubmitSourceRequest={resubmitSourceRequest}
+            onResubmitClear={() => setResubmitSourceRequest(null)}
+          />
         </TabsContent>
 
         {/* My Requests Tab */}
@@ -792,14 +821,58 @@ const DemandHub = () => {
                         </TableCell>
                         <TableCell>
                           {req.status === "APPROVED" && (
-                            <span className="font-mono text-xs text-green-600">
-                              {req.type === "BUYER_SKU" ? req.buyer_sku_id : req.type === "BIDSO_CLONE" ? req.created_bidso_sku_id : req.created_rm_id}
-                            </span>
+                            <div>
+                              <span className="font-mono text-xs text-green-600 font-medium">
+                                {req.type === "BUYER_SKU" ? req.buyer_sku_id : req.type === "BIDSO_CLONE" ? req.created_bidso_sku_id : req.created_rm_id}
+                              </span>
+                              {req.type === "BIDSO_CLONE" && req.created_rm_ids && req.created_rm_ids.length > 0 && (
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  +{req.created_rm_ids.length} new RM
+                                </p>
+                              )}
+                            </div>
                           )}
-                          {req.status === "REJECTED" && req.review_notes && (
-                            <span className="text-xs text-gray-500" title={req.review_notes}>
-                              {req.review_notes.substring(0, 30)}...
-                            </span>
+                          {req.status === "REJECTED" && (
+                            <div className="space-y-1">
+                              {req.review_notes && (
+                                <p className="text-xs text-red-600" title={req.review_notes}>
+                                  {req.review_notes.substring(0, 40)}...
+                                </p>
+                              )}
+                              {req.type === "BIDSO_CLONE" && (
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-xs"
+                                    onClick={() => handleViewCloneRequest(req)}
+                                  >
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    View
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="default"
+                                    className="h-6 text-xs bg-blue-600 hover:bg-blue-700"
+                                    onClick={() => handleResubmitClone(req)}
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Resubmit
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {req.status === "PENDING" && req.type === "BIDSO_CLONE" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-xs"
+                              onClick={() => handleViewCloneRequest(req)}
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              View
+                            </Button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -1105,6 +1178,153 @@ const DemandHub = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clone Request Detail Dialog (for Demand KAM) */}
+      <Dialog open={showCloneDetailDialog} onOpenChange={setShowCloneDetailDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="h-5 w-5" />
+              Clone Request Details
+              {selectedCloneRequest?.status === "REJECTED" && (
+                <Badge className="bg-red-100 text-red-700 ml-2">Rejected</Badge>
+              )}
+              {selectedCloneRequest?.status === "APPROVED" && (
+                <Badge className="bg-green-100 text-green-700 ml-2">Approved</Badge>
+              )}
+              {selectedCloneRequest?.status === "PENDING" && (
+                <Badge className="bg-orange-100 text-orange-700 ml-2">Pending</Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedCloneRequest && (
+            <div className="space-y-4 mt-4">
+              {/* Request Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-gray-500">Proposed Name</Label>
+                  <p className="font-medium">{selectedCloneRequest.proposed_name}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Source SKU</Label>
+                  <p className="font-mono">{selectedCloneRequest.source_bidso_sku_id}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Submitted</Label>
+                  <p>{new Date(selectedCloneRequest.requested_at).toLocaleString()}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Modifications</Label>
+                  <p>{selectedCloneRequest.bom_modifications?.length || 0} items</p>
+                </div>
+              </div>
+
+              {selectedCloneRequest.proposed_description && (
+                <div>
+                  <Label className="text-xs text-gray-500">Description</Label>
+                  <p className="text-sm text-gray-600">{selectedCloneRequest.proposed_description}</p>
+                </div>
+              )}
+
+              {/* Rejection Reason - Prominent Display */}
+              {selectedCloneRequest.status === "REJECTED" && selectedCloneRequest.review_notes && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <Label className="text-xs text-red-600 font-medium">Rejection Reason</Label>
+                  <p className="text-sm text-red-800 mt-1 whitespace-pre-wrap">
+                    {selectedCloneRequest.review_notes}
+                  </p>
+                  <p className="text-xs text-red-500 mt-2">
+                    Rejected by: {selectedCloneRequest.reviewer_name || "Tech Ops"} on {new Date(selectedCloneRequest.reviewed_at).toLocaleString()}
+                  </p>
+                </div>
+              )}
+
+              {/* Approval Result */}
+              {selectedCloneRequest.status === "APPROVED" && (
+                <div className="space-y-3">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <Label className="text-xs text-green-600">Created Bidso SKU</Label>
+                    <p className="font-mono text-lg font-bold text-green-700 mt-1">
+                      {selectedCloneRequest.created_bidso_sku_id}
+                    </p>
+                  </div>
+                  
+                  {selectedCloneRequest.created_rm_ids && selectedCloneRequest.created_rm_ids.length > 0 && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <Label className="text-xs text-blue-600">New Raw Materials Created ({selectedCloneRequest.created_rm_ids.length})</Label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedCloneRequest.created_rm_ids.map((rmId, idx) => (
+                          <Badge key={idx} variant="outline" className="font-mono bg-white">
+                            {rmId}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* BOM Modifications */}
+              {selectedCloneRequest.bom_modifications?.length > 0 && (
+                <div>
+                  <Label className="text-xs text-gray-500 mb-2 block">BOM Modifications</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Action</TableHead>
+                          <TableHead className="text-xs">Original RM</TableHead>
+                          <TableHead className="text-xs">New RM / Colour</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedCloneRequest.bom_modifications.map((mod, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                mod.action === "CREATE_NEW" ? "bg-blue-50 text-blue-700 text-xs" :
+                                mod.action === "SWAP_COLOUR" ? "bg-purple-50 text-purple-700 text-xs" :
+                                "bg-orange-50 text-orange-700 text-xs"
+                              }>
+                                {mod.action?.replace("_", " ")}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{mod.original_rm_id}</TableCell>
+                            <TableCell className="text-xs">
+                              {mod.action === "CREATE_NEW" ? (
+                                <span className="text-blue-600">{mod.new_rm_name || "New RM"}</span>
+                              ) : (
+                                <span className="font-mono">{mod.new_rm_id || mod.new_colour}</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowCloneDetailDialog(false)}>
+                  Close
+                </Button>
+                {selectedCloneRequest.status === "REJECTED" && (
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700"
+                    onClick={() => handleResubmitClone(selectedCloneRequest)}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Edit & Resubmit
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

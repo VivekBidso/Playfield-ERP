@@ -70,7 +70,7 @@ const generateRmName = (category, categoryData) => {
   return parts.join("_");
 };
 
-const CloneBidsoSKU = () => {
+const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
   // Wizard steps
   const [step, setStep] = useState(1); // 1: Select Source, 2: Modify BOM, 3: Preview & Submit
   
@@ -111,11 +111,72 @@ const CloneBidsoSKU = () => {
   // Loading
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Resubmit banner
+  const [showResubmitBanner, setShowResubmitBanner] = useState(false);
 
   useEffect(() => {
     fetchMasterData();
     fetchBidsoSkus();
   }, []);
+
+  // Handle resubmit source request - pre-fill data
+  useEffect(() => {
+    if (resubmitSourceRequest) {
+      setShowResubmitBanner(true);
+      setNewSkuName(resubmitSourceRequest.proposed_name || "");
+      setNewSkuDescription(resubmitSourceRequest.proposed_description || "");
+      
+      // Load the source BOM
+      if (resubmitSourceRequest.source_bidso_sku_id) {
+        loadSourceBomForResubmit(resubmitSourceRequest);
+      }
+    }
+  }, [resubmitSourceRequest]);
+
+  const loadSourceBomForResubmit = async (request) => {
+    try {
+      setLoading(true);
+      // Find the source SKU
+      const skuRes = await axios.get(`${API}/demand-hub/bidso-skus-for-clone?search=${request.source_bidso_sku_id}`);
+      const sourceSku = skuRes.data.find(s => s.bidso_sku_id === request.source_bidso_sku_id);
+      
+      if (sourceSku) {
+        setSelectedSource(sourceSku);
+        
+        // Load BOM
+        const bomRes = await axios.get(`${API}/demand-hub/bidso-skus/${request.source_bidso_sku_id}/bom-for-clone`);
+        setSourceBom(bomRes.data);
+        
+        // Pre-fill modifications
+        if (request.bom_modifications && request.bom_modifications.length > 0) {
+          const mods = {};
+          for (const mod of request.bom_modifications) {
+            mods[mod.original_rm_id] = mod;
+          }
+          setModifications(mods);
+        }
+        
+        setStep(2); // Go to Modify BOM step
+        toast.info("Previous request loaded. Make your changes and resubmit.");
+      }
+    } catch (error) {
+      toast.error("Failed to load source BOM for resubmission");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearResubmit = () => {
+    setShowResubmitBanner(false);
+    setStep(1);
+    setSelectedSource(null);
+    setSourceBom(null);
+    setModifications({});
+    setNewSkuName("");
+    setNewSkuDescription("");
+    if (onResubmitClear) onResubmitClear();
+  };
 
   useEffect(() => {
     fetchBidsoSkus();
@@ -378,6 +439,29 @@ const CloneBidsoSKU = () => {
           <span className="text-sm font-medium">Preview & Submit</span>
         </div>
       </div>
+
+      {/* Resubmit Banner */}
+      {showResubmitBanner && resubmitSourceRequest && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="h-5 w-5 text-amber-600" />
+            <div>
+              <p className="font-medium text-amber-800">Resubmitting Rejected Request</p>
+              <p className="text-sm text-amber-600">
+                Original request for "{resubmitSourceRequest.proposed_name}" was rejected. Make your changes and submit again.
+              </p>
+              {resubmitSourceRequest.review_notes && (
+                <p className="text-xs text-red-600 mt-1">
+                  <strong>Rejection reason:</strong> {resubmitSourceRequest.review_notes}
+                </p>
+              )}
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleClearResubmit}>
+            Start Fresh
+          </Button>
+        </div>
+      )}
 
       {/* Step 1: Select Source SKU */}
       {step === 1 && (

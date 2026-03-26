@@ -54,6 +54,15 @@ const RMRepository = () => {
   const [showCloneDetailDialog, setShowCloneDetailDialog] = useState(false);
   const [selectedCloneRequest, setSelectedCloneRequest] = useState(null);
   
+  // Clone rejection dialog
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectingRequestId, setRejectingRequestId] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  
+  // Clone approval result dialog
+  const [showApprovalResultDialog, setShowApprovalResultDialog] = useState(false);
+  const [approvalResult, setApprovalResult] = useState(null);
+  
   // Loading
   const [loading, setLoading] = useState(false);
   
@@ -249,19 +258,61 @@ const RMRepository = () => {
     }
   };
 
-  const handleReviewBidsoCloneRequest = async (requestId, action, notes = "") => {
+  const openRejectDialog = (requestId) => {
+    setRejectingRequestId(requestId);
+    setRejectionReason("");
+    setShowRejectDialog(true);
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectionReason.trim()) {
+      toast.error("Please enter a rejection reason");
+      return;
+    }
+    
     try {
-      await axios.post(`${API}/demand-hub/bidso-clone-requests/${requestId}/review`, {
-        action,
-        review_notes: notes
+      await axios.post(`${API}/demand-hub/bidso-clone-requests/${rejectingRequestId}/review`, {
+        action: "REJECT",
+        review_notes: rejectionReason
       });
-      toast.success(`Request ${action.toLowerCase()}ed`);
+      toast.success("Request rejected");
+      setShowRejectDialog(false);
+      setShowCloneDetailDialog(false);
+      setRejectingRequestId(null);
+      setRejectionReason("");
+      fetchBidsoCloneRequests();
+      fetchPendingCloneCount();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to reject request");
+    }
+  };
+
+  const handleApproveBidsoCloneRequest = async (requestId) => {
+    try {
+      const response = await axios.post(`${API}/demand-hub/bidso-clone-requests/${requestId}/review`, {
+        action: "APPROVE",
+        review_notes: ""
+      });
+      
+      // Show approval result dialog with created items
+      setApprovalResult(response.data);
+      setShowApprovalResultDialog(true);
       setShowCloneDetailDialog(false);
       fetchBidsoCloneRequests();
       fetchPendingCloneCount();
     } catch (error) {
-      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} request`);
+      toast.error(error.response?.data?.detail || "Failed to approve request");
     }
+  };
+
+  const handleReviewBidsoCloneRequest = async (requestId, action, notes = "") => {
+    if (action === "REJECT") {
+      openRejectDialog(requestId);
+      return;
+    }
+    
+    // For approve, use the new function
+    await handleApproveBidsoCloneRequest(requestId);
   };
 
   const handleSelectRM = (rmId) => {
@@ -1107,9 +1158,24 @@ const RMRepository = () => {
                               </Button>
                             </div>
                           ) : (
-                            <div className="text-xs text-gray-500">
-                              {req.created_bidso_sku_id && (
-                                <span className="font-mono text-green-600">{req.created_bidso_sku_id}</span>
+                            <div className="text-xs space-y-1">
+                              {req.status === "APPROVED" && (
+                                <>
+                                  <div className="font-mono text-green-600 font-medium">
+                                    {req.created_bidso_sku_id}
+                                  </div>
+                                  {req.created_rm_ids && req.created_rm_ids.length > 0 && (
+                                    <div className="text-gray-500">
+                                      +{req.created_rm_ids.length} RM: {req.created_rm_ids.slice(0, 2).join(", ")}
+                                      {req.created_rm_ids.length > 2 && "..."}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {req.status === "REJECTED" && req.review_notes && (
+                                <div className="text-red-600" title={req.review_notes}>
+                                  Reason: {req.review_notes.substring(0, 40)}...
+                                </div>
                               )}
                             </div>
                           )}
@@ -1521,6 +1587,104 @@ const RMRepository = () => {
                   </Button>
                 </div>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Rejection Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" />
+              Reject Clone Request
+            </DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejection. This will be visible to the requester.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label>Rejection Reason <span className="text-red-500">*</span></Label>
+              <textarea
+                className="w-full mt-1 p-3 border rounded-lg text-sm min-h-[120px] focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                placeholder="Explain why this request is being rejected and what changes are needed..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                data-testid="rejection-reason-input"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive"
+                onClick={handleConfirmReject}
+                disabled={!rejectionReason.trim()}
+                data-testid="confirm-reject-btn"
+              >
+                <X className="h-4 w-4 mr-2" />
+                Confirm Rejection
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approval Result Dialog */}
+      <Dialog open={showApprovalResultDialog} onOpenChange={setShowApprovalResultDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="h-5 w-5" />
+              Clone Request Approved Successfully
+            </DialogTitle>
+          </DialogHeader>
+          
+          {approvalResult && (
+            <div className="space-y-4 mt-4">
+              {/* New Bidso SKU */}
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <Label className="text-xs text-green-600">New Bidso SKU Created</Label>
+                <p className="font-mono text-lg font-bold text-green-700 mt-1">
+                  {approvalResult.created_bidso_sku_id}
+                </p>
+                <p className="text-sm text-green-600 mt-1">
+                  BOM Items: {approvalResult.bom_items_count}
+                </p>
+              </div>
+              
+              {/* Created RMs */}
+              {approvalResult.created_rm_ids && approvalResult.created_rm_ids.length > 0 && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <Label className="text-xs text-blue-600">New Raw Materials Created ({approvalResult.created_rm_ids.length})</Label>
+                  <div className="mt-2 space-y-1">
+                    {approvalResult.created_rm_ids.map((rmId, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono bg-white">
+                          {rmId}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {(!approvalResult.created_rm_ids || approvalResult.created_rm_ids.length === 0) && (
+                <div className="p-3 bg-gray-50 border rounded-lg text-sm text-gray-600">
+                  No new RMs created - only existing RMs were swapped/modified.
+                </div>
+              )}
+              
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => setShowApprovalResultDialog(false)}>
+                  Close
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
