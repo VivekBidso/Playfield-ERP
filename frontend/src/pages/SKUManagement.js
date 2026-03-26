@@ -88,6 +88,13 @@ const SKUManagement = () => {
     }
   }, [activeTab, filterVertical, filterModel, filterBrand]);
 
+  // Clear selectedBidso when switching to buyer tab without a specific selection
+  useEffect(() => {
+    if (activeTab === "buyer" && !filterBrand) {
+      setSelectedBidso(null);
+    }
+  }, [activeTab]);
+
   const fetchMasterData = async () => {
     try {
       const [verticalsRes, modelsRes, brandsRes] = await Promise.all([
