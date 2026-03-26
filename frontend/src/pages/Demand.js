@@ -32,6 +32,14 @@ const Demand = () => {
   const [selectedForecasts, setSelectedForecasts] = useState(new Set());
   const [expandedForecast, setExpandedForecast] = useState(null);
   
+  // Filters for forecast list
+  const [forecastFilters, setForecastFilters] = useState({
+    buyer_id: "",
+    vertical_id: "",
+    brand_id: "",
+    model_id: ""
+  });
+  
   // Dispatch Lots popup state
   const [showLotsDialog, setShowLotsDialog] = useState(false);
   const [selectedForecastLots, setSelectedForecastLots] = useState({ forecast: null, lots: [] });
@@ -245,6 +253,47 @@ const Demand = () => {
     }
     
     return filtered;
+  };
+
+  // Get filtered forecasts based on filter selections
+  const getFilteredForecasts = () => {
+    let filtered = [...forecasts];
+    
+    if (forecastFilters.buyer_id) {
+      filtered = filtered.filter(f => f.buyer_id === forecastFilters.buyer_id);
+    }
+    
+    if (forecastFilters.vertical_id) {
+      const verticalName = verticals.find(v => v.id === forecastFilters.vertical_id)?.name;
+      filtered = filtered.filter(f => 
+        f.vertical_id === forecastFilters.vertical_id || 
+        f.vertical === verticalName
+      );
+    }
+    
+    if (forecastFilters.brand_id) {
+      const brandName = brands.find(b => b.id === forecastFilters.brand_id)?.name;
+      filtered = filtered.filter(f => 
+        f.brand_id === forecastFilters.brand_id || 
+        f.brand === brandName
+      );
+    }
+    
+    if (forecastFilters.model_id) {
+      const modelName = models.find(m => m.id === forecastFilters.model_id)?.name;
+      filtered = filtered.filter(f => 
+        f.model_id === forecastFilters.model_id || 
+        f.model === modelName
+      );
+    }
+    
+    return filtered;
+  };
+
+  // Get models filtered for the forecast filter dropdown
+  const getFilterModels = () => {
+    if (!forecastFilters.vertical_id) return models;
+    return models.filter(m => m.vertical_id === forecastFilters.vertical_id);
   };
 
   const handleCreateForecast = async () => {
@@ -947,6 +996,100 @@ const Demand = () => {
             </div>
           </div>
           
+          {/* Filters Bar */}
+          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-zinc-50 border rounded-lg">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-zinc-400" />
+              <span className="text-xs font-medium text-zinc-500 uppercase">Filters:</span>
+            </div>
+            
+            {/* Customer/Buyer Filter */}
+            <Select 
+              value={forecastFilters.buyer_id || "_all"} 
+              onValueChange={(v) => setForecastFilters({...forecastFilters, buyer_id: v === "_all" ? "" : v})}
+            >
+              <SelectTrigger className="w-[180px] h-9 text-xs" data-testid="forecast-buyer-filter">
+                <SelectValue placeholder="All Customers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Customers</SelectItem>
+                {buyers.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Vertical Filter */}
+            <Select 
+              value={forecastFilters.vertical_id || "_all"} 
+              onValueChange={(v) => setForecastFilters({
+                ...forecastFilters, 
+                vertical_id: v === "_all" ? "" : v,
+                model_id: "" // Reset model when vertical changes
+              })}
+            >
+              <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-vertical-filter">
+                <SelectValue placeholder="All Verticals" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Verticals</SelectItem>
+                {verticals.map(v => (
+                  <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Brand Filter */}
+            <Select 
+              value={forecastFilters.brand_id || "_all"} 
+              onValueChange={(v) => setForecastFilters({...forecastFilters, brand_id: v === "_all" ? "" : v})}
+            >
+              <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-brand-filter">
+                <SelectValue placeholder="All Brands" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Brands</SelectItem>
+                {brands.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Model Filter */}
+            <Select 
+              value={forecastFilters.model_id || "_all"} 
+              onValueChange={(v) => setForecastFilters({...forecastFilters, model_id: v === "_all" ? "" : v})}
+            >
+              <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-model-filter">
+                <SelectValue placeholder="All Models" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Models</SelectItem>
+                {getFilterModels().map(m => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Clear Filters */}
+            {(forecastFilters.buyer_id || forecastFilters.vertical_id || forecastFilters.brand_id || forecastFilters.model_id) && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className="text-xs h-9"
+                onClick={() => setForecastFilters({ buyer_id: "", vertical_id: "", brand_id: "", model_id: "" })}
+              >
+                <X className="w-3 h-3 mr-1" />
+                Clear
+              </Button>
+            )}
+            
+            {/* Results count */}
+            <span className="text-xs text-zinc-500 ml-auto">
+              Showing {getFilteredForecasts().length} of {forecasts.length} forecasts
+            </span>
+          </div>
+          
           {/* Bulk Confirmation Bar */}
           {canConfirmForecasts && forecasts.filter(f => f.status === 'DRAFT').length > 0 && (
             <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
@@ -1019,7 +1162,13 @@ const Demand = () => {
                 </tr>
               </thead>
               <tbody>
-                {forecasts.map((f) => (
+                {getFilteredForecasts().length === 0 ? (
+                  <tr>
+                    <td colSpan={canConfirmForecasts ? 16 : 15} className="p-8 text-center text-zinc-500">
+                      No forecasts yet. Create one to get started.
+                    </td>
+                  </tr>
+                ) : getFilteredForecasts().map((f) => (
                   <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${selectedForecasts.has(f.id) ? 'bg-blue-50' : ''}`}>
                     {canConfirmForecasts && (
                       <td className="p-2 text-center">
