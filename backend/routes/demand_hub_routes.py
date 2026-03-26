@@ -297,5 +297,4 @@ async def get_rm_categories():
         {"code": "LB", "name": "Labels", "description": "Product labels and stickers"},
         {"code": "PM", "name": "Packaging", "description": "Boxes, cartons, packaging materials"},
         {"code": "BS", "name": "Brand Assets", "description": "Brand-specific inserts, manuals, etc."},
-        {"code": "STK", "name": "Stickers", "description": "Promotional stickers, warranty stickers"},
     ]

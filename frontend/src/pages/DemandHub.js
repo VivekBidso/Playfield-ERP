@@ -62,18 +62,6 @@ const RM_CATEGORIES = {
       { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 20", type: "number" },
       { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
     ]
-  },
-  "STK": { 
-    name: "Stickers", 
-    description: "Promotional stickers, warranty stickers",
-    nameFormat: ["type", "brand"],  // Type_Brand
-    fields: [
-      { key: "type", label: "Type", required: true, placeholder: "e.g., Warranty, Promo, QC Pass" },
-      { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee" },
-      { key: "buyer_sku", label: "Buyer SKU", required: false, placeholder: "e.g., BE_KS_PE_001" },
-      { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 1", type: "number" },
-      { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
-    ]
   }
 };
 
