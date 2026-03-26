@@ -90,9 +90,8 @@ const DemandSKUView = () => {
   const fetchBidsoSkus = async () => {
     setLoading(true);
     try {
-      let url = `${API}/bidso-skus?`;
+      let url = `${API}/demand-hub/bidso-skus?`;
       if (bidsoFilters.vertical_id) url += `vertical_id=${bidsoFilters.vertical_id}&`;
-      if (bidsoFilters.brand_id) url += `brand_id=${bidsoFilters.brand_id}&`;
       if (bidsoFilters.model_id) url += `model_id=${bidsoFilters.model_id}&`;
       if (bidsoFilters.search) url += `search=${encodeURIComponent(bidsoFilters.search)}&`;
       
@@ -131,26 +130,24 @@ const DemandSKUView = () => {
       const wb = XLSX.utils.book_new();
       
       if (type === "bidso") {
-        // Prepare Bidso SKU data
-        const headers = ['Bidso SKU ID', 'Description', 'Vertical', 'Model', 'BOM Items', 'Status'];
+        // Prepare Bidso SKU data - API returns enriched data with vertical/model objects
+        const headers = ['Bidso SKU ID', 'Name', 'Description', 'Vertical', 'Model', 'Status'];
         const data = [headers];
         
         bidsoSkus.forEach(sku => {
-          const vertical = verticals.find(v => v.id === sku.vertical_id);
-          const model = models.find(m => m.id === sku.model_id);
           data.push([
             sku.bidso_sku_id || '',
+            sku.name || '',
             sku.description || '',
-            vertical?.name || '',
-            model?.name || '',
-            sku.bom_items_count || 0,
+            sku.vertical?.name || '',
+            sku.model?.name || '',
             sku.status || 'ACTIVE'
           ]);
         });
         
         const ws = XLSX.utils.aoa_to_sheet(data);
         ws['!cols'] = [
-          { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 10 }
+          { wch: 20 }, { wch: 30 }, { wch: 40 }, { wch: 15 }, { wch: 20 }, { wch: 10 }
         ];
         XLSX.utils.book_append_sheet(wb, ws, 'Bidso SKUs');
         XLSX.writeFile(wb, `bidso_skus_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -310,23 +307,22 @@ const DemandSKUView = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bidso SKU ID</TableHead>
-                    <TableHead>Description</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Vertical</TableHead>
                     <TableHead>Model</TableHead>
-                    <TableHead className="text-center">BOM Items</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : bidsoSkus.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                         No Bidso SKUs found
                       </TableCell>
                     </TableRow>
@@ -334,12 +330,9 @@ const DemandSKUView = () => {
                     bidsoSkus.map(sku => (
                       <TableRow key={sku.id} data-testid={`bidso-row-${sku.bidso_sku_id}`}>
                         <TableCell className="font-mono font-medium">{sku.bidso_sku_id}</TableCell>
-                        <TableCell className="max-w-xs truncate">{sku.description || '-'}</TableCell>
-                        <TableCell>{getVerticalName(sku.vertical_id)}</TableCell>
-                        <TableCell>{getModelName(sku.model_id)}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline">{sku.bom_items_count || 0}</Badge>
-                        </TableCell>
+                        <TableCell className="max-w-xs truncate">{sku.name || '-'}</TableCell>
+                        <TableCell>{sku.vertical?.name || '-'}</TableCell>
+                        <TableCell>{sku.model?.name || '-'}</TableCell>
                         <TableCell>
                           <Badge className={sku.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
                             {sku.status || 'ACTIVE'}

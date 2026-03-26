@@ -1100,3 +1100,46 @@ Allows Demand Planners to create new Bidso SKU variants by cloning existing ones
 
 *Last updated: March 26, 2026*
 *Clone Bidso SKU feature complete - Full workflow from Demand Hub request to Tech Ops approval*
+
+---
+
+## 18. DEMAND SKU VIEW MODULE (NEW - March 26, 2026)
+
+**Purpose:** Read-only catalog view for Demand Planners to browse and export SKU master data
+
+**Location:** Demand Planner Sidebar → "SKU Catalog"
+
+### Features:
+
+| Feature | Description |
+|---------|-------------|
+| Bidso SKUs Tab | View all 255 Bidso SKUs with ID, Name, Vertical, Model, Status |
+| Buyer SKUs Tab | View all 711 Buyer SKUs with ID, Vertical, Brand, Model, Buyer, Bidso SKU, Status |
+| Vertical Filter | Filter by product vertical (Scooter, Walker, Tricycle, etc.) |
+| Model Filter | Filter by product model within selected vertical |
+| Brand Filter | Filter Buyer SKUs by brand (Blush Baby, Babyhug, Star & Daisy, etc.) |
+| Buyer Filter | Filter Buyer SKUs by specific buyer/customer |
+| Search | Search by SKU ID across either tab |
+| Download | Export filtered or full list to Excel (.xlsx) |
+
+### Access Control:
+- **Demand Planner**: Full read-only access
+- **Master Admin**: Full read-only access
+- Other roles: No access
+
+### API Endpoints Used:
+- `GET /api/demand-hub/bidso-skus` - Fetches enriched Bidso SKU data with vertical/model names
+- `GET /api/skus` - Fetches Buyer SKU data with filters
+- `GET /api/verticals` - For filter dropdown
+- `GET /api/brands` - For filter dropdown
+- `GET /api/models` - For filter dropdown
+- `GET /api/buyers` - For filter dropdown
+
+### Files:
+- `frontend/src/pages/DemandSKUView.js` - Main component (519 lines)
+- `frontend/src/App.js` - Added route `/demand-sku-view`
+- `frontend/src/components/Layout.js` - Added sidebar link for Demand Planner
+
+---
+
+*Last updated: March 26, 2026*
