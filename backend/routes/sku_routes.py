@@ -111,25 +111,6 @@ async def get_brands_by_vertical_model(vertical: str, model: Optional[str] = Non
     return {"brands": brands}
 
 
-@router.get("/skus/filtered")
-async def get_filtered_skus(
-    vertical: Optional[str] = None,
-    model: Optional[str] = None,
-    brand: Optional[str] = None
-):
-    """Get SKUs filtered by vertical, model, and/or brand"""
-    query = {}
-    if vertical:
-        query["vertical"] = vertical
-    if model:
-        query["model"] = model
-    if brand:
-        query["brand"] = brand
-    
-    skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
-    return skus
-
-
 @router.get("/skus/unmapped")
 async def get_skus_without_rm_mapping():
     """Get SKUs that don't have RM mappings"""

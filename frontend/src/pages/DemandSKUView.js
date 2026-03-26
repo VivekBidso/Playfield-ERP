@@ -107,7 +107,7 @@ const DemandSKUView = () => {
   const fetchBuyerSkus = async () => {
     setLoading(true);
     try {
-      let url = `${API}/skus?`;
+      let url = `${API}/skus/filtered?`;
       if (buyerFilters.vertical_id) url += `vertical_id=${buyerFilters.vertical_id}&`;
       if (buyerFilters.brand_id) url += `brand_id=${buyerFilters.brand_id}&`;
       if (buyerFilters.model_id) url += `model_id=${buyerFilters.model_id}&`;
