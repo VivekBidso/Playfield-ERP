@@ -6,6 +6,7 @@ import Dashboard from "@/pages/Dashboard";
 import MasterDashboard from "@/pages/MasterDashboard";
 import RawMaterials from "@/pages/RawMaterials";
 import RMInward from "@/pages/RMInward";
+import RMRepository from "@/pages/RMRepository";
 import SKUs from "@/pages/SKUs";
 import SKUMapping from "@/pages/SKUMapping";
 import SKUSubscription from "@/pages/SKUSubscription";

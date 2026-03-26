@@ -1,0 +1,1044 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { 
+  Package, Search, Filter, Tag, Check, X, Edit, 
+  ChevronDown, ChevronRight, Bell, Clock, CheckCircle,
+  XCircle, AlertCircle, Layers, Box
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const RM_CATEGORIES = {
+  "INP": "In-house Plastic",
+  "ACC": "Accessories",
+  "ELC": "Electric Components",
+  "SP": "Spares",
+  "BS": "Brand Assets",
+  "PM": "Packaging",
+  "LB": "Labels",
+  "INM": "Input Materials",
+  "STK": "Stickers",
+  "SPR": "Spares"
+};
+
+const RMRepository = () => {
+  const [activeTab, setActiveTab] = useState("repository");
+  
+  // Data
+  const [materials, setMaterials] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [verticals, setVerticals] = useState([]);
+  const [models, setModels] = useState([]);
+  const [rmRequests, setRmRequests] = useState([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  
+  // Loading
+  const [loading, setLoading] = useState(false);
+  
+  // Filters
+  const [filters, setFilters] = useState({
+    search: "",
+    category: "",
+    brand_id: "",
+    vertical_id: "",
+    model_id: "",
+    is_brand_specific: ""
+  });
+  
+  // Selection for bulk operations
+  const [selectedRMs, setSelectedRMs] = useState(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  
+  // Dialogs
+  const [showTagDialog, setShowTagDialog] = useState(false);
+  const [showBulkTagDialog, setShowBulkTagDialog] = useState(false);
+  const [showRequestDetailDialog, setShowRequestDetailDialog] = useState(false);
+  
+  // Editing
+  const [editingRM, setEditingRM] = useState(null);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  
+  // Tag form
+  const [tagForm, setTagForm] = useState({
+    brand_ids: [],
+    vertical_ids: [],
+    model_ids: [],
+    is_brand_specific: false
+  });
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
+
+  useEffect(() => {
+    fetchMasterData();
+    fetchPendingCount();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "repository") {
+      fetchMaterials();
+    } else if (activeTab === "requests") {
+      fetchRMRequests();
+    }
+  }, [activeTab, filters, currentPage]);
+
+  const fetchMasterData = async () => {
+    try {
+      const [brandsRes, verticalsRes, modelsRes] = await Promise.all([
+        axios.get(`${API}/brands`),
+        axios.get(`${API}/verticals`),
+        axios.get(`${API}/models`)
+      ]);
+      setBrands(brandsRes.data.filter(b => b.status === 'ACTIVE'));
+      setVerticals(verticalsRes.data.filter(v => v.status === 'ACTIVE'));
+      setModels(modelsRes.data.filter(m => m.status === 'ACTIVE'));
+    } catch (error) {
+      console.error("Failed to fetch master data");
+    }
+  };
+
+  const fetchMaterials = async () => {
+    setLoading(true);
+    try {
+      // Build query params
+      let url = `${API}/raw-materials/by-tags?`;
+      if (filters.brand_id) url += `brand_id=${filters.brand_id}&`;
+      if (filters.vertical_id) url += `vertical_id=${filters.vertical_id}&`;
+      if (filters.model_id) url += `model_id=${filters.model_id}&`;
+      if (filters.is_brand_specific === "true") url += `is_brand_specific=true&`;
+      if (filters.is_brand_specific === "false") url += `is_brand_specific=false&`;
+      if (filters.category) url += `category=${filters.category}&`;
+      
+      const res = await axios.get(url);
+      let data = res.data;
+      
+      // Client-side search filter
+      if (filters.search) {
+        const search = filters.search.toLowerCase();
+        data = data.filter(rm => 
+          rm.rm_id?.toLowerCase().includes(search) ||
+          rm.category_data?.name?.toLowerCase().includes(search) ||
+          rm.category_data?.model_name?.toLowerCase().includes(search)
+        );
+      }
+      
+      setMaterials(data);
+      setSelectedRMs(new Set());
+      setSelectAll(false);
+    } catch (error) {
+      toast.error("Failed to fetch materials");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRMRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/rm-requests`);
+      setRmRequests(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch RM requests");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPendingCount = async () => {
+    try {
+      const res = await axios.get(`${API}/rm-requests/pending-count`);
+      setPendingCount(res.data.pending_count);
+    } catch (error) {
+      console.error("Failed to fetch pending count");
+    }
+  };
+
+  const handleSelectRM = (rmId) => {
+    const newSelected = new Set(selectedRMs);
+    if (newSelected.has(rmId)) {
+      newSelected.delete(rmId);
+    } else {
+      newSelected.add(rmId);
+    }
+    setSelectedRMs(newSelected);
+    setSelectAll(newSelected.size === materials.length);
+  };
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedRMs(new Set());
+    } else {
+      setSelectedRMs(new Set(materials.map(m => m.rm_id)));
+    }
+    setSelectAll(!selectAll);
+  };
+
+  const handleEditTags = (rm) => {
+    setEditingRM(rm);
+    setTagForm({
+      brand_ids: rm.brand_ids || [],
+      vertical_ids: rm.vertical_ids || [],
+      model_ids: rm.model_ids || [],
+      is_brand_specific: rm.is_brand_specific || false
+    });
+    setShowTagDialog(true);
+  };
+
+  const handleSaveTags = async () => {
+    if (!editingRM) return;
+    
+    try {
+      await axios.put(`${API}/raw-materials/${editingRM.rm_id}`, tagForm);
+      toast.success(`Tags updated for ${editingRM.rm_id}`);
+      setShowTagDialog(false);
+      setEditingRM(null);
+      fetchMaterials();
+    } catch (error) {
+      toast.error("Failed to update tags");
+    }
+  };
+
+  const handleBulkTag = async () => {
+    if (selectedRMs.size === 0) {
+      toast.error("No RMs selected");
+      return;
+    }
+    
+    try {
+      // Update each selected RM
+      const promises = Array.from(selectedRMs).map(rmId => 
+        axios.post(`${API}/raw-materials/${rmId}/tag`, tagForm)
+      );
+      await Promise.all(promises);
+      
+      toast.success(`Tags added to ${selectedRMs.size} RMs`);
+      setShowBulkTagDialog(false);
+      setTagForm({ brand_ids: [], vertical_ids: [], model_ids: [], is_brand_specific: false });
+      fetchMaterials();
+    } catch (error) {
+      toast.error("Failed to bulk tag RMs");
+    }
+  };
+
+  const handleReviewRequest = async (requestId, action, notes = "") => {
+    try {
+      await axios.post(`${API}/rm-requests/${requestId}/review`, {
+        action,
+        review_notes: notes
+      });
+      toast.success(`Request ${action.toLowerCase()}ed`);
+      fetchRMRequests();
+      fetchPendingCount();
+      setShowRequestDetailDialog(false);
+    } catch (error) {
+      toast.error(`Failed to ${action.toLowerCase()} request`);
+    }
+  };
+
+  const getFilteredModels = () => {
+    if (!filters.vertical_id) return models;
+    return models.filter(m => m.vertical_id === filters.vertical_id);
+  };
+
+  const getBrandName = (id) => brands.find(b => b.id === id)?.name || id;
+  const getBrandCode = (id) => brands.find(b => b.id === id)?.code || "";
+  const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id;
+  const getVerticalCode = (id) => verticals.find(v => v.id === id)?.code || "";
+  const getModelName = (id) => models.find(m => m.id === id)?.name || id;
+  const getModelCode = (id) => models.find(m => m.id === id)?.code || "";
+
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      category: "",
+      brand_id: "",
+      vertical_id: "",
+      model_id: "",
+      is_brand_specific: ""
+    });
+  };
+
+  // Paginated materials
+  const paginatedMaterials = materials.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+  const totalPages = Math.ceil(materials.length / pageSize);
+
+  return (
+    <div className="p-6 space-y-6" data-testid="rm-repository-page">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">RM Repository</h1>
+          <p className="text-gray-500 mt-1">Manage raw material tags and approve RM requests</p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Package className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total RMs</p>
+                <p className="text-2xl font-bold">{materials.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <Tag className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Tagged RMs</p>
+                <p className="text-2xl font-bold">
+                  {materials.filter(m => (m.brand_ids?.length > 0 || m.vertical_ids?.length > 0)).length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <Layers className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Brand Specific</p>
+                <p className="text-2xl font-bold">
+                  {materials.filter(m => m.is_brand_specific).length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={pendingCount > 0 ? "border-orange-300 bg-orange-50" : ""}>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${pendingCount > 0 ? "bg-orange-100" : "bg-gray-100"}`}>
+                <Bell className={`h-5 w-5 ${pendingCount > 0 ? "text-orange-600" : "text-gray-600"}`} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Pending Requests</p>
+                <p className="text-2xl font-bold">{pendingCount}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="repository" data-testid="repository-tab">
+            <Package className="h-4 w-4 mr-2" />
+            RM Repository
+          </TabsTrigger>
+          <TabsTrigger value="requests" data-testid="requests-tab">
+            <Bell className="h-4 w-4 mr-2" />
+            RM Requests
+            {pendingCount > 0 && (
+              <Badge className="ml-2 bg-orange-500">{pendingCount}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Repository Tab */}
+        <TabsContent value="repository" className="space-y-4">
+          {/* Filters */}
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs text-gray-500">Search</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search RM ID or name..."
+                      value={filters.search}
+                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                      className="pl-10"
+                      data-testid="rm-search"
+                    />
+                  </div>
+                </div>
+                
+                <div className="w-[150px]">
+                  <Label className="text-xs text-gray-500">Category</Label>
+                  <Select value={filters.category} onValueChange={(v) => setFilters({ ...filters, category: v === "all" ? "" : v })}>
+                    <SelectTrigger data-testid="filter-category">
+                      <SelectValue placeholder="All" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {Object.entries(RM_CATEGORIES).map(([code, name]) => (
+                        <SelectItem key={code} value={code}>{code} - {name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[180px]">
+                  <Label className="text-xs text-gray-500">Brand</Label>
+                  <Select value={filters.brand_id} onValueChange={(v) => setFilters({ ...filters, brand_id: v === "all" ? "" : v })}>
+                    <SelectTrigger data-testid="filter-brand">
+                      <SelectValue placeholder="All Brands" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Brands</SelectItem>
+                      {brands.map(b => (
+                        <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[180px]">
+                  <Label className="text-xs text-gray-500">Vertical</Label>
+                  <Select value={filters.vertical_id} onValueChange={(v) => setFilters({ ...filters, vertical_id: v === "all" ? "" : v, model_id: "" })}>
+                    <SelectTrigger data-testid="filter-vertical">
+                      <SelectValue placeholder="All Verticals" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Verticals</SelectItem>
+                      {verticals.map(v => (
+                        <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[180px]">
+                  <Label className="text-xs text-gray-500">Model</Label>
+                  <Select value={filters.model_id} onValueChange={(v) => setFilters({ ...filters, model_id: v === "all" ? "" : v })} disabled={!filters.vertical_id}>
+                    <SelectTrigger data-testid="filter-model">
+                      <SelectValue placeholder="All Models" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Models</SelectItem>
+                      {getFilteredModels().map(m => (
+                        <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[150px]">
+                  <Label className="text-xs text-gray-500">Brand Specific</Label>
+                  <Select value={filters.is_brand_specific} onValueChange={(v) => setFilters({ ...filters, is_brand_specific: v === "all" ? "" : v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="true">Yes</SelectItem>
+                      <SelectItem value="false">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <Button variant="outline" onClick={clearFilters}>
+                  <X className="h-4 w-4 mr-2" />
+                  Clear
+                </Button>
+                
+                <Button onClick={fetchMaterials}>
+                  <Search className="h-4 w-4 mr-2" />
+                  Apply
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bulk Actions */}
+          {selectedRMs.size > 0 && (
+            <div className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <span className="text-sm font-medium text-blue-700">
+                {selectedRMs.size} RM(s) selected
+              </span>
+              <Button size="sm" onClick={() => {
+                setTagForm({ brand_ids: [], vertical_ids: [], model_ids: [], is_brand_specific: false });
+                setShowBulkTagDialog(true);
+              }}>
+                <Tag className="h-4 w-4 mr-2" />
+                Bulk Add Tags
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setSelectedRMs(new Set())}>
+                Clear Selection
+              </Button>
+            </div>
+          )}
+
+          {/* Table */}
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[50px]">
+                      <Checkbox 
+                        checked={selectAll}
+                        onCheckedChange={handleSelectAll}
+                        data-testid="select-all"
+                      />
+                    </TableHead>
+                    <TableHead>RM ID</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Brands</TableHead>
+                    <TableHead>Verticals</TableHead>
+                    <TableHead>Models</TableHead>
+                    <TableHead>Brand Specific</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : paginatedMaterials.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                        No raw materials found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedMaterials.map(rm => (
+                      <TableRow key={rm.rm_id} data-testid={`rm-row-${rm.rm_id}`}>
+                        <TableCell>
+                          <Checkbox 
+                            checked={selectedRMs.has(rm.rm_id)}
+                            onCheckedChange={() => handleSelectRM(rm.rm_id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono font-medium">{rm.rm_id}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{rm.category}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {rm.category_data?.name || rm.category_data?.model_name || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(rm.brands || []).slice(0, 3).map(b => (
+                              <Badge key={b.code} variant="secondary" className="text-xs">
+                                {b.code}
+                              </Badge>
+                            ))}
+                            {(rm.brands || []).length > 3 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{rm.brands.length - 3}
+                              </Badge>
+                            )}
+                            {(!rm.brands || rm.brands.length === 0) && (
+                              <span className="text-gray-400 text-xs">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(rm.verticals || []).slice(0, 2).map(v => (
+                              <Badge key={v.code} variant="outline" className="text-xs bg-blue-50">
+                                {v.code}
+                              </Badge>
+                            ))}
+                            {(rm.verticals || []).length > 2 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{rm.verticals.length - 2}
+                              </Badge>
+                            )}
+                            {(!rm.verticals || rm.verticals.length === 0) && (
+                              <span className="text-gray-400 text-xs">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(rm.models || []).slice(0, 2).map(m => (
+                              <Badge key={m.code} variant="outline" className="text-xs bg-green-50">
+                                {m.code}
+                              </Badge>
+                            ))}
+                            {(rm.models || []).length > 2 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{rm.models.length - 2}
+                              </Badge>
+                            )}
+                            {(!rm.models || rm.models.length === 0) && (
+                              <span className="text-gray-400 text-xs">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {rm.is_brand_specific ? (
+                            <Badge className="bg-purple-100 text-purple-700">Yes</Badge>
+                          ) : (
+                            <span className="text-gray-400">No</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleEditTags(rm)}
+                            data-testid={`edit-tags-${rm.rm_id}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, materials.length)} of {materials.length}
+              </span>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                >
+                  Previous
+                </Button>
+                <span className="px-3 py-1 text-sm">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* RM Requests Tab */}
+        <TabsContent value="requests" className="space-y-4">
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Requested Name</TableHead>
+                    <TableHead>For Brands</TableHead>
+                    <TableHead>Buyer SKU</TableHead>
+                    <TableHead>Requested By</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : rmRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        No RM requests
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rmRequests.map(req => (
+                      <TableRow key={req.id} data-testid={`request-row-${req.id}`}>
+                        <TableCell>
+                          {req.status === "PENDING" && (
+                            <Badge className="bg-orange-100 text-orange-700">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Pending
+                            </Badge>
+                          )}
+                          {req.status === "APPROVED" && (
+                            <Badge className="bg-green-100 text-green-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Approved
+                            </Badge>
+                          )}
+                          {req.status === "REJECTED" && (
+                            <Badge className="bg-red-100 text-red-700">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rejected
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{req.category}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px]">
+                          <span className="font-medium">{req.requested_name}</span>
+                          {req.description && (
+                            <p className="text-xs text-gray-500 truncate">{req.description}</p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(req.brands || []).map(b => (
+                              <Badge key={b.code} variant="secondary" className="text-xs">
+                                {b.code}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {req.buyer_sku_id ? (
+                            <span className="font-mono text-xs">{req.buyer_sku_id}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {req.requester_name || "Unknown"}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-500">
+                          {new Date(req.requested_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          {req.status === "PENDING" ? (
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleReviewRequest(req.id, "APPROVE")}
+                                data-testid={`approve-${req.id}`}
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={() => handleReviewRequest(req.id, "REJECT")}
+                                data-testid={`reject-${req.id}`}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-500">
+                              {req.created_rm_id && (
+                                <span className="font-mono">{req.created_rm_id}</span>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Edit Tags Dialog */}
+      <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Tags - {editingRM?.rm_id}</DialogTitle>
+            <DialogDescription>
+              Add or remove brand, vertical, and model tags for this raw material.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {/* Brands */}
+            <div>
+              <Label>Brands</Label>
+              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[60px]">
+                {tagForm.brand_ids.map(bid => (
+                  <Badge key={bid} variant="secondary" className="pr-1">
+                    {getBrandCode(bid)} - {getBrandName(bid)}
+                    <button 
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => setTagForm({ 
+                        ...tagForm, 
+                        brand_ids: tagForm.brand_ids.filter(id => id !== bid) 
+                      })}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.brand_ids.includes(v)) {
+                  setTagForm({ ...tagForm, brand_ids: [...tagForm.brand_ids, v] });
+                }
+              }}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Add brand..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.filter(b => !tagForm.brand_ids.includes(b.id)).map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Verticals */}
+            <div>
+              <Label>Verticals</Label>
+              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[60px]">
+                {tagForm.vertical_ids.map(vid => (
+                  <Badge key={vid} variant="outline" className="bg-blue-50 pr-1">
+                    {getVerticalCode(vid)} - {getVerticalName(vid)}
+                    <button 
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => setTagForm({ 
+                        ...tagForm, 
+                        vertical_ids: tagForm.vertical_ids.filter(id => id !== vid) 
+                      })}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.vertical_ids.includes(v)) {
+                  setTagForm({ ...tagForm, vertical_ids: [...tagForm.vertical_ids, v] });
+                }
+              }}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Add vertical..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {verticals.filter(v => !tagForm.vertical_ids.includes(v.id)).map(v => (
+                    <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Models */}
+            <div>
+              <Label>Models</Label>
+              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[60px]">
+                {tagForm.model_ids.map(mid => (
+                  <Badge key={mid} variant="outline" className="bg-green-50 pr-1">
+                    {getModelCode(mid)} - {getModelName(mid)}
+                    <button 
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => setTagForm({ 
+                        ...tagForm, 
+                        model_ids: tagForm.model_ids.filter(id => id !== mid) 
+                      })}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.model_ids.includes(v)) {
+                  setTagForm({ ...tagForm, model_ids: [...tagForm.model_ids, v] });
+                }
+              }}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Add model..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {models.filter(m => !tagForm.model_ids.includes(m.id)).map(m => (
+                    <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Brand Specific Flag */}
+            <div className="flex items-center gap-2">
+              <Checkbox 
+                checked={tagForm.is_brand_specific}
+                onCheckedChange={(checked) => setTagForm({ ...tagForm, is_brand_specific: checked })}
+              />
+              <Label>Mark as Brand Specific RM</Label>
+            </div>
+
+            <Separator />
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowTagDialog(false)}>Cancel</Button>
+              <Button onClick={handleSaveTags} data-testid="save-tags-btn">
+                Save Tags
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Tag Dialog */}
+      <Dialog open={showBulkTagDialog} onOpenChange={setShowBulkTagDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Bulk Add Tags</DialogTitle>
+            <DialogDescription>
+              Add tags to {selectedRMs.size} selected raw materials. Existing tags will be preserved.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {/* Brands */}
+            <div>
+              <Label>Add Brands</Label>
+              <div className="flex flex-wrap gap-2 mt-2 p-3 border rounded-lg min-h-[40px]">
+                {tagForm.brand_ids.map(bid => (
+                  <Badge key={bid} variant="secondary" className="pr-1">
+                    {getBrandCode(bid)}
+                    <button 
+                      className="ml-1 hover:text-red-500"
+                      onClick={() => setTagForm({ 
+                        ...tagForm, 
+                        brand_ids: tagForm.brand_ids.filter(id => id !== bid) 
+                      })}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.brand_ids.includes(v)) {
+                  setTagForm({ ...tagForm, brand_ids: [...tagForm.brand_ids, v] });
+                }
+              }}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Select brand..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.filter(b => !tagForm.brand_ids.includes(b.id)).map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Verticals */}
+            <div>
+              <Label>Add Verticals</Label>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.vertical_ids.includes(v)) {
+                  setTagForm({ ...tagForm, vertical_ids: [...tagForm.vertical_ids, v] });
+                }
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select vertical..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {verticals.map(v => (
+                    <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {tagForm.vertical_ids.map(vid => (
+                  <Badge key={vid} variant="outline" className="bg-blue-50">
+                    {getVerticalCode(vid)}
+                    <button className="ml-1" onClick={() => setTagForm({ ...tagForm, vertical_ids: tagForm.vertical_ids.filter(id => id !== vid) })}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Models */}
+            <div>
+              <Label>Add Models</Label>
+              <Select onValueChange={(v) => {
+                if (v && !tagForm.model_ids.includes(v)) {
+                  setTagForm({ ...tagForm, model_ids: [...tagForm.model_ids, v] });
+                }
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select model..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {models.map(m => (
+                    <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {tagForm.model_ids.map(mid => (
+                  <Badge key={mid} variant="outline" className="bg-green-50">
+                    {getModelCode(mid)}
+                    <button className="ml-1" onClick={() => setTagForm({ ...tagForm, model_ids: tagForm.model_ids.filter(id => id !== mid) })}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Brand Specific */}
+            <div className="flex items-center gap-2">
+              <Checkbox 
+                checked={tagForm.is_brand_specific}
+                onCheckedChange={(checked) => setTagForm({ ...tagForm, is_brand_specific: checked })}
+              />
+              <Label>Mark as Brand Specific</Label>
+            </div>
+
+            <Separator />
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowBulkTagDialog(false)}>Cancel</Button>
+              <Button onClick={handleBulkTag} data-testid="bulk-tag-btn">
+                Add Tags to {selectedRMs.size} RMs
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default RMRepository;
