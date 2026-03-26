@@ -1075,6 +1075,31 @@ async def update_dispatch_lot(lot_id: str, data: DispatchLotUpdate):
     return serialize_doc(updated_lot)
 
 
+@router.delete("/dispatch-lots/{lot_id}")
+async def delete_dispatch_lot(lot_id: str):
+    """Delete a dispatch lot and all its line items"""
+    # Get existing lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Don't allow deleting lots that are already dispatched or delivered
+    if lot.get("status") in ["DISPATCHED", "DELIVERED"]:
+        raise HTTPException(status_code=400, detail="Cannot delete dispatched or delivered lots")
+    
+    # Don't allow deleting lots that have production in progress
+    if lot.get("status") == "IN_PRODUCTION":
+        raise HTTPException(status_code=400, detail="Cannot delete lots that are in production")
+    
+    # Delete all line items first
+    await db.dispatch_lot_lines.delete_many({"lot_id": lot_id})
+    
+    # Delete the dispatch lot
+    await db.dispatch_lots.delete_one({"id": lot_id})
+    
+    return {"message": "Dispatch lot deleted successfully", "lot_code": lot.get("lot_code")}
+
+
 @router.get("/dispatch-lots/with-readiness")
 async def get_dispatch_lots_with_readiness(
     buyer_id: Optional[str] = None,

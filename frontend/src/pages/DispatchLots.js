@@ -46,6 +46,11 @@ const DispatchLots = () => {
   });
   const [showAddLineSection, setShowAddLineSection] = useState(false);
   
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [lotToDelete, setLotToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  
   // Cascade filter data
   const [buyersWithForecasts, setBuyersWithForecasts] = useState([]);
   const [brandsForBuyer, setBrandsForBuyer] = useState([]);
@@ -398,6 +403,24 @@ const DispatchLots = () => {
       return;
     }
     setEditLines(editLines.filter((_, i) => i !== index));
+  };
+
+  const handleDeleteLot = async () => {
+    if (!lotToDelete) return;
+    
+    setDeleting(true);
+    try {
+      await axios.delete(`${API}/dispatch-lots/${lotToDelete.id}`, { headers: getHeaders() });
+      toast.success(`Dispatch lot ${lotToDelete.lot_code} deleted successfully`);
+      setShowDeleteConfirm(false);
+      setLotToDelete(null);
+      setShowDetailDialog(false);
+      fetchDispatchLots();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete dispatch lot");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -1011,23 +1034,37 @@ const DispatchLots = () => {
                 </td>
                 <td className="p-4 text-right">
                   {!["DISPATCHED", "DELIVERED"].includes(lot.status) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={async () => {
-                        // Fetch full details before editing
-                        try {
-                          const res = await axios.get(`${API}/dispatch-lots/${lot.id}/details`, { headers: getHeaders() });
-                          openEditDialog(res.data);
-                        } catch (err) {
-                          toast.error("Failed to load lot for editing");
-                        }
-                      }}
-                      className="h-8 px-2"
-                      data-testid={`edit-${lot.lot_code}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          // Fetch full details before editing
+                          try {
+                            const res = await axios.get(`${API}/dispatch-lots/${lot.id}/details`, { headers: getHeaders() });
+                            openEditDialog(res.data);
+                          } catch (err) {
+                            toast.error("Failed to load lot for editing");
+                          }
+                        }}
+                        className="h-8 px-2"
+                        data-testid={`edit-${lot.lot_code}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setLotToDelete(lot);
+                          setShowDeleteConfirm(true);
+                        }}
+                        className="h-8 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        data-testid={`delete-${lot.lot_code}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -1623,6 +1660,48 @@ const DispatchLots = () => {
             >
               <RefreshCw className="w-4 h-4 mr-2" />
               Check for Delays
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Delete Dispatch Lot
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-zinc-600">
+              Are you sure you want to delete dispatch lot <strong className="font-mono">{lotToDelete?.lot_code}</strong>?
+            </p>
+            <p className="text-sm text-zinc-500 mt-2">
+              This will permanently delete the lot and all its line items. This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setLotToDelete(null);
+              }}
+              className="flex-1"
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteLot}
+              className="flex-1"
+              disabled={deleting}
+              data-testid="confirm-delete-lot-btn"
+            >
+              {deleting ? "Deleting..." : "Delete Lot"}
             </Button>
           </div>
         </DialogContent>
