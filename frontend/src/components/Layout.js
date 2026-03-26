@@ -134,8 +134,8 @@ const Layout = () => {
           </div>
         </div>
 
-        {/* Branch Selector - Hidden for CPC_PLANNER (they work across all branches) */}
-        {!isCPCPlanner && <BranchSelector />}
+        {/* Branch Selector - Hidden for CPC_PLANNER and TECH_OPS_ENGINEER (they work with universal data) */}
+        {!isCPCPlanner && !hasRole('TECH_OPS_ENGINEER') && <BranchSelector />}
         
         <nav className="flex-1 p-4 overflow-y-auto">
           {navItems.filter(item => item.show).map((item) => (
