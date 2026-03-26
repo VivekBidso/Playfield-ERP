@@ -44,7 +44,9 @@ const RMRepository = () => {
   const [verticals, setVerticals] = useState([]);
   const [models, setModels] = useState([]);
   const [rmRequests, setRmRequests] = useState([]);
+  const [buyerSkuRequests, setBuyerSkuRequests] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingSkuCount, setPendingSkuCount] = useState(0);
   
   // Loading
   const [loading, setLoading] = useState(false);
@@ -87,6 +89,7 @@ const RMRepository = () => {
   useEffect(() => {
     fetchMasterData();
     fetchPendingCount();
+    fetchPendingSkuCount();
   }, []);
 
   useEffect(() => {
@@ -94,6 +97,8 @@ const RMRepository = () => {
       fetchMaterials();
     } else if (activeTab === "requests") {
       fetchRMRequests();
+    } else if (activeTab === "sku-requests") {
+      fetchBuyerSkuRequests();
     }
   }, [activeTab, filters, currentPage]);
 
@@ -165,6 +170,41 @@ const RMRepository = () => {
       setPendingCount(res.data.pending_count);
     } catch (error) {
       console.error("Failed to fetch pending count");
+    }
+  };
+
+  const fetchPendingSkuCount = async () => {
+    try {
+      const res = await axios.get(`${API}/demand-hub/buyer-sku-requests/pending-count`);
+      setPendingSkuCount(res.data.pending_count);
+    } catch (error) {
+      console.error("Failed to fetch pending SKU count");
+    }
+  };
+
+  const fetchBuyerSkuRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/demand-hub/buyer-sku-requests`);
+      setBuyerSkuRequests(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch Buyer SKU requests");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReviewBuyerSkuRequest = async (requestId, action, notes = "") => {
+    try {
+      await axios.post(`${API}/demand-hub/buyer-sku-requests/${requestId}/review`, {
+        action,
+        review_notes: notes
+      });
+      toast.success(`Request ${action.toLowerCase()}ed`);
+      fetchBuyerSkuRequests();
+      fetchPendingSkuCount();
+    } catch (error) {
+      toast.error(`Failed to ${action.toLowerCase()} request`);
     }
   };
 
@@ -362,6 +402,13 @@ const RMRepository = () => {
             RM Requests
             {pendingCount > 0 && (
               <Badge className="ml-2 bg-orange-500">{pendingCount}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="sku-requests" data-testid="sku-requests-tab">
+            <Box className="h-4 w-4 mr-2" />
+            Buyer SKU Requests
+            {pendingSkuCount > 0 && (
+              <Badge className="ml-2 bg-blue-500">{pendingSkuCount}</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -764,6 +811,116 @@ const RMRepository = () => {
                                 <span className="font-mono">{req.created_rm_id}</span>
                               )}
                             </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Buyer SKU Requests Tab */}
+        <TabsContent value="sku-requests" className="space-y-4">
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Buyer SKU</TableHead>
+                    <TableHead>Base SKU</TableHead>
+                    <TableHead>Brand</TableHead>
+                    <TableHead>Requested By</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        Loading...
+                      </TableCell>
+                    </TableRow>
+                  ) : buyerSkuRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        No Buyer SKU requests
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    buyerSkuRequests.map(req => (
+                      <TableRow key={req.id} data-testid={`sku-request-row-${req.id}`}>
+                        <TableCell>
+                          {req.status === "PENDING" && (
+                            <Badge className="bg-orange-100 text-orange-700">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Pending
+                            </Badge>
+                          )}
+                          {req.status === "APPROVED" && (
+                            <Badge className="bg-green-100 text-green-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Approved
+                            </Badge>
+                          )}
+                          {req.status === "REJECTED" && (
+                            <Badge className="bg-red-100 text-red-700">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rejected
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono font-medium">{req.buyer_sku_id}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-sm text-gray-600">{req.bidso_sku_id}</span>
+                          {req.bidso_sku_name && (
+                            <p className="text-xs text-gray-400">{req.bidso_sku_name}</p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{req.brand_code} - {req.brand_name}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {req.requester_name || "Unknown"}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-500">
+                          {new Date(req.requested_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="max-w-[150px]">
+                          <span className="text-xs text-gray-500 truncate">{req.notes || "-"}</span>
+                        </TableCell>
+                        <TableCell>
+                          {req.status === "PENDING" ? (
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleReviewBuyerSkuRequest(req.id, "APPROVE")}
+                                data-testid={`approve-sku-${req.id}`}
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={() => handleReviewBuyerSkuRequest(req.id, "REJECT")}
+                                data-testid={`reject-sku-${req.id}`}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-500">
+                              {req.review_notes || "-"}
+                            </span>
                           )}
                         </TableCell>
                       </TableRow>

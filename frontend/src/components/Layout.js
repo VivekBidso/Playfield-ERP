@@ -22,7 +22,8 @@ import {
   ArrowLeftRight,
   Receipt,
   Activity,
-  Shield
+  Shield,
+  PlusCircle
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -61,6 +62,7 @@ const Layout = () => {
     { path: "/sku-management", label: "SKU Management", icon: Box, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     { path: "/rm-repository", label: "RM Repository", icon: Package, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
     { path: "/demand", label: "Demand Forecasts", icon: TrendingUp, show: isAdmin || hasRole('DEMAND_PLANNER') },
+    { path: "/demand-hub", label: "Demand Hub", icon: PlusCircle, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
     { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },

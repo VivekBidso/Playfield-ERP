@@ -27,6 +27,7 @@ import Logistics from "@/pages/Logistics";
 import IBT from "@/pages/IBT";
 import Events from "@/pages/Events";
 import BranchOps from "@/pages/BranchOps";
+import DemandHub from "@/pages/DemandHub";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -105,6 +106,7 @@ function App() {
             <Route path="events" element={<Events />} />
             <Route path="branch-ops" element={<BranchOps />} />
             <Route path="rm-repository" element={<RMRepository />} />
+            <Route path="demand-hub" element={<DemandHub />} />
           </Route>
         </Routes>
       </BrowserRouter>

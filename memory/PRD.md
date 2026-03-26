@@ -884,5 +884,92 @@ Date 2026-03-20 (no override):   Base=500, Override=None, Effective=500, Type=ba
 
 ---
 
+## 18. DEMAND HUB MODULE (March 26, 2026)
+
+### Purpose:
+Provides Demand Planners/KAMs with a self-service portal to:
+1. Request new Buyer SKUs (branded variants of base products)
+2. Request new Raw Materials (labels, packaging, brand assets)
+3. Track their request history and status
+
+### Workflow:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     DEMAND PLANNER                              │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Goes to Demand Hub                                          │
+│  2. Selects Bidso SKU (base product)                           │
+│  3. Picks Brand → Submits Buyer SKU Request                    │
+│  4. OR Creates RM Request (labels, packaging)                  │
+└─────────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     TECH OPS ENGINEER                           │
+├─────────────────────────────────────────────────────────────────┤
+│  5. Views requests in RM Repository                            │
+│     - "Buyer SKU Requests" tab (new)                           │
+│     - "RM Requests" tab (existing)                             │
+│  6. Reviews and Approves/Rejects                               │
+│  7. On Approval: Buyer SKU or RM is auto-created               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### New Database Collection: `buyer_sku_requests`
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Request ID |
+| `bidso_sku_id` | String | Base product ID (e.g., KS_PE_001) |
+| `brand_id` | String | Brand for the variant |
+| `brand_code` | String | Brand code (e.g., FC) |
+| `buyer_sku_id` | String | Proposed ID (e.g., FC_KS_PE_001) |
+| `status` | Enum | PENDING / APPROVED / REJECTED |
+| `requested_by` | String | User ID |
+| `requested_at` | DateTime | Request timestamp |
+| `reviewed_by` | String | Reviewer user ID |
+| `reviewed_at` | DateTime | Review timestamp |
+| `review_notes` | String | Notes from reviewer |
+
+### API Endpoints:
+
+**Demand Hub (`/api/demand-hub`):**
+- `GET /bidso-skus` - Get Bidso SKUs with filters (vertical, model, search)
+- `GET /existing-buyer-skus/{bidso_sku_id}` - Check which brands already have variants
+- `POST /buyer-sku-requests` - Create Buyer SKU request
+- `GET /buyer-sku-requests` - Get all Buyer SKU requests
+- `GET /buyer-sku-requests/pending-count` - Get pending count
+- `POST /buyer-sku-requests/{id}/review` - Approve/Reject (Tech Ops)
+- `GET /my-requests` - Get current user's requests (RM + Buyer SKU)
+- `GET /my-requests/summary` - Get summary counts
+- `GET /rm-categories` - Get RM categories for request form
+
+### Frontend Pages:
+
+**Demand Hub (`/demand-hub`):**
+- Stats cards: Pending, Approved, SKU Requests, RM Requests
+- Tabs: Request Buyer SKU, Request RM, My Requests
+- Bidso SKU table with Select buttons
+- Existing Buyer SKU display (prevents duplicates)
+- Request dialogs with brand selection
+
+**RM Repository Updates (`/rm-repository`):**
+- NEW "Buyer SKU Requests" tab
+- Shows pending requests with Approve/Reject buttons
+- Badge showing pending count
+
+### Access Control:
+- **Demand Planner**: Can create requests, view own request history
+- **Tech Ops Engineer**: Can view all requests, approve/reject
+- **Master Admin**: Full access to both sides
+
+### Files Created/Modified:
+- `backend/routes/demand_hub_routes.py` - NEW Demand Hub API
+- `frontend/src/pages/DemandHub.js` - NEW Demand Hub UI
+- `frontend/src/pages/RMRepository.js` - Updated with Buyer SKU Requests tab
+- `frontend/src/App.js` - Added /demand-hub route
+- `frontend/src/components/Layout.js` - Added Demand Hub to sidebar
+
+---
+
 *Last updated: March 26, 2026*
-*RM Repository & Tagging System complete*
+*Demand Hub Module complete*
