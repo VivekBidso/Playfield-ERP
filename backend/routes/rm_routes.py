@@ -129,7 +129,7 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
     headers = [cell.value for cell in ws[1]]
     
     created = 0
-    updated = 0
+    skipped_duplicates = []
     errors = []
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -144,7 +144,13 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
                 errors.append(f"Row {idx}: Invalid or missing category '{cat}'")
                 continue
             
-            if not rm_id:
+            # Check for existing RM - PREVENT OVERWRITE
+            if rm_id:
+                existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1})
+                if existing:
+                    skipped_duplicates.append({"row": idx, "rm_id": rm_id, "reason": "RM ID already exists"})
+                    continue
+            else:
                 seq = await get_next_rm_sequence(cat)
                 rm_id = f"{cat}_{seq:05d}"
             
@@ -160,47 +166,43 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
             if rm_name:
                 category_data["name"] = rm_name
             
-            # Check for existing
-            existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0})
+            # Create new RM
+            rm = RawMaterial(
+                rm_id=rm_id,
+                category=cat,
+                category_data=category_data,
+                low_stock_threshold=row_data.get('low_stock_threshold', 10.0) or 10.0,
+                rm_level=row_data.get('rm_level', 'DIRECT') or 'DIRECT',
+                parent_rm_id=row_data.get('parent_rm_id'),
+                unit_weight_grams=row_data.get('unit_weight_grams'),
+                scrap_factor=row_data.get('scrap_factor', 0.02) or 0.02,
+                secondary_l1_rm_id=row_data.get('secondary_l1_rm_id'),
+                powder_qty_grams=row_data.get('powder_qty_grams')
+            )
             
-            if existing:
-                # Update existing
-                await db.raw_materials.update_one(
-                    {"rm_id": rm_id},
-                    {"$set": {
-                        "category_data": category_data,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }}
-                )
-                updated += 1
-            else:
-                # Create new
-                rm = RawMaterial(
-                    rm_id=rm_id,
-                    category=cat,
-                    category_data=category_data,
-                    low_stock_threshold=row_data.get('low_stock_threshold', 10.0) or 10.0,
-                    rm_level=row_data.get('rm_level', 'DIRECT') or 'DIRECT',
-                    parent_rm_id=row_data.get('parent_rm_id'),
-                    unit_weight_grams=row_data.get('unit_weight_grams'),
-                    scrap_factor=row_data.get('scrap_factor', 0.02) or 0.02,
-                    secondary_l1_rm_id=row_data.get('secondary_l1_rm_id'),
-                    powder_qty_grams=row_data.get('powder_qty_grams')
-                )
-                
-                doc = rm.model_dump()
-                doc['created_at'] = doc['created_at'].isoformat()
-                await db.raw_materials.insert_one(doc)
-                created += 1
+            doc = rm.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.raw_materials.insert_one(doc)
+            created += 1
                 
         except Exception as e:
             errors.append(f"Row {idx}: {str(e)}")
     
+    # If there are duplicates, return error response
+    if skipped_duplicates:
+        return {
+            "success": False,
+            "created": created,
+            "duplicates": skipped_duplicates,
+            "errors": errors,
+            "message": f"Upload blocked: {len(skipped_duplicates)} duplicate RM IDs found. No overwrites allowed."
+        }
+    
     return {
+        "success": True,
         "created": created,
-        "updated": updated,
         "errors": errors,
-        "message": f"Created {created}, updated {updated} raw materials"
+        "message": f"Successfully created {created} raw materials"
     }
 
 

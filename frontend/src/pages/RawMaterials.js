@@ -140,12 +140,37 @@ const RawMaterials = () => {
 
     try {
       const response = await axios.post(`${API}/raw-materials/bulk-upload`, formData);
-      toast.success(`Uploaded: ${response.data.created} created, ${response.data.skipped} skipped`);
+      
+      // Check for duplicates
+      if (response.data.duplicates && response.data.duplicates.length > 0) {
+        const dupCount = response.data.duplicates.length;
+        const dupList = response.data.duplicates.slice(0, 5).map(d => d.rm_id || d.code || d.name).join(", ");
+        toast.error(
+          `Upload blocked: ${dupCount} duplicate(s) found. No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(`Uploaded: ${response.data.created} created`);
+      }
+      
       fetchMaterials();
       fetchFilterOptions();
     } catch (error) {
-      toast.error("Upload failed");
+      const errData = error.response?.data;
+      if (errData?.duplicates && errData.duplicates.length > 0) {
+        const dupCount = errData.duplicates.length;
+        const dupList = errData.duplicates.slice(0, 5).map(d => d.rm_id || d.code || d.name).join(", ");
+        toast.error(
+          `Upload blocked: ${dupCount} duplicate(s) found. No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(errData?.message || "Upload failed");
+      }
     }
+    
+    // Reset file input
+    e.target.value = null;
   };
 
   const handleAddRM = async () => {

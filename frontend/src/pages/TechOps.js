@@ -225,11 +225,33 @@ const TechOps = () => {
       const res = await axios.post(`${API}/buyers/bulk-import`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      toast.success(res.data.message);
+      
+      // Check for duplicates
+      if (res.data.duplicates && res.data.duplicates.length > 0) {
+        const dupCount = res.data.duplicates.length;
+        const dupList = res.data.duplicates.slice(0, 5).map(d => d.name).join(", ");
+        toast.error(
+          `${res.data.created} created, ${dupCount} skipped (duplicates). No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(res.data.message);
+      }
+      
       setShowImportDialog(false);
       fetchAllData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Import failed");
+      const errData = error.response?.data;
+      if (errData?.duplicates && errData.duplicates.length > 0) {
+        const dupCount = errData.duplicates.length;
+        const dupList = errData.duplicates.slice(0, 5).map(d => d.name).join(", ");
+        toast.error(
+          `Upload blocked: ${dupCount} duplicate(s) found. No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(errData?.detail || errData?.message || "Import failed");
+      }
     } finally {
       setImportLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

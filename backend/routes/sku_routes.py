@@ -274,7 +274,7 @@ async def create_sku_mapping(input: SKUMappingCreate):
 
 @router.post("/sku-mappings/bulk-upload")
 async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
-    """Bulk upload SKU mappings from Excel"""
+    """Bulk upload SKU mappings from Excel - NO OVERWRITES ALLOWED"""
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
@@ -282,7 +282,7 @@ async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
     headers = [cell.value for cell in ws[1]]
     
     created = 0
-    updated = 0
+    skipped_duplicates = []
     errors = []
     
     # Group by SKU
@@ -301,9 +301,10 @@ async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
                 continue
             
             if sku_id not in sku_mappings:
-                sku_mappings[sku_id] = []
+                sku_mappings[sku_id] = {"rows": [], "mappings": []}
             
-            sku_mappings[sku_id].append({
+            sku_mappings[sku_id]["rows"].append(idx)
+            sku_mappings[sku_id]["mappings"].append({
                 "rm_id": rm_id,
                 "quantity": qty
             })
@@ -311,29 +312,40 @@ async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
         except Exception as e:
             errors.append(f"Row {idx}: {str(e)}")
     
-    # Save mappings
-    for sku_id, mappings in sku_mappings.items():
+    # Check for existing and save only new mappings
+    for sku_id, data in sku_mappings.items():
         existing = await db.sku_mappings.find_one({"sku_id": sku_id})
         
         if existing:
-            await db.sku_mappings.update_one(
-                {"sku_id": sku_id},
-                {"$set": {"rm_mappings": mappings}}
-            )
-            updated += 1
+            # PREVENT OVERWRITE
+            skipped_duplicates.append({
+                "rows": data["rows"],
+                "sku_id": sku_id,
+                "reason": "SKU mapping already exists"
+            })
         else:
             await db.sku_mappings.insert_one({
                 "id": str(uuid.uuid4()),
                 "sku_id": sku_id,
-                "rm_mappings": mappings
+                "rm_mappings": data["mappings"]
             })
             created += 1
     
+    if skipped_duplicates:
+        return {
+            "success": False if created == 0 else True,
+            "created": created,
+            "duplicates": skipped_duplicates,
+            "errors": errors,
+            "message": f"Upload complete: {created} created, {len(skipped_duplicates)} skipped (duplicates - no overwrites allowed)"
+        }
+    
     return {
+        "success": True,
         "created": created,
-        "updated": updated,
+        "duplicates": [],
         "errors": errors,
-        "message": f"Created {created}, updated {updated} SKU mappings"
+        "message": f"Successfully created {created} SKU mappings"
     }
 
 

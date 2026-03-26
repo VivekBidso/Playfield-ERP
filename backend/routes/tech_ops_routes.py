@@ -175,7 +175,7 @@ async def bulk_import_models(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Missing required columns: 'Model Name' and 'Model Code'")
     
     created = 0
-    skipped = 0
+    skipped_duplicates = []
     errors = []
     
     for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -198,10 +198,10 @@ async def bulk_import_models(file: UploadFile = File(...)):
             errors.append(f"Row {row_num}: Could not find vertical for '{row[col_map.get('vertical', 0)] if 'vertical' in col_map else 'unknown'}'")
             continue
         
-        # Check if model already exists (by code in same vertical)
+        # Check if model already exists (by code in same vertical) - PREVENT OVERWRITE
         existing = await db.models.find_one({"code": code, "vertical_id": vertical_id})
         if existing:
-            skipped += 1
+            skipped_duplicates.append({"row": row_num, "code": code, "name": name, "reason": "Model code already exists in this vertical"})
             continue
         
         model = {
@@ -220,10 +220,21 @@ async def bulk_import_models(file: UploadFile = File(...)):
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
     
+    # If there are duplicates, return warning
+    if skipped_duplicates:
+        return {
+            "success": False if created == 0 else True,
+            "message": f"Import complete: {created} created, {len(skipped_duplicates)} skipped (duplicates - no overwrites allowed)",
+            "created": created,
+            "duplicates": skipped_duplicates,
+            "errors": errors[:10]
+        }
+    
     return {
-        "message": f"Import complete: {created} created, {skipped} skipped (duplicates)",
+        "success": True,
+        "message": f"Import complete: {created} models created",
         "created": created,
-        "skipped": skipped,
+        "duplicates": [],
         "errors": errors[:10]
     }
 
@@ -459,7 +470,7 @@ async def bulk_import_buyers(file: UploadFile = File(...)):
     
     # Process rows
     created = 0
-    skipped = 0
+    skipped_duplicates = []
     errors = []
     
     for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -470,10 +481,10 @@ async def bulk_import_buyers(file: UploadFile = File(...)):
         if not name:
             continue
         
-        # Check if buyer exists
+        # Check if buyer exists - PREVENT OVERWRITE
         existing = await db.buyers.find_one({"name": name})
         if existing:
-            skipped += 1
+            skipped_duplicates.append({"row": row_num, "name": name, "reason": "Buyer name already exists"})
             continue
         
         # Generate customer code
@@ -497,11 +508,22 @@ async def bulk_import_buyers(file: UploadFile = File(...)):
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
     
+    # If there are duplicates, return warning
+    if skipped_duplicates:
+        return {
+            "success": False if created == 0 else True,
+            "message": f"Import complete: {created} created, {len(skipped_duplicates)} skipped (duplicates - no overwrites allowed)",
+            "created": created,
+            "duplicates": skipped_duplicates,
+            "errors": errors[:10]
+        }
+    
     return {
-        "message": f"Import complete: {created} created, {skipped} skipped (duplicates)",
+        "success": True,
+        "message": f"Import complete: {created} buyers created",
         "created": created,
-        "skipped": skipped,
-        "errors": errors[:10]  # Limit error messages
+        "duplicates": [],
+        "errors": errors[:10]
     }
 
 
