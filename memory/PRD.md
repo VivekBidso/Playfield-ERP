@@ -971,5 +971,124 @@ Provides Demand Planners/KAMs with a self-service portal to:
 
 ---
 
+## 19. CLONE BIDSO SKU FEATURE (March 26, 2026)
+
+### Purpose:
+Allows Demand Planners to create new Bidso SKU variants by cloning existing ones. Instead of recreating entire BOMs from scratch, users can:
+1. Select an existing Bidso SKU with a BOM
+2. View the BOM with locked/editable indicators
+3. Modify only the editable items (change colors, swap accessories, create new RMs)
+4. Submit for Tech Ops approval
+
+### Edit Rules:
+| RM Category | Edit Type | What Can Be Done |
+|-------------|-----------|------------------|
+| INP (In-house Plastic) | COLOUR_ONLY | Change to different color variant of same part |
+| INM (In-house Metal) | COLOUR_ONLY | Change to different color variant of same part |
+| ACC (Accessories) | COLOUR_OR_SWAP | Change color OR swap entirely with different accessory |
+| Others (ELC, SP, BS, PM, LB) | LOCKED | Cannot edit - copied as-is |
+
+### Workflow:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     DEMAND PLANNER (Demand Hub)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Step 1: SELECT SOURCE                                          │
+│  - Filter by Vertical/Model                                     │
+│  - Select Bidso SKU with existing BOM                           │
+│  - Click "Clone"                                                │
+├─────────────────────────────────────────────────────────────────┤
+│  Step 2: MODIFY BOM                                             │
+│  - View all BOM items with Lock/Unlock indicators               │
+│  - For editable items (INP/INM/ACC):                            │
+│    • Change to different color variant (palette icon)           │
+│    • Swap with different RM (refresh icon, ACC only)            │
+│    • Create new RM on-the-fly (plus icon)                       │
+│  - Modifications shown with before→after                        │
+├─────────────────────────────────────────────────────────────────┤
+│  Step 3: PREVIEW & SUBMIT                                       │
+│  - Enter new SKU name (required)                                │
+│  - See summary of modifications                                 │
+│  - Preview auto-generated SKU ID format                         │
+│  - Submit for approval                                          │
+└─────────────────────────────────────────────────────────────────┘
+                                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     TECH OPS (RM Repository)                     │
+├─────────────────────────────────────────────────────────────────┤
+│  "Bidso SKU Clone" Tab:                                         │
+│  - View pending clone requests                                  │
+│  - See proposed name, source SKU, modifications count           │
+│  - View detail dialog with full BOM summary                     │
+│  - Approve → Creates new Bidso SKU, new RMs, and Common BOM     │
+│  - Reject → Returns to requester                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Database Collections:
+
+**`bidso_clone_requests`**:
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Request ID |
+| `status` | Enum | PENDING / APPROVED / REJECTED |
+| `source_bidso_sku_id` | String | Source SKU being cloned |
+| `proposed_name` | String | Name for new SKU |
+| `proposed_description` | String | Optional description |
+| `bom_modifications` | Array | List of RM modifications |
+| `locked_items_count` | Integer | Count of locked BOM items |
+| `total_bom_items` | Integer | Total items in source BOM |
+| `requested_by` | String | User ID |
+| `requested_at` | DateTime | Request timestamp |
+| `created_bidso_sku_id` | String | New SKU ID (on approval) |
+| `created_rm_ids` | Array | New RM IDs created (on approval) |
+
+**BOM Modification Structure**:
+```json
+{
+  "original_rm_id": "INP_001",
+  "action": "SWAP_COLOUR" | "SWAP_RM" | "CREATE_NEW",
+  "new_rm_id": "INP_002" | null,
+  "new_rm_name": "Part_Red",
+  "new_colour": "Red",
+  "new_rm_definition": { ... }  // Only for CREATE_NEW
+}
+```
+
+### API Endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/demand-hub/bidso-skus-for-clone` | GET | List SKUs with BOMs for cloning |
+| `/api/demand-hub/bidso-skus/{id}/bom-for-clone` | GET | Get BOM with edit indicators |
+| `/api/demand-hub/colour-variants/{rm_id}` | GET | Find color variants of an RM |
+| `/api/demand-hub/search-rm-for-swap` | GET | Search RMs for swapping (ACC) |
+| `/api/demand-hub/bidso-clone-requests` | GET | List clone requests |
+| `/api/demand-hub/bidso-clone-requests` | POST | Submit clone request |
+| `/api/demand-hub/bidso-clone-requests/{id}` | GET | Get request detail |
+| `/api/demand-hub/bidso-clone-requests/{id}/review` | POST | Approve/Reject request |
+| `/api/demand-hub/bidso-clone-requests/pending-count` | GET | Get pending count |
+
+### On Approval:
+1. Generate new Bidso SKU ID: `{VerticalCode}_{ModelCode}_{NextNumericCode}`
+2. Create new RMs for any CREATE_NEW modifications
+3. Copy source BOM with modifications applied
+4. Create new Common BOM entry
+5. Update request with `created_bidso_sku_id` and `created_rm_ids`
+
+### Files Created/Modified:
+- `frontend/src/components/CloneBidsoSKU.js` - NEW Clone wizard component (910 lines)
+- `frontend/src/pages/DemandHub.js` - Added Clone Bidso SKU tab
+- `frontend/src/pages/RMRepository.js` - Added Bidso SKU Clone tab for Tech Ops
+- `backend/routes/demand_hub_routes.py` - Added clone endpoints
+
+### Access Control:
+- **Demand Planner**: Can create clone requests, view own requests
+- **Tech Ops Engineer**: Can view all requests, approve/reject
+- **Master Admin**: Full access
+
+---
+
 *Last updated: March 26, 2026*
-*Demand Hub Module complete*
+*Clone Bidso SKU feature complete - Full workflow from Demand Hub request to Tech Ops approval*

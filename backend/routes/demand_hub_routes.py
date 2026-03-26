@@ -35,7 +35,7 @@ async def create_buyer_sku_request(data: dict, current_user: User = Depends(get_
     # Verify Brand exists
     brand = await db.brands.find_one({"id": brand_id}, {"_id": 0})
     if not brand:
-        raise HTTPException(status_code=404, detail=f"Brand not found")
+        raise HTTPException(status_code=404, detail="Brand not found")
     
     # Check if Buyer SKU already exists
     buyer_sku_id = f"{brand['code']}_{bidso_sku_id}"
@@ -160,45 +160,6 @@ async def review_buyer_sku_request(request_id: str, data: dict, current_user: Us
 
 
 # ============== MY REQUESTS (Combined View) ==============
-
-@router.get("/my-requests")
-async def get_my_requests(current_user: User = Depends(get_current_user)):
-    """Get all requests created by the current user (both RM and Buyer SKU)"""
-    
-    # Get RM requests
-    rm_requests = await db.rm_requests.find(
-        {"requested_by": current_user.id},
-        {"_id": 0}
-    ).sort("requested_at", -1).to_list(100)
-    
-    # Enrich with brand names
-    brand_ids = set()
-    for req in rm_requests:
-        brand_ids.update(req.get("brand_ids", []))
-    
-    brands = {}
-    if brand_ids:
-        brand_docs = await db.brands.find({"id": {"$in": list(brand_ids)}}, {"_id": 0, "id": 1, "code": 1, "name": 1}).to_list(50)
-        brands = {b["id"]: b for b in brand_docs}
-    
-    for req in rm_requests:
-        req["type"] = "RM"
-        req["brands"] = [brands.get(bid, {"code": bid}) for bid in req.get("brand_ids", [])]
-    
-    # Get Buyer SKU requests
-    buyer_sku_requests = await db.buyer_sku_requests.find(
-        {"requested_by": current_user.id},
-        {"_id": 0}
-    ).sort("requested_at", -1).to_list(100)
-    
-    for req in buyer_sku_requests:
-        req["type"] = "BUYER_SKU"
-    
-    # Combine and sort by requested_at
-    all_requests = rm_requests + buyer_sku_requests
-    all_requests.sort(key=lambda x: x.get("requested_at", ""), reverse=True)
-    
-    return all_requests
 
 
 @router.get("/my-requests/summary")
@@ -854,7 +815,6 @@ async def review_bidso_clone_request(
     }
 
 
-# Update my-requests to include Bidso clone requests
 @router.get("/my-requests")
 async def get_my_requests(current_user: User = Depends(get_current_user)):
     """Get all requests created by the current user (RM, Buyer SKU, and Bidso Clone)"""
