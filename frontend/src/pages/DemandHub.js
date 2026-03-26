@@ -24,11 +24,12 @@ const API = `${BACKEND_URL}/api`;
 // Categories that support artwork file uploads
 const ARTWORK_CATEGORIES = ["LB", "BS", "PM"];
 
-// RM Categories with their required fields (matching bulk upload templates)
+// RM Categories with their required fields and naming nomenclature
 const RM_CATEGORIES = {
   "LB": { 
     name: "Labels", 
     description: "Product labels and stickers",
+    nameFormat: ["type", "buyer_sku"],  // Type_Buyer SKU
     fields: [
       { key: "type", label: "Type", required: true, placeholder: "e.g., Main Label, Warning Label" },
       { key: "buyer_sku", label: "Buyer SKU", required: true, placeholder: "e.g., BE_KS_PE_001" },
@@ -39,6 +40,7 @@ const RM_CATEGORIES = {
   "PM": { 
     name: "Packaging", 
     description: "Boxes, cartons, packaging materials",
+    nameFormat: ["model", "type", "specs", "brand"],  // Model_Type_Specs_Brand
     fields: [
       { key: "model", label: "Model", required: true, placeholder: "e.g., Kids Scooter Box" },
       { key: "type", label: "Type", required: true, placeholder: "e.g., Inner Box, Outer Carton" },
@@ -51,11 +53,12 @@ const RM_CATEGORIES = {
   "BS": { 
     name: "Brand Assets", 
     description: "Brand-specific inserts, manuals, etc.",
+    nameFormat: ["position", "type", "brand", "buyer_sku"],  // Position_Type_Brand_Buyer SKU
     fields: [
       { key: "position", label: "Position/Location", required: true, placeholder: "e.g., Inside Box, On Product" },
       { key: "type", label: "Type", required: true, placeholder: "e.g., Manual, Warranty Card, Insert" },
       { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee" },
-      { key: "buyer_sku", label: "Buyer SKU", required: false, placeholder: "e.g., BE_KS_PE_001" },
+      { key: "buyer_sku", label: "Buyer SKU", required: true, placeholder: "e.g., BE_KS_PE_001" },
       { key: "per_unit_weight", label: "Weight (grams)", required: false, placeholder: "e.g., 20", type: "number" },
       { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
     ]
@@ -63,6 +66,7 @@ const RM_CATEGORIES = {
   "STK": { 
     name: "Stickers", 
     description: "Promotional stickers, warranty stickers",
+    nameFormat: ["type", "brand"],  // Type_Brand
     fields: [
       { key: "type", label: "Type", required: true, placeholder: "e.g., Warranty, Promo, QC Pass" },
       { key: "brand", label: "Brand", required: true, placeholder: "e.g., Baybee" },
@@ -71,6 +75,18 @@ const RM_CATEGORIES = {
       { key: "unit", label: "Unit", required: false, placeholder: "e.g., pcs" }
     ]
   }
+};
+
+// Generate RM name from category_data based on nomenclature
+const generateRmName = (category, categoryData) => {
+  const config = RM_CATEGORIES[category];
+  if (!config || !config.nameFormat) return "";
+  
+  const parts = config.nameFormat
+    .map(key => categoryData[key] || "")
+    .filter(val => val.trim() !== "");
+  
+  return parts.join("_");
 };
 
 const DemandHub = () => {
@@ -110,10 +126,8 @@ const DemandHub = () => {
   // RM Request Form
   const [rmForm, setRmForm] = useState({
     category: "LB",
-    requested_name: "",
     description: "",
     brand_ids: [],
-    buyer_sku_id: "",
     category_data: {},
     artwork_files: []  // Array of uploaded file references
   });
@@ -230,7 +244,6 @@ const DemandHub = () => {
     const categoryConfig = RM_CATEGORIES[rmForm.category];
     const missingFields = [];
     
-    if (!rmForm.requested_name) missingFields.push("RM Name");
     if (rmForm.brand_ids.length === 0) missingFields.push("Brands");
     
     // Check category-specific required fields
@@ -245,15 +258,24 @@ const DemandHub = () => {
       return;
     }
     
+    // Auto-generate RM name from category_data based on nomenclature
+    const generatedName = generateRmName(rmForm.category, rmForm.category_data);
+    
+    if (!generatedName) {
+      toast.error("Could not generate RM name. Please fill all required fields.");
+      return;
+    }
+    
     try {
       await axios.post(`${API}/rm-requests`, {
         ...rmForm,
+        requested_name: generatedName,
         category_data: rmForm.category_data,
         artwork_files: rmForm.artwork_files
       });
       toast.success("RM request created");
       setShowRmDialog(false);
-      setRmForm({ category: "LB", requested_name: "", description: "", brand_ids: [], buyer_sku_id: "", category_data: {}, artwork_files: [] });
+      setRmForm({ category: "LB", description: "", brand_ids: [], category_data: {}, artwork_files: [] });
       fetchSummary();
       fetchMyRequests();
     } catch (error) {
@@ -882,23 +904,17 @@ const DemandHub = () => {
               <p className="text-xs text-gray-500 mt-1">{RM_CATEGORIES[rmForm.category]?.description}</p>
             </div>
             
-            {/* RM Name */}
-            <div>
-              <Label>RM Name *</Label>
-              <Input
-                value={rmForm.requested_name}
-                onChange={(e) => setRmForm({ ...rmForm, requested_name: e.target.value })}
-                placeholder="e.g., Baybee Kids Scooter Label - Blue"
-                data-testid="rm-name-input"
-              />
-            </div>
-            
             {/* Category-Specific Fields */}
             <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-              <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                {RM_CATEGORIES[rmForm.category]?.name} Details
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  {RM_CATEGORIES[rmForm.category]?.name} Details
+                </h4>
+                <span className="text-xs text-gray-400">
+                  Naming: {RM_CATEGORIES[rmForm.category]?.nameFormat?.join("_")}
+                </span>
+              </div>
               
               <div className="grid grid-cols-2 gap-3">
                 {RM_CATEGORIES[rmForm.category]?.fields.map(field => (
@@ -917,6 +933,16 @@ const DemandHub = () => {
                   </div>
                 ))}
               </div>
+              
+              {/* Auto-generated RM Name Preview */}
+              {generateRmName(rmForm.category, rmForm.category_data) && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs text-blue-600 font-medium">Generated RM Name:</p>
+                  <p className="font-mono text-sm text-blue-800 mt-1">
+                    {generateRmName(rmForm.category, rmForm.category_data)}
+                  </p>
+                </div>
+              )}
             </div>
             
             {/* Brands */}
