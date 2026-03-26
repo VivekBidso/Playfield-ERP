@@ -352,12 +352,16 @@ async def get_bom_for_clone(bidso_sku_id: str):
             category_data = rm.get("category_data", {})
             
             # Determine edit type based on category
-            if category in ["INP", "INM"]:
+            # LOCKED categories: SPR (Spares), ELC (Electrical) - cannot be edited during cloning
+            # EDITABLE categories: INP, INM (colour only), ACC (colour or swap)
+            if category in ["SPR", "ELC"]:
+                edit_type = "LOCKED"  # Explicitly locked - cannot edit
+            elif category in ["INP", "INM"]:
                 edit_type = "COLOUR_ONLY"  # Can only change colour variant
             elif category == "ACC":
                 edit_type = "COLOUR_OR_SWAP"  # Can change colour or swap entirely
             else:
-                edit_type = "LOCKED"  # Cannot edit
+                edit_type = "LOCKED"  # Any other category is locked by default
             
             enriched_items.append({
                 "rm_id": rm_id,
