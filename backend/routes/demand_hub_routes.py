@@ -361,11 +361,11 @@ async def get_bom_for_clone(bidso_sku_id: str):
             
             enriched_items.append({
                 "rm_id": rm_id,
-                "rm_name": category_data.get("name", ""),
+                "rm_name": rm.get("name", rm_id),
                 "category": category,
                 "category_data": category_data,
                 "quantity": item.get("quantity", 1),
-                "unit": item.get("unit", "nos"),
+                "unit": item.get("unit", "nos") or rm.get("unit", "nos"),
                 "edit_type": edit_type,
                 "colour": category_data.get("colour", ""),
                 "model_name": category_data.get("model_name", ""),
@@ -373,6 +373,8 @@ async def get_bom_for_clone(bidso_sku_id: str):
                 "mould_code": category_data.get("mould_code", ""),
                 "type": category_data.get("type", ""),
                 "specs": category_data.get("specs", ""),
+                "mb": category_data.get("mb", ""),
+                "per_unit_weight": category_data.get("per_unit_weight", ""),
             })
     
     return {

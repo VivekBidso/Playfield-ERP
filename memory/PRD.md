@@ -1088,6 +1088,14 @@ Allows Demand Planners to create new Bidso SKU variants by cloning existing ones
 - **Tech Ops Engineer**: Can view all requests, approve/reject
 - **Master Admin**: Full access
 
+### Bug Fix (March 26, 2026):
+**Issue**: "Create New Colour Variant" dialog showed empty form fields instead of pre-filled data.
+**Root Cause**: Source RM's `category_data` was often empty/missing in the database.
+**Fix**: 
+1. Backend now returns `mb` and `per_unit_weight` fields explicitly
+2. Frontend `handleOpenCreateRmDialog` now attempts to pull data from both `category_data` AND flat fields returned by the API
+3. When no structured data exists, a warning message is displayed: "Source RM has no structured data. Please fill in all fields."
+
 ---
 
 *Last updated: March 26, 2026*

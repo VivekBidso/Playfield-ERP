@@ -252,10 +252,21 @@ const CloneBidsoSKU = () => {
 
   const handleOpenCreateRmDialog = (item) => {
     setEditingItem(item);
-    // Pre-fill form from source RM
-    const prefill = { ...item.category_data };
-    prefill.colour = ""; // Clear colour for new variant
-    prefill.mb = "";
+    // Pre-fill form from source RM - try category_data first, then fall back to flat fields
+    const categoryData = item.category_data || {};
+    const prefill = {
+      // For INP
+      mould_code: categoryData.mould_code || item.mould_code || "",
+      model_name: categoryData.model_name || item.model_name || "",
+      part_name: categoryData.part_name || item.part_name || "",
+      colour: "", // Clear colour for new variant - user must enter new colour
+      mb: "", // Clear masterbatch - user must enter new one
+      per_unit_weight: categoryData.per_unit_weight || item.per_unit_weight || "",
+      unit: categoryData.unit || item.unit || "",
+      // For ACC
+      type: categoryData.type || item.type || "",
+      specs: categoryData.specs || item.specs || "",
+    };
     setNewRmForm(prefill);
     setShowCreateRmDialog(true);
   };
@@ -871,6 +882,14 @@ const CloneBidsoSKU = () => {
           </DialogHeader>
           {editingItem && RM_NOMENCLATURE[editingItem.category] && (
             <div className="space-y-4 mt-4">
+              {/* Show warning if source RM has no category data */}
+              {(!editingItem.category_data || Object.keys(editingItem.category_data).length === 0) && 
+               !editingItem.mould_code && !editingItem.model_name && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                  <strong>Note:</strong> Source RM ({editingItem.rm_id}) has no structured data. 
+                  Please fill in all fields for the new variant.
+                </div>
+              )}
               <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
                 Naming: {RM_NOMENCLATURE[editingItem.category].nameFormat.join("_")}
               </div>
