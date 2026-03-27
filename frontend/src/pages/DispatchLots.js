@@ -62,6 +62,10 @@ const DispatchLots = () => {
   const [targetDate, setTargetDate] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
   const [notes, setNotes] = useState("");
+  const [fromBranch, setFromBranch] = useState("");
+  
+  // Branches for dropdown
+  const [branches, setBranches] = useState([]);
   
   // Lines state
   const [lotLines, setLotLines] = useState([]);
@@ -96,7 +100,18 @@ const DispatchLots = () => {
     fetchBuyersWithForecasts();
     fetchDashboardSummary();
     fetchNotifications();
+    fetchBranches();
   }, []);
+
+  const fetchBranches = async () => {
+    try {
+      const res = await axios.get(`${API}/branches`, { headers: getHeaders() });
+      setBranches(res.data || []);
+    } catch (error) {
+      console.error("Failed to fetch branches:", error);
+      setBranches([]);
+    }
+  };
 
   // When buyer changes, fetch brands and verticals
   useEffect(() => {
@@ -514,6 +529,10 @@ const DispatchLots = () => {
       toast.error("Please select a buyer");
       return;
     }
+    if (!fromBranch) {
+      toast.error("Please select a From Branch");
+      return;
+    }
     if (!targetDate) {
       toast.error("Please select a target date");
       return;
@@ -526,6 +545,7 @@ const DispatchLots = () => {
     try {
       const payload = {
         buyer_id: selectedBuyer,
+        from_branch: fromBranch,
         target_date: new Date(targetDate).toISOString(),
         priority,
         notes,
@@ -550,6 +570,7 @@ const DispatchLots = () => {
 
   const resetForm = () => {
     setSelectedBuyer("");
+    setFromBranch("");
     setTargetDate("");
     setPriority("MEDIUM");
     setNotes("");
@@ -714,6 +735,34 @@ const DispatchLots = () => {
                   </SelectContent>
                 </Select>
               </div>
+              
+              {/* From Branch Selection */}
+              {selectedBuyer && (
+                <div className="p-4 border rounded-lg border-blue-200 bg-blue-50/50">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Package className="w-4 h-4 text-blue-600" />
+                    <Label className="text-sm font-bold uppercase tracking-wide text-blue-800">From Branch (Dispatch Origin)</Label>
+                  </div>
+                  <Select value={fromBranch} onValueChange={setFromBranch}>
+                    <SelectTrigger data-testid="from-branch-select" className="bg-white">
+                      <SelectValue placeholder="Select dispatch origin branch..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.length === 0 ? (
+                        <div className="p-3 text-sm text-zinc-500 text-center">
+                          No branches available
+                        </div>
+                      ) : (
+                        branches.map(b => (
+                          <SelectItem key={b.id || b.name} value={b.name}>
+                            {b.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Step 2: Add Lines */}
               {selectedBuyer && (

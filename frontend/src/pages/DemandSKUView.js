@@ -468,21 +468,19 @@ const DemandSKUView = () => {
                     <TableHead>Vertical</TableHead>
                     <TableHead>Brand</TableHead>
                     <TableHead>Model</TableHead>
-                    <TableHead>Buyer</TableHead>
-                    <TableHead>Bidso SKU</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : buyerSkus.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                         No Buyer SKUs found
                       </TableCell>
                     </TableRow>
@@ -495,12 +493,6 @@ const DemandSKUView = () => {
                           <Badge variant="outline">{getBrandName(sku.brand_id)}</Badge>
                         </TableCell>
                         <TableCell>{getModelName(sku.model_id)}</TableCell>
-                        <TableCell className="max-w-[150px] truncate" title={getBuyerName(sku.buyer_id)}>
-                          {getBuyerName(sku.buyer_id)}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm text-gray-500">
-                          {sku.bidso_sku_id || '-'}
-                        </TableCell>
                         <TableCell>
                           <Badge className={sku.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
                             {sku.status || 'ACTIVE'}

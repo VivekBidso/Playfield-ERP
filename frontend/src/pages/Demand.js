@@ -312,6 +312,11 @@ const Demand = () => {
         return;
       }
       
+      if (!forecastForm.sku_id) {
+        toast.error("Please select a SKU");
+        return;
+      }
+      
       const payload = {
         buyer_id: forecastForm.buyer_id,  // REQUIRED
         forecast_month: new Date(forecastForm.forecast_month + "-01").toISOString(),

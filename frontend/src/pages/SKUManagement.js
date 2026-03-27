@@ -167,7 +167,12 @@ const SKUManagement = () => {
 
   const handleCreateBidso = async () => {
     try {
-      await axios.post(`${API}/sku-management/bidso-skus`, bidsoForm);
+      // Use suggested code if numeric_code is not set
+      const payload = {
+        ...bidsoForm,
+        numeric_code: bidsoForm.numeric_code || suggestedCode
+      };
+      await axios.post(`${API}/sku-management/bidso-skus`, payload);
       toast.success("Bidso SKU created successfully");
       setShowBidsoDialog(false);
       setBidsoForm({ vertical_id: "", model_id: "", numeric_code: "", name: "", description: "" });
@@ -628,20 +633,23 @@ const SKUManagement = () => {
             </div>
             
             <div>
-              <Label>Numeric Code</Label>
+              <Label>Numeric Code (Auto-generated)</Label>
               <div className="flex gap-2">
                 <Input 
-                  value={bidsoForm.numeric_code}
-                  onChange={(e) => setBidsoForm({ ...bidsoForm, numeric_code: e.target.value })}
-                  placeholder="Auto-generated"
+                  value={bidsoForm.numeric_code || suggestedCode || ""}
+                  readOnly
+                  disabled
+                  className="bg-gray-100 font-mono"
+                  placeholder="Select Model to generate"
                   data-testid="bidso-numeric-code"
                 />
                 {suggestedCode && (
-                  <Badge variant="outline" className="whitespace-nowrap">
-                    Suggested: {suggestedCode}
+                  <Badge variant="outline" className="whitespace-nowrap bg-green-50 text-green-700">
+                    Auto: {suggestedCode}
                   </Badge>
                 )}
               </div>
+              <p className="text-xs text-gray-500 mt-1">Numeric code is auto-generated based on sequence</p>
             </div>
             
             {previewSKUID && (

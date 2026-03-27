@@ -521,6 +521,7 @@ async def get_colour_variants(rm_id: str):
 async def search_rm_for_swap(
     category: str,
     model_name: Optional[str] = None,
+    rm_type: Optional[str] = None,  # For ACC category - filter by type
     search: Optional[str] = None,
     limit: int = 50
 ):
@@ -528,12 +529,17 @@ async def search_rm_for_swap(
     Search RMs for swapping (ACC category).
     Returns RMs in same category that can replace current RM.
     Supports toggle between filtered (same model_name) and all view.
+    For ACC, also filters by type to ensure matching parts.
     """
     query = {"category": category}
     
     # If model_name provided, filter by it (filtered view)
     if model_name:
         query["category_data.model_name"] = model_name
+    
+    # For ACC category, filter by type to ensure compatible parts
+    if rm_type and category == "ACC":
+        query["category_data.type"] = rm_type
     
     rms = await db.raw_materials.find(query, {"_id": 0}).to_list(1000)
     

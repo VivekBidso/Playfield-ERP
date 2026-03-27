@@ -263,15 +263,19 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
     setEditingItem(item);
     setSwapSearch("");
     setSwapFilterByModel(true);
-    await searchForSwap(item.category, item.model_name, "", true);
+    // For ACC, also get the type for filtering
+    const rmType = item.category === 'ACC' ? (item.category_data?.type || item.type || '') : '';
+    await searchForSwap(item.category, item.model_name, "", true, rmType);
     setShowSwapDialog(true);
   };
 
-  const searchForSwap = async (category, modelName, search, filterByModel) => {
+  const searchForSwap = async (category, modelName, search, filterByModel, rmType = '') => {
     try {
       let url = `${API}/demand-hub/search-rm-for-swap?category=${category}`;
       if (filterByModel && modelName) url += `&model_name=${encodeURIComponent(modelName)}`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
+      // For ACC category, always filter by type to ensure matching parts
+      if (category === 'ACC' && rmType) url += `&rm_type=${encodeURIComponent(rmType)}`;
       
       const res = await axios.get(url);
       setSwapSearchResults(res.data.results);
@@ -283,7 +287,8 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
   const handleSwapSearch = (value) => {
     setSwapSearch(value);
     if (editingItem) {
-      searchForSwap(editingItem.category, editingItem.model_name, value, swapFilterByModel);
+      const rmType = editingItem.category === 'ACC' ? (editingItem.category_data?.type || editingItem.type || '') : '';
+      searchForSwap(editingItem.category, editingItem.model_name, value, swapFilterByModel, rmType);
     }
   };
 
@@ -291,7 +296,8 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
     const newFilter = !swapFilterByModel;
     setSwapFilterByModel(newFilter);
     if (editingItem) {
-      searchForSwap(editingItem.category, editingItem.model_name, swapSearch, newFilter);
+      const rmType = editingItem.category === 'ACC' ? (editingItem.category_data?.type || editingItem.type || '') : '';
+      searchForSwap(editingItem.category, editingItem.model_name, swapSearch, newFilter, rmType);
     }
   };
 
@@ -907,6 +913,11 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
             <DialogTitle>Swap Accessory</DialogTitle>
             <DialogDescription>
               Replace {editingItem?.rm_id} with a different accessory
+              {editingItem?.category === 'ACC' && editingItem?.category_data?.type && (
+                <span className="block mt-1 font-medium text-blue-600">
+                  Filtering by Type: {editingItem.category_data.type}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-4">
@@ -925,24 +936,32 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
                 {swapFilterByModel ? "Filtered" : "Show All"}
               </Button>
             </div>
-            <div className="max-h-[250px] overflow-auto space-y-2">
+            <div className="max-h-[300px] overflow-auto space-y-2">
               {swapSearchResults.length === 0 ? (
                 <p className="text-center text-gray-500 py-4">No matching accessories found</p>
               ) : (
                 swapSearchResults.map(rm => (
                   <div 
                     key={rm.rm_id}
-                    className={`flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer ${rm.rm_id === editingItem?.rm_id ? 'bg-gray-100' : ''}`}
+                    className={`flex flex-col p-3 border rounded-lg hover:bg-gray-50 cursor-pointer ${rm.rm_id === editingItem?.rm_id ? 'bg-gray-100' : ''}`}
                     onClick={() => rm.rm_id !== editingItem?.rm_id && handleSelectSwapRm(rm)}
                   >
-                    <div>
+                    <div className="flex items-center justify-between">
                       <p className="font-mono font-medium">{rm.rm_id}</p>
-                      <p className="text-sm text-gray-500">{rm.name || `${rm.type} - ${rm.model_name}`}</p>
+                      {rm.rm_id === editingItem?.rm_id ? (
+                        <Badge variant="secondary">Current</Badge>
+                      ) : (
+                        <Badge variant="outline">{rm.colour || "N/A"}</Badge>
+                      )}
                     </div>
-                    {rm.rm_id === editingItem?.rm_id ? (
-                      <Badge variant="secondary">Current</Badge>
-                    ) : (
-                      <Badge variant="outline">{rm.colour || "N/A"}</Badge>
+                    <div className="text-sm text-gray-600 mt-1">
+                      {rm.type && <span className="font-medium text-blue-600">[{rm.type}]</span>}
+                      {rm.model_name && <span className="ml-1">{rm.model_name}</span>}
+                    </div>
+                    {rm.specs && (
+                      <p className="text-xs text-gray-500 mt-1 truncate" title={rm.specs}>
+                        Specs: {rm.specs}
+                      </p>
                     )}
                   </div>
                 ))
@@ -978,19 +997,27 @@ const CloneBidsoSKU = ({ resubmitSourceRequest, onResubmitClear }) => {
                 Naming: {RM_NOMENCLATURE[editingItem.category].nameFormat.join("_")}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {RM_NOMENCLATURE[editingItem.category].fields.map(field => (
-                  <div key={field.key} className={field.key === 'specs' ? 'col-span-2' : ''}>
-                    <Label className="text-xs">
-                      {field.label} {field.required && <span className="text-red-500">*</span>}
-                    </Label>
-                    <Input
-                      value={newRmForm[field.key] || ""}
-                      onChange={(e) => setNewRmForm({ ...newRmForm, [field.key]: e.target.value })}
-                      placeholder={field.label}
-                      className="h-9 text-sm"
-                    />
-                  </div>
-                ))}
+                {RM_NOMENCLATURE[editingItem.category].fields.map(field => {
+                  // For INP category, only allow editing 'colour' field
+                  const isLocked = editingItem.category === 'INP' && field.key !== 'colour';
+                  
+                  return (
+                    <div key={field.key} className={field.key === 'specs' ? 'col-span-2' : ''}>
+                      <Label className="text-xs flex items-center gap-1">
+                        {field.label} {field.required && <span className="text-red-500">*</span>}
+                        {isLocked && <Lock className="w-3 h-3 text-gray-400" />}
+                      </Label>
+                      <Input
+                        value={newRmForm[field.key] || ""}
+                        onChange={(e) => !isLocked && setNewRmForm({ ...newRmForm, [field.key]: e.target.value })}
+                        placeholder={field.label}
+                        className={`h-9 text-sm ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                        disabled={isLocked}
+                        readOnly={isLocked}
+                      />
+                    </div>
+                  );
+                })}
               </div>
               {generateRmName(editingItem.category, newRmForm) && (
                 <div className="p-3 bg-blue-50 rounded-lg">

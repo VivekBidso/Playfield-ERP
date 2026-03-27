@@ -52,6 +52,7 @@ class DispatchLotLineInput(BaseModel):
 class DispatchLotMultiCreate(BaseModel):
     buyer_id: str
     forecast_id: Optional[str] = None  # Main forecast_id for the lot (if all from same forecast)
+    from_branch: Optional[str] = None  # Dispatch origin branch
     target_date: datetime
     priority: str = "MEDIUM"
     notes: Optional[str] = ""
@@ -731,6 +732,7 @@ async def create_dispatch_lot_multi(data: DispatchLotMultiCreate):
         "id": lot_id,
         "lot_code": lot_code,
         "buyer_id": data.buyer_id,
+        "from_branch": data.from_branch,  # Dispatch origin branch
         "forecast_id": forecast_id,  # Link to source forecast
         "target_date": data.target_date,
         "priority": data.priority,
