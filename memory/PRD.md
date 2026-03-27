@@ -1143,3 +1143,237 @@ Allows Demand Planners to create new Bidso SKU variants by cloning existing ones
 ---
 
 *Last updated: March 26, 2026*
+
+
+---
+
+## 20. MATERIAL REQUISITION PLANNING (MRP) MODULE (March 27, 2026)
+
+**Purpose:** Automate raw material procurement planning with 12-month rolling forecasts
+
+**Location:** Sidebar → "MRP Planning" (visible to Master Admin, CPC Planner, Procurement Officer)
+
+### Core Logic:
+
+#### 12-Month Forecast Rules:
+```
+Month 1: Uses production_plans (SKU-level, day-wise actuals)
+Months 2-12: Uses model_level_forecasts split to SKU level using 6-month rolling ratio
+```
+
+#### 6-Month Rolling Ratio:
+- Calculates historical production ratios from last 6 months of production_plans
+- Splits model-level forecasts proportionally to each Bidso SKU within that model
+- If no historical data exists, equal split among all SKUs in the model
+
+#### BOM Explosion:
+- Takes SKU requirements and explodes via common_bom
+- Calculates total RM quantity needed per RM ID
+- Applies procurement parameters (safety stock, MOQ, batch size, lead time)
+
+#### Draft PO Generation:
+- Consolidates RM requirements by vendor
+- Auto-assigns vendors based on:
+  1. Preferred vendor in rm_procurement_parameters
+  2. Lowest price from vendor_rm_prices
+- Calculates order quantities respecting MOQ/batch size
+
+### New Database Collections:
+
+| Collection | Purpose |
+|------------|---------|
+| `model_level_forecasts` | Model-level monthly forecasts for Months 2-12 |
+| `rm_procurement_parameters` | RM-specific parameters (MOQ, lead time, safety stock, preferred vendor) |
+| `mrp_runs` | Historical MRP calculation runs with full breakdown |
+| `mrp_draft_pos` | Draft Purchase Orders generated from MRP |
+
+### Key Data Schemas:
+
+#### model_level_forecasts:
+```json
+{
+  "id": "uuid",
+  "model_id": "model_uuid",
+  "model_code": "PE",
+  "model_name": "Pulse",
+  "vertical_id": "vertical_uuid",
+  "vertical_code": "KS",
+  "month_year": "2026-04",
+  "forecast_qty": 500,
+  "created_at": "datetime"
+}
+```
+
+#### rm_procurement_parameters:
+```json
+{
+  "id": "uuid",
+  "rm_id": "ACC_001",
+  "rm_name": "Wheel Assembly",
+  "category": "ACC",
+  "safety_stock": 100,
+  "moq": 50,
+  "batch_size": 10,
+  "lead_time_days": 7,
+  "preferred_vendor_id": "vendor_uuid",
+  "preferred_vendor_name": "ABC Supplier"
+}
+```
+
+#### mrp_runs:
+```json
+{
+  "id": "uuid",
+  "run_code": "MRP-20260327-193506",
+  "run_date": "datetime",
+  "status": "CALCULATED/APPROVED/PO_GENERATED",
+  "planning_horizon_months": 12,
+  "month1_data": {"SKU_001": 100, ...},
+  "model_splits": [...],
+  "sku_requirements": {"SKU_001": 500, ...},
+  "rm_requirements": [
+    {
+      "rm_id": "ACC_001",
+      "total_required": 1000,
+      "current_stock": 200,
+      "safety_stock": 100,
+      "net_requirement": 900,
+      "moq": 50,
+      "order_qty": 900,
+      "vendor_id": "...",
+      "vendor_name": "...",
+      "unit_price": 25.50,
+      "total_cost": 22950.00
+    }
+  ],
+  "total_skus": 258,
+  "total_rms": 1302,
+  "total_order_value": 573394845.75
+}
+```
+
+### API Endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/mrp/dashboard` | GET | Dashboard stats (runs, POs, forecasts, shortages) |
+| `/api/mrp/runs` | GET | List MRP calculation runs |
+| `/api/mrp/runs/{id}` | GET | MRP run detail with RM requirements |
+| `/api/mrp/runs/calculate` | POST | Execute MRP calculation |
+| `/api/mrp/runs/{id}/approve` | POST | Approve MRP run |
+| `/api/mrp/runs/{id}/generate-pos` | POST | Generate Draft POs from run |
+| `/api/mrp/draft-pos` | GET | List Draft POs |
+| `/api/mrp/draft-pos/{id}` | GET | Draft PO detail with lines |
+| `/api/mrp/draft-pos/{id}/vendor` | PUT | Update vendor assignment |
+| `/api/mrp/draft-pos/{id}/approve` | POST | Approve Draft PO |
+| `/api/mrp/draft-pos/{id}/convert-to-po` | POST | Convert to actual PO |
+| `/api/mrp/model-forecasts` | GET | List model-level forecasts |
+| `/api/mrp/model-forecasts` | POST | Create/update forecast |
+| `/api/mrp/model-forecasts/bulk` | POST | Bulk import forecasts |
+| `/api/mrp/rm-params` | GET | List RM procurement parameters |
+| `/api/mrp/rm-params` | POST | Create/update RM parameters |
+| `/api/mrp/rm-params/bulk` | POST | Bulk import RM parameters |
+| `/api/mrp/seed-data` | POST | Seed test data (admin only) |
+
+### Frontend Features:
+
+#### Dashboard Tab (MRP Runs):
+- Stats cards: Total Runs, Pending Approval, Draft POs, RM Shortages, Model Forecasts, Pending Value
+- MRP Runs table with: Run Code, Date, Status, SKUs, RMs, Order Value, Actions
+- Run detail dialog showing RM requirements breakdown
+- "Run MRP Calculation" button
+- "Generate Draft POs" button
+
+#### Draft POs Tab:
+- POs consolidated by vendor
+- Table: PO Code, Vendor, MRP Run, Items, Amount, Status, Order Date, Actions
+- Approve and Convert to PO workflows
+- PO detail dialog with line items
+
+#### Model Forecasts Tab:
+- Forecasts for Months 2-12
+- Filter by Vertical
+- Shows: Vertical, Model, Month, Forecast Qty, Created Date
+
+#### RM Parameters Tab:
+- Procurement parameters for each RM in BOM
+- Shows: RM ID, Category, MOQ, Batch Size, Lead Time, Safety Stock, Preferred Vendor
+
+### Workflow:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     1. SETUP                                  │
+│  - Seed model_level_forecasts (or import from Excel)         │
+│  - Configure rm_procurement_parameters (MOQ, lead time)      │
+│  - Set preferred vendors for RMs                             │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│                  2. RUN MRP CALCULATION                       │
+│  - Click "Run MRP Calculation"                               │
+│  - System aggregates Month 1 from production_plans           │
+│  - System splits Months 2-12 forecasts by rolling ratio      │
+│  - BOM explosion calculates RM requirements                  │
+│  - Net requirements = Required + Safety - Stock              │
+│  - Order qty rounded to MOQ/batch size                       │
+│  - Vendors auto-assigned by lowest price                     │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│                   3. REVIEW MRP RUN                          │
+│  - View RM requirements breakdown                            │
+│  - Check vendor assignments                                  │
+│  - Verify order quantities and costs                         │
+│  - Approve run if correct                                    │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│                 4. GENERATE DRAFT POs                        │
+│  - Click "Generate Draft POs"                                │
+│  - System creates one Draft PO per vendor                    │
+│  - Lines consolidated by RM                                  │
+│  - Totals calculated                                         │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│                  5. APPROVE & CONVERT                        │
+│  - Review Draft POs                                          │
+│  - Reassign vendor if needed                                 │
+│  - Approve Draft PO                                          │
+│  - Convert to actual Purchase Order                          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Access Control:
+- **Master Admin**: Full access
+- **CPC Planner**: Full access (plans production, needs to see RM requirements)
+- **Procurement Officer**: Full access (manages purchasing)
+
+### Files Created:
+- `backend/models/mrp_models.py` - MRP data models
+- `backend/services/mrp_service.py` - MRP calculation engine
+- `backend/routes/mrp_routes.py` - MRP API endpoints
+- `frontend/src/pages/MRPDashboard.js` - MRP Dashboard UI
+
+### Files Modified:
+- `backend/routes/__init__.py` - Added mrp_router
+- `backend/server.py` - Registered mrp_router
+- `frontend/src/App.js` - Added /mrp route
+- `frontend/src/components/Layout.js` - Added MRP to sidebar
+
+### Test Coverage:
+- 25 backend API tests (100% pass)
+- Frontend UI verification complete
+- Test file: `/app/backend/tests/test_mrp_module.py`
+
+### Current Data:
+- 1232 model-level forecasts (seeded)
+- 1302 RM procurement parameters (seeded)
+- 8 MRP calculation runs
+- 78 Draft POs generated
+
+---
+
+*Last updated: March 27, 2026*
+*MRP Module complete - Full 12-month rolling forecast with BOM explosion and auto PO generation*
