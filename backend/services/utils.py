@@ -11,7 +11,7 @@ from database import db
 from models import User
 
 # JWT Configuration
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
+SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'a881d0c3140340a679b9f9a73d91abc150e63c84ce2c4e9c33caa661ae527646')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
