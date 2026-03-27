@@ -24,7 +24,8 @@ import {
   Activity,
   Shield,
   PlusCircle,
-  List
+  List,
+  Calculator
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -67,6 +68,7 @@ const Layout = () => {
     { path: "/demand-sku-view", label: "SKU Catalog", icon: List, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
+    { path: "/mrp", label: "MRP Planning", icon: Calculator, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('PROCUREMENT_OFFICER') },
     { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/sku-subscription", label: "SKU Subscription", icon: PackageCheck, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('BRANCH_OPS_USER') },
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },

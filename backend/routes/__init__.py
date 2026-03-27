@@ -15,6 +15,7 @@ from .branch_ops_routes import router as branch_ops_router
 from .sku_management_routes import router as sku_management_router
 from .demand_hub_routes import router as demand_hub_router
 from .upload_routes import router as upload_router
+from .mrp_routes import router as mrp_router
 
 __all__ = [
     'tech_ops_router',
@@ -32,5 +33,6 @@ __all__ = [
     'branch_ops_router',
     'sku_management_router',
     'demand_hub_router',
-    'upload_router'
+    'upload_router',
+    'mrp_router'
 ]

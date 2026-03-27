@@ -29,6 +29,7 @@ import Events from "@/pages/Events";
 import BranchOps from "@/pages/BranchOps";
 import DemandHub from "@/pages/DemandHub";
 import DemandSKUView from "@/pages/DemandSKUView";
+import MRPDashboard from "@/pages/MRPDashboard";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -109,6 +110,7 @@ function App() {
             <Route path="rm-repository" element={<RMRepository />} />
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
+            <Route path="mrp" element={<MRPDashboard />} />
           </Route>
         </Routes>
       </BrowserRouter>
