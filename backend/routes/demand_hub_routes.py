@@ -71,6 +71,137 @@ async def sync_bidso_skus_from_preview():
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
+@router.post("/sync-buyer-skus")
+async def sync_buyer_skus_from_preview():
+    """
+    Sync Buyer SKUs from preview environment.
+    """
+    try:
+        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/buyer_skus_export.json"
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(preview_url)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Failed to fetch data from preview: {response.status_code}")
+            
+            skus = response.json()
+        
+        if not skus:
+            raise HTTPException(status_code=400, detail="No Buyer SKUs found in export")
+        
+        existing_count = await db.skus.count_documents({})
+        
+        imported = 0
+        skipped = 0
+        
+        for sku in skus:
+            existing = await db.skus.find_one({"id": sku.get("id")})
+            if existing:
+                skipped += 1
+                continue
+            await db.skus.insert_one(sku)
+            imported += 1
+        
+        new_count = await db.skus.count_documents({})
+        
+        return {
+            "success": True,
+            "message": f"Sync completed. Imported {imported} new Buyer SKUs, skipped {skipped} existing.",
+            "before_count": existing_count,
+            "after_count": new_count,
+            "total_in_export": len(skus)
+        }
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@router.post("/sync-common-boms")
+async def sync_common_boms_from_preview():
+    """
+    Sync Common BOMs from preview environment.
+    """
+    try:
+        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/common_boms_export.json"
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(preview_url)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Failed to fetch data from preview: {response.status_code}")
+            
+            boms = response.json()
+        
+        if not boms:
+            raise HTTPException(status_code=400, detail="No Common BOMs found in export")
+        
+        existing_count = await db.common_bom.count_documents({})
+        
+        imported = 0
+        skipped = 0
+        
+        for bom in boms:
+            existing = await db.common_bom.find_one({"bidso_sku_id": bom.get("bidso_sku_id")})
+            if existing:
+                skipped += 1
+                continue
+            await db.common_bom.insert_one(bom)
+            imported += 1
+        
+        new_count = await db.common_bom.count_documents({})
+        
+        return {
+            "success": True,
+            "message": f"Sync completed. Imported {imported} new Common BOMs, skipped {skipped} existing.",
+            "before_count": existing_count,
+            "after_count": new_count,
+            "total_in_export": len(boms)
+        }
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@router.post("/sync-all-data")
+async def sync_all_data_from_preview():
+    """
+    Sync all SKU-related data from preview environment in one call.
+    """
+    results = {}
+    
+    # Sync Bidso SKUs
+    try:
+        bidso_result = await sync_bidso_skus_from_preview()
+        results["bidso_skus"] = bidso_result
+    except Exception as e:
+        results["bidso_skus"] = {"error": str(e)}
+    
+    # Sync Buyer SKUs
+    try:
+        buyer_result = await sync_buyer_skus_from_preview()
+        results["buyer_skus"] = buyer_result
+    except Exception as e:
+        results["buyer_skus"] = {"error": str(e)}
+    
+    # Sync Common BOMs
+    try:
+        bom_result = await sync_common_boms_from_preview()
+        results["common_boms"] = bom_result
+    except Exception as e:
+        results["common_boms"] = {"error": str(e)}
+    
+    return {
+        "success": True,
+        "message": "Sync all completed",
+        "results": results
+    }
+
+
 # ============== BUYER SKU REQUEST ENDPOINTS ==============
 
 @router.post("/buyer-sku-requests")
