@@ -8,11 +8,67 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from datetime import datetime, timezone
 import uuid
+import httpx
 from database import db
 from services.auth_service import get_current_user
 from models.auth import User
 
 router = APIRouter(prefix="/demand-hub", tags=["Demand Hub"])
+
+
+@router.post("/sync-bidso-skus")
+async def sync_bidso_skus_from_preview():
+    """
+    Sync Bidso SKUs from preview environment.
+    This fetches the exported JSON and imports into current database.
+    """
+    try:
+        # Fetch the exported JSON from preview
+        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/bidso_skus_export.json"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(preview_url)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Failed to fetch data from preview: {response.status_code}")
+            
+            skus = response.json()
+        
+        if not skus:
+            raise HTTPException(status_code=400, detail="No Bidso SKUs found in export")
+        
+        # Check existing count
+        existing_count = await db.bidso_skus.count_documents({})
+        
+        # Insert or update each SKU
+        imported = 0
+        skipped = 0
+        
+        for sku in skus:
+            # Check if already exists
+            existing = await db.bidso_skus.find_one({"id": sku.get("id")})
+            if existing:
+                skipped += 1
+                continue
+            
+            # Insert new SKU
+            await db.bidso_skus.insert_one(sku)
+            imported += 1
+        
+        new_count = await db.bidso_skus.count_documents({})
+        
+        return {
+            "success": True,
+            "message": f"Sync completed. Imported {imported} new Bidso SKUs, skipped {skipped} existing.",
+            "before_count": existing_count,
+            "after_count": new_count,
+            "total_in_export": len(skus)
+        }
+        
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Network error fetching preview data: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
 # ============== BUYER SKU REQUEST ENDPOINTS ==============
