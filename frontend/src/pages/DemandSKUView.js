@@ -28,6 +28,11 @@ import { toast } from "sonner";
 
 const API = process.env.REACT_APP_BACKEND_URL + "/api";
 
+const getHeaders = () => {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 const DemandSKUView = () => {
   const [activeTab, setActiveTab] = useState("bidso");
   
@@ -72,11 +77,12 @@ const DemandSKUView = () => {
 
   const fetchMasterData = async () => {
     try {
+      const headers = getHeaders();
       const [vertRes, brandRes, modelRes, buyerRes] = await Promise.all([
-        axios.get(`${API}/verticals`),
-        axios.get(`${API}/brands`),
-        axios.get(`${API}/models`),
-        axios.get(`${API}/buyers`)
+        axios.get(`${API}/verticals`, { headers }),
+        axios.get(`${API}/brands`, { headers }),
+        axios.get(`${API}/models`, { headers }),
+        axios.get(`${API}/buyers`, { headers })
       ]);
       setVerticals(vertRes.data || []);
       setBrands(brandRes.data || []);
@@ -95,7 +101,7 @@ const DemandSKUView = () => {
       if (bidsoFilters.model_id) url += `model_id=${bidsoFilters.model_id}&`;
       if (bidsoFilters.search) url += `search=${encodeURIComponent(bidsoFilters.search)}&`;
       
-      const res = await axios.get(url);
+      const res = await axios.get(url, { headers: getHeaders() });
       setBidsoSkus(res.data || []);
     } catch (error) {
       toast.error("Failed to fetch Bidso SKUs");
@@ -114,7 +120,7 @@ const DemandSKUView = () => {
       if (buyerFilters.buyer_id) url += `buyer_id=${buyerFilters.buyer_id}&`;
       if (buyerFilters.search) url += `search=${encodeURIComponent(buyerFilters.search)}&`;
       
-      const res = await axios.get(url);
+      const res = await axios.get(url, { headers: getHeaders() });
       setBuyerSkus(res.data || []);
     } catch (error) {
       toast.error("Failed to fetch Buyer SKUs");
