@@ -1033,7 +1033,11 @@ async def get_mrp_runs(
             "total_rms": 1,
             "total_order_value": 1,
             "created_at": 1,
-            "created_by": 1
+            "created_by": 1,
+            "version": 1,
+            "common_weeks_count": 1,
+            "brand_specific_weeks_count": 1,
+            "summary": 1
         }
     ).sort("created_at", -1).to_list(limit)
     

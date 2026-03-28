@@ -970,7 +970,7 @@ export default function MRPDashboard() {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="dashboard" data-testid="tab-dashboard">
             <BarChart3 className="h-4 w-4 mr-2" />
             MRP Runs

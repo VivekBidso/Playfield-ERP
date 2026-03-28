@@ -1,0 +1,106 @@
+{
+  "summary": "Weekly MRP Module testing completed. All 20 backend API tests passed (100%). Frontend UI verified - Weekly Order Plan tab displays correctly with dropdown showing weekly MRP runs, summary cards with correct values, week accordions, Run Weekly MRP button, and Export Excel button. The fix for /api/mrp/runs endpoint returning 'version' and 'common_weeks_count' fields is working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_weekly_mrp.py",
+    "/app/test_reports/pytest/pytest_weekly_mrp.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "The fix for /api/mrp/runs endpoint correctly adds 'version', 'common_weeks_count', 'brand_specific_weeks_count', and 'summary' fields to the MongoDB projection (lines 1036-1040)",
+    "Frontend filter logic in fetchWeeklyRuns (lines 218-219) correctly filters runs by version === 'WEEKLY_V1' || common_weeks_count > 0",
+    "TabsList grid-cols-5 correctly accommodates 5 tabs including Weekly Order Plan"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_weekly_mrp.py"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@factory.com",
+    "admin_password": "bidso123"
+  },
+  "seed_data_creation": "Existing weekly MRP run used - MRP-20260328-162256 with 52 weeks, 1302 Common RMs, ₹58,35,84,843 total value",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Weekly MRP module fully tested. Key verifications: 1) GET /api/mrp/runs returns version, common_weeks_count, brand_specific_weeks_count, summary fields for weekly runs. 2) Frontend dropdown correctly filters to show only weekly MRP runs (version=WEEKLY_V1 or common_weeks_count>0). 3) Summary cards display Order Weeks (52), Common RMs (1302), Common Value (₹58,35,84,843), Brand-Specific RMs (0), Total Value. 4) Week accordions expand to show detailed RM data. 5) Run Weekly MRP button triggers calculation. 6) Export Excel button works. 7) MRP Runs tab shows all runs with correct status badges.",
+  "features_tested": {
+    "backend_api": {
+      "GET /api/mrp/runs returns version field for weekly runs": "PASS",
+      "GET /api/mrp/runs returns common_weeks_count field for weekly runs": "PASS",
+      "GET /api/mrp/runs returns summary field for weekly runs": "PASS",
+      "Weekly run has version=WEEKLY_V1": "PASS",
+      "Filter weekly runs by version": "PASS",
+      "Summary has total_order_weeks": "PASS",
+      "Summary has common_rms_count": "PASS",
+      "Summary has common_order_value": "PASS",
+      "Summary has brand_specific_rms_count": "PASS",
+      "Summary has total_order_value": "PASS",
+      "Weekly plan returns weeks": "PASS",
+      "Week has order_week field": "PASS",
+      "Week has items array": "PASS",
+      "Item has required fields (rm_id, rm_name, category, rm_type, production_week, gross_qty, net_qty, order_qty, total_cost)": "PASS",
+      "Filter by plan_type=common": "PASS",
+      "POST /api/mrp/runs/calculate-weekly endpoint exists": "PASS",
+      "Export endpoint exists and returns Excel": "PASS",
+      "Export returns file with content": "PASS",
+      "Runs have status field": "PASS",
+      "Weekly runs have required display fields": "PASS"
+    },
+    "frontend_ui": {
+      "MRP Dashboard loads": "PASS",
+      "5 tabs present (MRP Runs, Draft POs, Model Forecasts, RM Parameters, Weekly Order Plan)": "PASS",
+      "Weekly Order Plan tab clickable": "PASS",
+      "MRP Run dropdown shows weekly runs": "PASS",
+      "Dropdown auto-selects latest weekly run": "PASS",
+      "Summary card - Order Weeks (52)": "PASS",
+      "Summary card - Common RMs (1302)": "PASS",
+      "Summary card - Common Value (₹58,35,84,843)": "PASS",
+      "Summary card - Brand-Specific RMs (0)": "PASS",
+      "Summary card - Total Value (₹58,35,84,843)": "PASS",
+      "Week accordions present (52 weeks)": "PASS",
+      "Week accordion expandable": "PASS",
+      "Expanded week shows table with RM data": "PASS",
+      "Run Weekly MRP button present": "PASS",
+      "Export Excel button present": "PASS",
+      "MRP Runs tab shows runs table": "PASS",
+      "Status badges display correctly (CALCULATED, PO_GENERATED)": "PASS"
+    }
+  },
+  "weekly_mrp_verification": {
+    "api_fix_verified": {
+      "version_field_returned": true,
+      "common_weeks_count_returned": true,
+      "brand_specific_weeks_count_returned": true,
+      "summary_field_returned": true
+    },
+    "weekly_run_data": {
+      "run_code": "MRP-20260328-162256",
+      "version": "WEEKLY_V1",
+      "common_weeks_count": 52,
+      "brand_specific_weeks_count": 0,
+      "summary": {
+        "total_order_weeks": 52,
+        "common_rms_count": 1302,
+        "common_order_value": 583584843.48,
+        "brand_specific_rms_count": 0,
+        "total_order_value": 583584843.48
+      }
+    },
+    "frontend_dropdown_filter": {
+      "filters_by_version_WEEKLY_V1": true,
+      "filters_by_common_weeks_count_gt_0": true,
+      "auto_selects_latest_weekly_run": true
+    }
+  }
+}
