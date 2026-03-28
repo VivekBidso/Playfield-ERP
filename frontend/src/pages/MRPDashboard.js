@@ -56,6 +56,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Filter,
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -126,11 +127,46 @@ export default function MRPDashboard() {
   const [loadingWeeklyPlan, setLoadingWeeklyPlan] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState({});
   const [calculatingWeekly, setCalculatingWeekly] = useState(false);
+  
+  // Quick Filter state for Weekly Plan
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [vendorFilter, setVendorFilter] = useState('all');
+  const [weeklyPlanCategories, setWeeklyPlanCategories] = useState([]);
+  const [weeklyPlanVendors, setWeeklyPlanVendors] = useState([]);
 
   const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`
   }), [token]);
+
+  // Filter weekly plan items based on category and vendor filters
+  const getFilteredWeeklyPlan = useCallback(() => {
+    if (!weeklyPlan.length) return [];
+    if (categoryFilter === 'all' && vendorFilter === 'all') return weeklyPlan;
+    
+    return weeklyPlan.map(week => {
+      const filteredItems = (week.items || []).filter(item => {
+        const categoryMatch = categoryFilter === 'all' || item.category === categoryFilter;
+        const vendorMatch = vendorFilter === 'all' || item.vendor_name === vendorFilter;
+        return categoryMatch && vendorMatch;
+      });
+      
+      return {
+        ...week,
+        items: filteredItems,
+        week_summary: {
+          total_items: filteredItems.length,
+          total_cost: filteredItems.reduce((sum, item) => sum + (item.total_cost || 0), 0)
+        }
+      };
+    }).filter(week => week.items.length > 0); // Hide weeks with no matching items
+  }, [weeklyPlan, categoryFilter, vendorFilter]);
+
+  // Clear filters
+  const clearFilters = () => {
+    setCategoryFilter('all');
+    setVendorFilter('all');
+  };
 
   // Fetch dashboard stats
   const fetchDashboard = useCallback(async () => {
@@ -240,7 +276,20 @@ export default function MRPDashboard() {
       );
       if (res.ok) {
         const data = await res.json();
-        setWeeklyPlan(data.weekly_plan || []);
+        const plan = data.weekly_plan || [];
+        setWeeklyPlan(plan);
+        
+        // Extract unique categories and vendors for Quick Filter
+        const categories = new Set();
+        const vendors = new Set();
+        plan.forEach(week => {
+          (week.items || []).forEach(item => {
+            if (item.category) categories.add(item.category);
+            if (item.vendor_name) vendors.add(item.vendor_name);
+          });
+        });
+        setWeeklyPlanCategories(Array.from(categories).sort());
+        setWeeklyPlanVendors(Array.from(vendors).sort());
       }
     } catch (err) {
       console.error('Failed to fetch weekly plan:', err);
@@ -1492,7 +1541,7 @@ export default function MRPDashboard() {
             </CardHeader>
             <CardContent>
               {/* Filters */}
-              <div className="flex items-center gap-4 mb-6">
+              <div className="flex flex-wrap items-center gap-4 mb-6">
                 <div className="flex items-center gap-2">
                   <label className="text-sm font-medium">MRP Run:</label>
                   <Select
@@ -1537,6 +1586,59 @@ export default function MRPDashboard() {
                   Export Excel
                 </Button>
               </div>
+              
+              {/* Quick Filters */}
+              {weeklyPlan.length > 0 && (
+                <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">Quick Filter:</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">Category:</label>
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                      <SelectTrigger className="w-[140px] h-8">
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {weeklyPlanCategories.map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">Vendor:</label>
+                    <Select value={vendorFilter} onValueChange={setVendorFilter}>
+                      <SelectTrigger className="w-[200px] h-8">
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Vendors</SelectItem>
+                        {weeklyPlanVendors.map(vendor => (
+                          <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {(categoryFilter !== 'all' || vendorFilter !== 'all') && (
+                    <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8">
+                      <X className="h-3 w-3 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                  
+                  {(categoryFilter !== 'all' || vendorFilter !== 'all') && (
+                    <Badge variant="secondary" className="ml-auto">
+                      Showing {getFilteredWeeklyPlan().reduce((sum, w) => sum + w.items.length, 0)} items
+                    </Badge>
+                  )}
+                </div>
+              )}
 
               {/* Summary Cards */}
               {selectedWeeklyRun?.summary && (
@@ -1589,9 +1691,13 @@ export default function MRPDashboard() {
                     ? "No weekly plan data available for this run."
                     : "Select an MRP run or run Weekly MRP calculation."}
                 </div>
+              ) : getFilteredWeeklyPlan().length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  No items match the selected filters. <Button variant="link" onClick={clearFilters}>Clear filters</Button>
+                </div>
               ) : (
                 <div className="space-y-4">
-                  {weeklyPlan.map((week) => (
+                  {getFilteredWeeklyPlan().map((week) => (
                     <Card key={week.order_week} className="overflow-hidden">
                       <div 
                         className="p-4 bg-gray-50 cursor-pointer flex items-center justify-between hover:bg-gray-100 transition-colors"
@@ -1628,7 +1734,7 @@ export default function MRPDashboard() {
                       </div>
                       
                       {expandedWeeks[week.order_week] && week.items && (
-                        <div className="border-t">
+                        <div className="border-t overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -1638,6 +1744,9 @@ export default function MRPDashboard() {
                                 <TableHead>Type</TableHead>
                                 <TableHead>Prod Week</TableHead>
                                 <TableHead className="text-right">Gross</TableHead>
+                                <TableHead className="text-right">Safety</TableHead>
+                                <TableHead className="text-right">Stock</TableHead>
+                                <TableHead className="text-right text-purple-600">Open PO</TableHead>
                                 <TableHead className="text-right">Net</TableHead>
                                 <TableHead className="text-right">Order Qty</TableHead>
                                 <TableHead>Vendor</TableHead>
@@ -1661,6 +1770,15 @@ export default function MRPDashboard() {
                                   </TableCell>
                                   <TableCell className="text-sm">{item.production_week}</TableCell>
                                   <TableCell className="text-right">{item.gross_qty?.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right text-gray-500">{item.safety_stock?.toLocaleString() || 0}</TableCell>
+                                  <TableCell className="text-right text-gray-500">{item.current_stock?.toLocaleString() || 0}</TableCell>
+                                  <TableCell className="text-right">
+                                    {item.scheduled_receipts > 0 ? (
+                                      <span className="text-purple-600 font-medium">{item.scheduled_receipts?.toLocaleString()}</span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-right">{item.net_qty?.toLocaleString()}</TableCell>
                                   <TableCell className="text-right font-semibold">
                                     {item.order_qty?.toLocaleString()}
@@ -1675,7 +1793,7 @@ export default function MRPDashboard() {
                               ))}
                               {week.items.length > 50 && (
                                 <TableRow>
-                                  <TableCell colSpan={10} className="text-center text-gray-500 py-4">
+                                  <TableCell colSpan={13} className="text-center text-gray-500 py-4">
                                     Showing 50 of {week.items.length} items. Export to Excel to see all.
                                   </TableCell>
                                 </TableRow>

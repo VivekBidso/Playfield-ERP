@@ -889,8 +889,6 @@ class WeeklyMRPService:
         alerts = []
         
         for week in weekly_plan:
-            order_week = date.fromisoformat(week["order_week"])
-            
             for item in week["items"]:
                 # Alert: Expedite required (order date is in the past)
                 order_date = date.fromisoformat(item["order_date"])
@@ -1049,34 +1047,86 @@ class WeeklyMRPService:
         return {sku["bidso_sku_id"]: ratio for sku in skus}
     
     async def _get_scheduled_receipts(self, rm_ids: List[str]) -> Dict[str, List[Dict]]:
-        """Get open PO quantities expected to arrive"""
+        """
+        Get open PO quantities expected to arrive (scheduled receipts).
+        
+        Uses purchase_orders + purchase_order_lines collections.
+        Only considers POs with status: DRAFT, ISSUED, ACKNOWLEDGED, SHIPPED, IN_TRANSIT
+        (i.e., not yet fully received)
+        
+        Returns: { rm_id: [{ po_number, pending_qty, expected_delivery, status }] }
+        """
         receipts = defaultdict(list)
         
-        pos = await db.purchase_orders.find({
-            "status": {"$in": ["ISSUED", "ACKNOWLEDGED", "SHIPPED", "IN_TRANSIT"]},
-            "line_items.rm_id": {"$in": rm_ids}
-        }, {"_id": 0}).to_list(10000)
+        # Step 1: Get all open POs (not fully received/closed)
+        open_statuses = ["DRAFT", "ISSUED", "ACKNOWLEDGED", "SHIPPED", "IN_TRANSIT", "PARTIAL_RECEIVED"]
         
-        for po in pos:
-            for line in po.get("line_items", []):
-                rm_id = line.get("rm_id")
-                if rm_id not in rm_ids:
-                    continue
-                
-                pending_qty = line.get("pending_qty", line.get("ordered_qty", 0))
-                expected_delivery = line.get("expected_delivery_date") or po.get("expected_delivery_date")
-                
-                if expected_delivery and pending_qty > 0:
-                    if isinstance(expected_delivery, str):
+        open_pos = await db.purchase_orders.find(
+            {"status": {"$in": open_statuses}},
+            {"_id": 0, "id": 1, "po_number": 1, "status": 1, "expected_delivery_date": 1}
+        ).to_list(10000)
+        
+        if not open_pos:
+            logger.info("No open POs found for scheduled receipts")
+            return {}
+        
+        # Build PO lookup
+        po_map = {po["id"]: po for po in open_pos}
+        po_ids = list(po_map.keys())
+        
+        # Step 2: Get PO lines for requested RMs
+        po_lines = await db.purchase_order_lines.find(
+            {
+                "po_id": {"$in": po_ids},
+                "rm_id": {"$in": rm_ids},
+                "status": {"$in": ["PENDING", "PARTIAL_RECEIVED"]}  # Not fully received
+            },
+            {"_id": 0}
+        ).to_list(50000)
+        
+        logger.info(f"Found {len(po_lines)} open PO lines for {len(rm_ids)} RMs")
+        
+        # Step 3: Calculate pending quantities
+        for line in po_lines:
+            rm_id = line.get("rm_id")
+            po_id = line.get("po_id")
+            
+            if rm_id not in rm_ids or po_id not in po_map:
+                continue
+            
+            po = po_map[po_id]
+            
+            # Pending = Ordered - Received
+            ordered_qty = line.get("quantity_ordered", line.get("quantity", 0))
+            received_qty = line.get("quantity_received", 0)
+            pending_qty = ordered_qty - received_qty
+            
+            if pending_qty <= 0:
+                continue
+            
+            # Get expected delivery date
+            expected_delivery = line.get("expected_delivery_date") or po.get("expected_delivery_date")
+            
+            if expected_delivery:
+                if isinstance(expected_delivery, str):
+                    try:
                         expected_delivery = date.fromisoformat(expected_delivery[:10])
-                    elif isinstance(expected_delivery, datetime):
-                        expected_delivery = expected_delivery.date()
-                    
-                    receipts[rm_id].append({
-                        "po_number": po.get("po_number"),
-                        "pending_qty": pending_qty,
-                        "expected_delivery": expected_delivery
-                    })
+                    except ValueError:
+                        expected_delivery = None
+                elif isinstance(expected_delivery, datetime):
+                    expected_delivery = expected_delivery.date()
+            
+            if expected_delivery and pending_qty > 0:
+                receipts[rm_id].append({
+                    "po_number": po.get("po_number"),
+                    "po_status": po.get("status"),
+                    "pending_qty": pending_qty,
+                    "expected_delivery": expected_delivery
+                })
+        
+        # Log summary
+        total_receipts = sum(len(r) for r in receipts.values())
+        logger.info(f"Scheduled receipts: {total_receipts} lines across {len(receipts)} RMs")
         
         return dict(receipts)
     
