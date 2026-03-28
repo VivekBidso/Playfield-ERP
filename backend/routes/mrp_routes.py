@@ -1099,7 +1099,6 @@ async def get_mrp_weekly_requirements(
             continue
         
         lead_time_days = rm.get("lead_time_days", 7)
-        lead_time_weeks = max(1, lead_time_days // 7)
         total_qty = rm.get("order_qty", 0)
         
         # Distribute requirements:
@@ -1762,6 +1761,520 @@ async def convert_draft_to_po(
         "po_id": po["id"],
         "po_number": po_number
     }
+
+
+# ============ Weekly PO Generation ============
+
+@router.post("/runs/{run_id}/weekly-pos/preview")
+async def preview_weekly_pos(
+    run_id: str,
+    weeks: List[str] = Body(..., description="List of order_week dates to generate POs for"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Preview Draft POs for selected weeks - groups items by vendor.
+    Returns preview without creating any records.
+    """
+    # Verify run exists and is weekly
+    run = await db.mrp_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(status_code=404, detail="MRP run not found")
+    
+    if run.get("version") != "WEEKLY_V1":
+        raise HTTPException(status_code=400, detail="Only weekly MRP runs support weekly PO generation")
+    
+    # Get weekly plans for selected weeks
+    weekly_plans = await db.mrp_weekly_plans.find(
+        {"run_id": run_id, "order_week": {"$in": weeks}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    if not weekly_plans:
+        raise HTTPException(status_code=404, detail="No weekly plan data found for selected weeks")
+    
+    # Aggregate items by vendor
+    vendor_items = {}  # vendor_id -> { vendor_info, items: [], weeks: set }
+    items_without_vendor = []
+    
+    for plan in weekly_plans:
+        order_week = plan.get("order_week")
+        # Items can be in plan["items"] or plan["week_data"]["items"]
+        week_data = plan.get("week_data", {})
+        items = plan.get("items", []) or week_data.get("items", [])
+        
+        for item in items:
+            vendor_id = item.get("vendor_id")
+            if not vendor_id:
+                items_without_vendor.append({
+                    **item,
+                    "order_week": order_week
+                })
+                continue
+            
+            if vendor_id not in vendor_items:
+                vendor_items[vendor_id] = {
+                    "vendor_id": vendor_id,
+                    "vendor_name": item.get("vendor_name", "Unknown Vendor"),
+                    "items": [],
+                    "weeks": set(),
+                    "total_qty": 0,
+                    "total_amount": 0
+                }
+            
+            vendor_items[vendor_id]["items"].append({
+                "rm_id": item.get("rm_id"),
+                "rm_name": item.get("rm_name"),
+                "category": item.get("category"),
+                "order_week": order_week,
+                "production_week": item.get("production_week"),
+                "order_qty": item.get("order_qty", 0),
+                "unit_price": item.get("unit_price", 0),
+                "total_cost": item.get("total_cost", 0),
+                "lead_time_days": item.get("lead_time_days", 7)
+            })
+            vendor_items[vendor_id]["weeks"].add(order_week)
+            vendor_items[vendor_id]["total_qty"] += item.get("order_qty", 0)
+            vendor_items[vendor_id]["total_amount"] += item.get("total_cost", 0)
+    
+    # Convert sets to lists for JSON serialization
+    preview_pos = []
+    for vendor_id, data in vendor_items.items():
+        preview_pos.append({
+            "vendor_id": vendor_id,
+            "vendor_name": data["vendor_name"],
+            "weeks_covered": sorted(list(data["weeks"])),
+            "total_items": len(data["items"]),
+            "total_qty": data["total_qty"],
+            "total_amount": data["total_amount"],
+            "items": data["items"]
+        })
+    
+    # Sort by vendor name
+    preview_pos.sort(key=lambda x: x["vendor_name"])
+    
+    return {
+        "run_id": run_id,
+        "run_code": run.get("run_code"),
+        "selected_weeks": weeks,
+        "preview_pos": preview_pos,
+        "items_without_vendor": items_without_vendor,
+        "summary": {
+            "total_vendors": len(preview_pos),
+            "total_items": sum(p["total_items"] for p in preview_pos),
+            "total_amount": sum(p["total_amount"] for p in preview_pos),
+            "items_needing_vendor": len(items_without_vendor)
+        }
+    }
+
+
+@router.post("/runs/{run_id}/weekly-pos/download-template")
+async def download_weekly_po_template(
+    run_id: str,
+    weeks: List[str] = Body(..., description="List of order_week dates"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Download Excel template with suggested POs for selected weeks.
+    User can modify qty, vendor, and upload back.
+    """
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="Excel support not available")
+    
+    # Get preview data
+    run = await db.mrp_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(status_code=404, detail="MRP run not found")
+    
+    weekly_plans = await db.mrp_weekly_plans.find(
+        {"run_id": run_id, "order_week": {"$in": weeks}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get all vendors for dropdown reference
+    vendors = await db.vendors.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(1000)
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    
+    # Sheet 1: PO Lines (editable)
+    ws_lines = wb.active
+    ws_lines.title = "PO_Lines"
+    
+    headers = ["Order Week", "RM ID", "RM Name", "Category", "Production Week", 
+               "Suggested Qty", "Final Qty", "Unit Price", "Total Cost",
+               "Vendor ID", "Vendor Name", "Lead Time Days", "Notes"]
+    
+    # Style headers
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws_lines.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Add data rows
+    row_num = 2
+    for plan in weekly_plans:
+        order_week = plan.get("order_week")
+        # Items can be in plan["items"] or plan["week_data"]["items"]
+        week_data = plan.get("week_data", {})
+        items = plan.get("items", []) or week_data.get("items", [])
+        
+        for item in items:
+            vendor_id = item.get("vendor_id", "")
+            vendor_name = item.get("vendor_name", "")
+            
+            ws_lines.cell(row=row_num, column=1, value=order_week)
+            ws_lines.cell(row=row_num, column=2, value=item.get("rm_id"))
+            ws_lines.cell(row=row_num, column=3, value=item.get("rm_name"))
+            ws_lines.cell(row=row_num, column=4, value=item.get("category"))
+            ws_lines.cell(row=row_num, column=5, value=item.get("production_week"))
+            ws_lines.cell(row=row_num, column=6, value=item.get("order_qty", 0))
+            ws_lines.cell(row=row_num, column=7, value=item.get("order_qty", 0))  # Final Qty (editable)
+            ws_lines.cell(row=row_num, column=8, value=item.get("unit_price", 0))
+            ws_lines.cell(row=row_num, column=9, value=item.get("total_cost", 0))
+            ws_lines.cell(row=row_num, column=10, value=vendor_id)
+            ws_lines.cell(row=row_num, column=11, value=vendor_name)
+            ws_lines.cell(row=row_num, column=12, value=item.get("lead_time_days", 7))
+            ws_lines.cell(row=row_num, column=13, value="")  # Notes
+            
+            # Highlight rows without vendor
+            if not vendor_id:
+                warning_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+                for col in range(1, 14):
+                    ws_lines.cell(row=row_num, column=col).fill = warning_fill
+            
+            row_num += 1
+    
+    # Set column widths
+    column_widths = [12, 12, 30, 10, 12, 12, 12, 12, 14, 40, 35, 12, 20]
+    for col, width in enumerate(column_widths, 1):
+        ws_lines.column_dimensions[get_column_letter(col)].width = width
+    
+    # Sheet 2: Vendor Reference
+    ws_vendors = wb.create_sheet("Vendors_Reference")
+    ws_vendors.cell(row=1, column=1, value="Vendor ID").font = Font(bold=True)
+    ws_vendors.cell(row=1, column=2, value="Vendor Name").font = Font(bold=True)
+    ws_vendors.cell(row=1, column=3, value="Vendor Code").font = Font(bold=True)
+    
+    for idx, vendor in enumerate(vendors, 2):
+        ws_vendors.cell(row=idx, column=1, value=vendor.get("id"))
+        ws_vendors.cell(row=idx, column=2, value=vendor.get("name"))
+        ws_vendors.cell(row=idx, column=3, value=vendor.get("code", ""))
+    
+    ws_vendors.column_dimensions["A"].width = 40
+    ws_vendors.column_dimensions["B"].width = 50
+    ws_vendors.column_dimensions["C"].width = 15
+    
+    # Sheet 3: Instructions
+    ws_instructions = wb.create_sheet("Instructions")
+    instructions = [
+        ["Weekly PO Template Instructions"],
+        [""],
+        ["1. Review the PO_Lines sheet"],
+        ["2. Modify 'Final Qty' column to adjust order quantities"],
+        ["3. To change vendor, update 'Vendor ID' column (refer to Vendors_Reference sheet)"],
+        ["4. Yellow highlighted rows need vendor assignment"],
+        ["5. Add notes in the 'Notes' column if needed"],
+        ["6. Save and upload the file to generate Draft POs"],
+        [""],
+        [f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"],
+        [f"MRP Run: {run.get('run_code')}"],
+        [f"Weeks: {', '.join(weeks)}"],
+    ]
+    
+    for row_idx, row_data in enumerate(instructions, 1):
+        for col_idx, value in enumerate(row_data, 1):
+            ws_instructions.cell(row=row_idx, column=col_idx, value=value)
+    
+    ws_instructions.cell(row=1, column=1).font = Font(bold=True, size=14)
+    ws_instructions.column_dimensions["A"].width = 80
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"Weekly_PO_Template_{run.get('run_code')}_{'-'.join(weeks[:2])}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/runs/{run_id}/weekly-pos/upload")
+async def upload_weekly_pos(
+    run_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload modified Excel and generate Draft POs.
+    Groups items by vendor and creates separate Draft POs.
+    """
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="Excel support not available")
+    
+    # Verify run
+    run = await db.mrp_runs.find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(status_code=404, detail="MRP run not found")
+    
+    # Read Excel
+    try:
+        contents = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(contents))
+        ws = wb["PO_Lines"]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")
+    
+    # Get vendor lookup
+    vendors = await db.vendors.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    vendor_lookup = {v["id"]: v["name"] for v in vendors}
+    
+    # Parse rows and group by vendor
+    vendor_items = {}  # vendor_id -> { items, weeks, total }
+    errors = []
+    
+    for row_num in range(2, ws.max_row + 1):
+        order_week = ws.cell(row=row_num, column=1).value
+        rm_id = ws.cell(row=row_num, column=2).value
+        rm_name = ws.cell(row=row_num, column=3).value
+        category = ws.cell(row=row_num, column=4).value
+        production_week = ws.cell(row=row_num, column=5).value
+        final_qty = ws.cell(row=row_num, column=7).value or 0
+        unit_price = ws.cell(row=row_num, column=8).value or 0
+        vendor_id = ws.cell(row=row_num, column=10).value
+        lead_time = ws.cell(row=row_num, column=12).value or 7
+        notes = ws.cell(row=row_num, column=13).value or ""
+        
+        # Skip empty rows
+        if not rm_id:
+            continue
+        
+        # Skip zero quantity
+        if final_qty <= 0:
+            continue
+        
+        # Validate vendor
+        if not vendor_id:
+            errors.append(f"Row {row_num}: {rm_id} - No vendor assigned")
+            continue
+        
+        if vendor_id not in vendor_lookup:
+            errors.append(f"Row {row_num}: {rm_id} - Invalid vendor ID: {vendor_id}")
+            continue
+        
+        # Calculate line total
+        line_total = float(final_qty) * float(unit_price)
+        
+        # Group by vendor
+        if vendor_id not in vendor_items:
+            vendor_items[vendor_id] = {
+                "vendor_name": vendor_lookup[vendor_id],
+                "items": [],
+                "weeks": set(),
+                "total_amount": 0
+            }
+        
+        vendor_items[vendor_id]["items"].append({
+            "rm_id": rm_id,
+            "rm_name": rm_name,
+            "category": category,
+            "order_week": order_week,
+            "production_week": production_week,
+            "quantity": float(final_qty),
+            "unit_price": float(unit_price),
+            "line_total": line_total,
+            "lead_time_days": lead_time,
+            "notes": notes
+        })
+        vendor_items[vendor_id]["weeks"].add(str(order_week))
+        vendor_items[vendor_id]["total_amount"] += line_total
+    
+    if errors and not vendor_items:
+        raise HTTPException(status_code=400, detail={"message": "All rows have errors", "errors": errors})
+    
+    # Generate Draft POs
+    created_pos = []
+    now = datetime.now(timezone.utc)
+    
+    for vendor_id, data in vendor_items.items():
+        weeks_list = sorted(list(data["weeks"]))
+        
+        # Calculate expected delivery (max lead time + 7 day buffer)
+        max_lead_time = max(item["lead_time_days"] for item in data["items"])
+        expected_delivery = (now + timedelta(days=max_lead_time + 7)).strftime("%Y-%m-%d")
+        
+        # Generate draft PO code
+        po_count = await db.mrp_draft_pos.count_documents({})
+        draft_po_code = f"WPO-{now.strftime('%Y%m%d')}-{po_count + 1:04d}"
+        
+        draft_po = {
+            "id": str(uuid.uuid4()),
+            "draft_po_code": draft_po_code,
+            "mrp_run_id": run_id,
+            "mrp_run_code": run.get("run_code"),
+            "vendor_id": vendor_id,
+            "vendor_name": data["vendor_name"],
+            "weeks_covered": weeks_list,
+            "total_items": len(data["items"]),
+            "total_amount": data["total_amount"],
+            "currency": "INR",
+            "expected_delivery_date": expected_delivery,
+            "suggested_order_date": now.strftime("%Y-%m-%d"),
+            "status": "DRAFT",
+            "source": "WEEKLY_UPLOAD",
+            "lines": data["items"],
+            "created_at": now.isoformat(),
+            "created_by": current_user.id
+        }
+        
+        await db.mrp_draft_pos.insert_one(draft_po)
+        created_pos.append({
+            "id": draft_po["id"],
+            "draft_po_code": draft_po_code,
+            "vendor_name": data["vendor_name"],
+            "total_items": len(data["items"]),
+            "total_amount": data["total_amount"],
+            "weeks_covered": weeks_list
+        })
+    
+    return {
+        "message": f"Created {len(created_pos)} Draft POs",
+        "created_pos": created_pos,
+        "errors": errors if errors else None,
+        "summary": {
+            "total_pos_created": len(created_pos),
+            "total_items": sum(p["total_items"] for p in created_pos),
+            "total_amount": sum(p["total_amount"] for p in created_pos),
+            "rows_with_errors": len(errors)
+        }
+    }
+
+
+@router.get("/weekly-draft-pos")
+async def get_weekly_draft_pos(
+    run_id: Optional[str] = None,
+    weeks: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user)
+):
+    """Get Weekly Draft POs with optional filters"""
+    query = {"source": "WEEKLY_UPLOAD"}
+    
+    if run_id:
+        query["mrp_run_id"] = run_id
+    if status:
+        query["status"] = status
+    if weeks:
+        week_list = weeks.split(",")
+        query["weeks_covered"] = {"$in": week_list}
+    
+    draft_pos = await db.mrp_draft_pos.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(limit)
+    
+    return draft_pos
+
+
+@router.put("/weekly-draft-pos/{draft_po_id}")
+async def update_weekly_draft_po(
+    draft_po_id: str,
+    updates: dict = Body(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a Weekly Draft PO - can modify vendor, quantities, or lines.
+    """
+    draft_po = await db.mrp_draft_pos.find_one({"id": draft_po_id}, {"_id": 0})
+    if not draft_po:
+        raise HTTPException(status_code=404, detail="Draft PO not found")
+    
+    if draft_po.get("status") not in ["DRAFT"]:
+        raise HTTPException(status_code=400, detail="Can only edit DRAFT status POs")
+    
+    update_fields = {}
+    
+    # Update vendor
+    if "vendor_id" in updates:
+        vendor = await db.vendors.find_one({"id": updates["vendor_id"]}, {"_id": 0, "name": 1})
+        if not vendor:
+            raise HTTPException(status_code=400, detail="Invalid vendor ID")
+        update_fields["vendor_id"] = updates["vendor_id"]
+        update_fields["vendor_name"] = vendor["name"]
+    
+    # Update lines
+    if "lines" in updates:
+        new_lines = updates["lines"]
+        total_amount = sum(line.get("line_total", line.get("quantity", 0) * line.get("unit_price", 0)) for line in new_lines)
+        update_fields["lines"] = new_lines
+        update_fields["total_items"] = len(new_lines)
+        update_fields["total_amount"] = total_amount
+    
+    # Update expected delivery
+    if "expected_delivery_date" in updates:
+        update_fields["expected_delivery_date"] = updates["expected_delivery_date"]
+    
+    if update_fields:
+        update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        update_fields["updated_by"] = current_user.id
+        
+        await db.mrp_draft_pos.update_one(
+            {"id": draft_po_id},
+            {"$set": update_fields}
+        )
+    
+    updated_po = await db.mrp_draft_pos.find_one({"id": draft_po_id}, {"_id": 0})
+    return updated_po
+
+
+@router.put("/weekly-draft-pos/{draft_po_id}/line/{rm_id}")
+async def update_draft_po_line(
+    draft_po_id: str,
+    rm_id: str,
+    quantity: float = Body(..., embed=True),
+    current_user: User = Depends(get_current_user)
+):
+    """Update quantity for a specific line item"""
+    draft_po = await db.mrp_draft_pos.find_one({"id": draft_po_id}, {"_id": 0})
+    if not draft_po:
+        raise HTTPException(status_code=404, detail="Draft PO not found")
+    
+    if draft_po.get("status") != "DRAFT":
+        raise HTTPException(status_code=400, detail="Can only edit DRAFT status POs")
+    
+    # Find and update line
+    lines = draft_po.get("lines", [])
+    line_found = False
+    total_amount = 0
+    
+    for line in lines:
+        if line.get("rm_id") == rm_id:
+            line["quantity"] = quantity
+            line["line_total"] = quantity * line.get("unit_price", 0)
+            line_found = True
+        total_amount += line.get("line_total", 0)
+    
+    if not line_found:
+        raise HTTPException(status_code=404, detail=f"Line item {rm_id} not found")
+    
+    await db.mrp_draft_pos.update_one(
+        {"id": draft_po_id},
+        {"$set": {
+            "lines": lines,
+            "total_amount": total_amount,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"message": "Line updated", "rm_id": rm_id, "new_quantity": quantity}
 
 
 # ============ Seed Data ============

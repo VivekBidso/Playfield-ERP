@@ -133,6 +133,15 @@ export default function MRPDashboard() {
   const [vendorFilter, setVendorFilter] = useState('all');
   const [weeklyPlanCategories, setWeeklyPlanCategories] = useState([]);
   const [weeklyPlanVendors, setWeeklyPlanVendors] = useState([]);
+  
+  // Weekly PO Generation state
+  const [selectedWeeksForPO, setSelectedWeeksForPO] = useState([]);
+  const [showPOPreviewDialog, setShowPOPreviewDialog] = useState(false);
+  const [poPreviewData, setPOPreviewData] = useState(null);
+  const [loadingPOPreview, setLoadingPOPreview] = useState(false);
+  const [weeklyDraftPOs, setWeeklyDraftPOs] = useState([]);
+  const [showEditPODialog, setShowEditPODialog] = useState(false);
+  const [editingPO, setEditingPO] = useState(null);
 
   const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
@@ -166,6 +175,229 @@ export default function MRPDashboard() {
   const clearFilters = () => {
     setCategoryFilter('all');
     setVendorFilter('all');
+  };
+
+  // Toggle week selection for PO generation
+  const toggleWeekForPO = (orderWeek) => {
+    setSelectedWeeksForPO(prev => 
+      prev.includes(orderWeek) 
+        ? prev.filter(w => w !== orderWeek)
+        : [...prev, orderWeek]
+    );
+  };
+
+  // Select next N weeks for PO generation
+  const selectNextNWeeks = (n) => {
+    const sortedWeeks = getFilteredWeeklyPlan()
+      .map(w => w.order_week)
+      .sort()
+      .slice(0, n);
+    setSelectedWeeksForPO(sortedWeeks);
+  };
+
+  // Preview Weekly POs
+  const previewWeeklyPOs = async () => {
+    if (!selectedWeeklyRun || selectedWeeksForPO.length === 0) return;
+    setLoadingPOPreview(true);
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/runs/${selectedWeeklyRun.id}/weekly-pos/preview`,
+        {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(selectedWeeksForPO)
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setPOPreviewData(data);
+        setShowPOPreviewDialog(true);
+      } else {
+        const err = await res.json();
+        toast.error(err.detail || 'Failed to preview POs');
+      }
+    } catch (err) {
+      console.error('Failed to preview POs:', err);
+      toast.error('Failed to preview POs');
+    }
+    setLoadingPOPreview(false);
+  };
+
+  // Download Weekly PO Template
+  const downloadPOTemplate = async () => {
+    if (!selectedWeeklyRun || selectedWeeksForPO.length === 0) return;
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/runs/${selectedWeeklyRun.id}/weekly-pos/download-template`,
+        {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(selectedWeeksForPO)
+        }
+      );
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Weekly_PO_Template_${selectedWeeklyRun.run_code}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        toast.success('Template downloaded');
+      } else {
+        toast.error('Failed to download template');
+      }
+    } catch (err) {
+      console.error('Download failed:', err);
+      toast.error('Failed to download template');
+    }
+  };
+
+  // Upload Weekly PO File
+  const uploadPOFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedWeeklyRun) return;
+    
+    setGeneratingPOs(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/runs/${selectedWeeklyRun.id}/weekly-pos/upload`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Created ${data.created_pos?.length || 0} Draft POs`);
+        fetchWeeklyDraftPOs();
+        setSelectedWeeksForPO([]);
+        setShowPOPreviewDialog(false);
+        if (data.errors?.length > 0) {
+          toast.warning(`${data.errors.length} rows had errors`);
+        }
+      } else {
+        toast.error(data.detail?.message || data.detail || 'Failed to upload');
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+      toast.error('Failed to upload file');
+    }
+    setGeneratingPOs(false);
+    e.target.value = null;
+  };
+
+  // Fetch Weekly Draft POs
+  const fetchWeeklyDraftPOs = useCallback(async () => {
+    if (!token || !selectedWeeklyRun) return;
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/weekly-draft-pos?run_id=${selectedWeeklyRun.id}&limit=50`,
+        { headers: getHeaders() }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setWeeklyDraftPOs(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch weekly draft POs:', err);
+    }
+  }, [token, selectedWeeklyRun, getHeaders]);
+
+  // Update Weekly Draft PO Line
+  const updatePOLineQty = async (poId, rmId, newQty) => {
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/weekly-draft-pos/${poId}/line/${rmId}`,
+        {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({ quantity: parseFloat(newQty) })
+        }
+      );
+      if (res.ok) {
+        toast.success('Quantity updated');
+        fetchWeeklyDraftPOs();
+        if (editingPO) {
+          // Refresh editing PO data
+          const poRes = await fetch(`${API}/api/mrp/draft-pos/${poId}`, { headers: getHeaders() });
+          if (poRes.ok) {
+            setEditingPO(await poRes.json());
+          }
+        }
+      } else {
+        toast.error('Failed to update quantity');
+      }
+    } catch (err) {
+      toast.error('Failed to update quantity');
+    }
+  };
+
+  // Update Weekly Draft PO Vendor
+  const updatePOVendor = async (poId, vendorId) => {
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/weekly-draft-pos/${poId}`,
+        {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({ vendor_id: vendorId })
+        }
+      );
+      if (res.ok) {
+        toast.success('Vendor updated');
+        fetchWeeklyDraftPOs();
+      } else {
+        toast.error('Failed to update vendor');
+      }
+    } catch (err) {
+      toast.error('Failed to update vendor');
+    }
+  };
+
+  // Approve Weekly Draft PO
+  const approveWeeklyDraftPO = async (poId) => {
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/draft-pos/${poId}/approve`,
+        { method: 'PUT', headers: getHeaders() }
+      );
+      if (res.ok) {
+        toast.success('Draft PO approved');
+        fetchWeeklyDraftPOs();
+        fetchDraftPOs();
+      } else {
+        toast.error('Failed to approve');
+      }
+    } catch (err) {
+      toast.error('Failed to approve');
+    }
+  };
+
+  // Convert to Actual PO
+  const convertToPO = async (poId) => {
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/draft-pos/${poId}/convert`,
+        { method: 'POST', headers: getHeaders() }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Created PO: ${data.po_number}`);
+        fetchWeeklyDraftPOs();
+        fetchDraftPOs();
+        fetchDashboard();
+      } else {
+        const err = await res.json();
+        toast.error(err.detail || 'Failed to convert');
+      }
+    } catch (err) {
+      toast.error('Failed to convert to PO');
+    }
   };
 
   // Fetch dashboard stats
@@ -420,8 +652,9 @@ export default function MRPDashboard() {
   useEffect(() => {
     if (token && activeTab === 'weekly-plan' && selectedWeeklyRun) {
       fetchWeeklyPlan(selectedWeeklyRun.id, weeklyPlanFilter);
+      fetchWeeklyDraftPOs();
     }
-  }, [token, activeTab, selectedWeeklyRun, weeklyPlanFilter, fetchWeeklyPlan]);
+  }, [token, activeTab, selectedWeeklyRun, weeklyPlanFilter, fetchWeeklyPlan, fetchWeeklyDraftPOs]);
 
   // Run MRP Calculation
   const runMRPCalculation = async () => {
@@ -511,27 +744,6 @@ export default function MRPDashboard() {
       } else {
         const data = await res.json();
         toast.error('Approval Failed', { description: data.detail || 'Unknown error' });
-      }
-    } catch (err) {
-      toast.error('Error', { description: err.message });
-    }
-  };
-
-  // Convert Draft PO to PO
-  const convertToPO = async (poId) => {
-    try {
-      const res = await fetch(`${API}/api/mrp/draft-pos/${poId}/convert-to-po`, {
-        method: 'POST',
-        headers: getHeaders()
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        toast.success('PO Created', { description: `PO Number: ${data.po_number}` });
-        fetchDraftPOs();
-        setPODetailOpen(false);
-      } else {
-        toast.error('Conversion Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -1680,6 +1892,175 @@ export default function MRPDashboard() {
                 </div>
               )}
 
+              {/* PO Generation Toolbar */}
+              {weeklyPlan.length > 0 && (
+                <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800">Generate POs:</span>
+                  </div>
+                  
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => selectNextNWeeks(4)}
+                    className="h-8"
+                  >
+                    Select Next 4 Weeks
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setSelectedWeeksForPO(getFilteredWeeklyPlan().map(w => w.order_week))}
+                    className="h-8"
+                  >
+                    Select All Weeks
+                  </Button>
+                  
+                  {selectedWeeksForPO.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => setSelectedWeeksForPO([])}
+                      className="h-8"
+                    >
+                      <X className="h-3 w-3 mr-1" />
+                      Clear ({selectedWeeksForPO.length})
+                    </Button>
+                  )}
+                  
+                  <div className="ml-auto flex items-center gap-2">
+                    {selectedWeeksForPO.length > 0 && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={downloadPOTemplate}
+                          className="h-8"
+                        >
+                          <Download className="h-3 w-3 mr-1" />
+                          Download Template
+                        </Button>
+                        
+                        <label className="cursor-pointer">
+                          <input 
+                            type="file" 
+                            accept=".xlsx,.xls" 
+                            className="hidden" 
+                            onChange={uploadPOFile}
+                            disabled={generatingPOs}
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8"
+                            asChild
+                          >
+                            <span>
+                              <Upload className="h-3 w-3 mr-1" />
+                              Upload POs
+                            </span>
+                          </Button>
+                        </label>
+                        
+                        <Button
+                          size="sm"
+                          onClick={previewWeeklyPOs}
+                          disabled={loadingPOPreview}
+                          className="h-8 bg-blue-600 hover:bg-blue-700"
+                        >
+                          {loadingPOPreview ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Eye className="h-3 w-3 mr-1" />
+                          )}
+                          Preview POs
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Weekly Draft POs Section */}
+              {weeklyDraftPOs.length > 0 && (
+                <Card className="mb-6 border-green-200 bg-green-50">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      Weekly Draft POs ({weeklyDraftPOs.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>PO Code</TableHead>
+                          <TableHead>Vendor</TableHead>
+                          <TableHead>Weeks</TableHead>
+                          <TableHead className="text-right">Items</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {weeklyDraftPOs.map(po => (
+                          <TableRow key={po.id}>
+                            <TableCell className="font-mono text-sm">{po.draft_po_code}</TableCell>
+                            <TableCell className="max-w-[180px] truncate">{po.vendor_name}</TableCell>
+                            <TableCell className="text-xs">
+                              {po.weeks_covered?.slice(0, 2).join(', ')}
+                              {po.weeks_covered?.length > 2 && ` +${po.weeks_covered.length - 2}`}
+                            </TableCell>
+                            <TableCell className="text-right">{po.total_items}</TableCell>
+                            <TableCell className="text-right font-medium">
+                              {formatCurrency(po.total_amount)}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(po.status)}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => { setEditingPO(po); setShowEditPODialog(true); }}
+                                  title="View/Edit"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                {po.status === 'DRAFT' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => approveWeeklyDraftPO(po.id)}
+                                    className="text-green-600"
+                                    title="Approve"
+                                  >
+                                    <CheckCircle className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                {po.status === 'APPROVED' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => convertToPO(po.id)}
+                                    className="text-blue-600"
+                                    title="Issue PO"
+                                  >
+                                    <Send className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Weekly Plan Accordions */}
               {loadingWeeklyPlan ? (
                 <div className="flex items-center justify-center py-12">
@@ -1698,26 +2079,39 @@ export default function MRPDashboard() {
               ) : (
                 <div className="space-y-4">
                   {getFilteredWeeklyPlan().map((week) => (
-                    <Card key={week.order_week} className="overflow-hidden">
+                    <Card key={week.order_week} className={`overflow-hidden ${selectedWeeksForPO.includes(week.order_week) ? 'ring-2 ring-blue-500' : ''}`}>
                       <div 
-                        className="p-4 bg-gray-50 cursor-pointer flex items-center justify-between hover:bg-gray-100 transition-colors"
-                        onClick={() => toggleWeekExpansion(week.order_week)}
+                        className="p-4 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors"
                       >
                         <div className="flex items-center gap-4">
-                          {expandedWeeks[week.order_week] ? (
-                            <ChevronDown className="h-5 w-5" />
-                          ) : (
-                            <ChevronRight className="h-5 w-5" />
-                          )}
-                          <div>
-                            <p className="font-semibold">
-                              <Calendar className="h-4 w-4 inline mr-2" />
-                              {week.order_week_label || `Week of ${week.order_week}`}
-                            </p>
-                            <p className="text-sm text-gray-500">
+                          {/* Week Selection Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={selectedWeeksForPO.includes(week.order_week)}
+                            onChange={() => toggleWeekForPO(week.order_week)}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          
+                          <div 
+                            className="flex items-center gap-4 cursor-pointer flex-1"
+                            onClick={() => toggleWeekExpansion(week.order_week)}
+                          >
+                            {expandedWeeks[week.order_week] ? (
+                              <ChevronDown className="h-5 w-5" />
+                            ) : (
+                              <ChevronRight className="h-5 w-5" />
+                            )}
+                            <div>
+                              <p className="font-semibold">
+                                <Calendar className="h-4 w-4 inline mr-2" />
+                                {week.order_week_label || `Week of ${week.order_week}`}
+                              </p>
+                              <p className="text-sm text-gray-500">
                               Place Order By: {week.order_week}
                             </p>
                           </div>
+                        </div>
                         </div>
                         <div className="flex items-center gap-8">
                           <div className="text-right">
@@ -2184,6 +2578,214 @@ export default function MRPDashboard() {
               {savingRMParams ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
               {editingRMParam ? 'Update' : 'Save'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Weekly PO Preview Dialog */}
+      <Dialog open={showPOPreviewDialog} onOpenChange={setShowPOPreviewDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Weekly PO Preview</DialogTitle>
+            <DialogDescription>
+              {poPreviewData?.selected_weeks?.length} weeks selected - {poPreviewData?.summary?.total_vendors} vendors
+            </DialogDescription>
+          </DialogHeader>
+          
+          {poPreviewData && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div className="text-center">
+                  <p className="text-sm text-gray-500">Vendors</p>
+                  <p className="text-xl font-bold">{poPreviewData.summary?.total_vendors}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-500">Items</p>
+                  <p className="text-xl font-bold">{poPreviewData.summary?.total_items}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-500">Total Amount</p>
+                  <p className="text-xl font-bold text-blue-600">{formatCurrency(poPreviewData.summary?.total_amount)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-500">No Vendor</p>
+                  <p className="text-xl font-bold text-orange-500">{poPreviewData.summary?.items_needing_vendor}</p>
+                </div>
+              </div>
+              
+              {/* Warning for items without vendor */}
+              {poPreviewData.items_without_vendor?.length > 0 && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800 font-medium flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    {poPreviewData.items_without_vendor.length} items need vendor assignment
+                  </p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Download the template, assign vendors, and upload to include these items.
+                  </p>
+                </div>
+              )}
+              
+              {/* PO List */}
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {poPreviewData.preview_pos?.map((po, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="font-medium">{po.vendor_name}</p>
+                      <p className="text-xs text-gray-500">
+                        {po.total_items} items • Weeks: {po.weeks_covered?.join(', ')}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-blue-600">{formatCurrency(po.total_amount)}</p>
+                      <p className="text-xs text-gray-500">{po.total_qty?.toLocaleString()} qty</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowPOPreviewDialog(false)}>
+              Close
+            </Button>
+            <Button variant="outline" onClick={downloadPOTemplate}>
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+            <label className="cursor-pointer">
+              <input 
+                type="file" 
+                accept=".xlsx,.xls" 
+                className="hidden" 
+                onChange={(e) => { uploadPOFile(e); setShowPOPreviewDialog(false); }}
+                disabled={generatingPOs}
+              />
+              <Button asChild disabled={generatingPOs}>
+                <span>
+                  {generatingPOs ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Upload & Generate
+                </span>
+              </Button>
+            </label>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Weekly Draft PO Dialog */}
+      <Dialog open={showEditPODialog} onOpenChange={setShowEditPODialog}>
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingPO?.draft_po_code} - {editingPO?.vendor_name}
+            </DialogTitle>
+            <DialogDescription>
+              Weeks: {editingPO?.weeks_covered?.join(', ')} • Status: {editingPO?.status}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {editingPO && (
+            <div className="space-y-4">
+              {/* Change Vendor */}
+              <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                <Label className="min-w-[80px]">Vendor:</Label>
+                <Select
+                  value={editingPO.vendor_id || ''}
+                  onValueChange={(val) => updatePOVendor(editingPO.id, val)}
+                  disabled={editingPO.status !== 'DRAFT'}
+                >
+                  <SelectTrigger className="w-[300px]">
+                    <SelectValue placeholder="Select vendor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vendors.slice(0, 100).map(v => (
+                      <SelectItem key={v.id || v.vendor_id} value={v.id || v.vendor_id}>
+                        {v.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="ml-auto text-right">
+                  <p className="text-sm text-gray-500">Total Amount</p>
+                  <p className="text-xl font-bold text-blue-600">{formatCurrency(editingPO.total_amount)}</p>
+                </div>
+              </div>
+              
+              {/* Line Items */}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>RM ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Week</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Price</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    {editingPO.status === 'DRAFT' && <TableHead>Edit</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {editingPO.lines?.slice(0, 50).map((line, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-mono text-sm">{line.rm_id}</TableCell>
+                      <TableCell className="max-w-[180px] truncate">{line.rm_name}</TableCell>
+                      <TableCell className="text-xs">{line.order_week}</TableCell>
+                      <TableCell className="text-right">{line.quantity?.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(line.unit_price)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatCurrency(line.line_total)}</TableCell>
+                      {editingPO.status === 'DRAFT' && (
+                        <TableCell>
+                          <Input
+                            type="number"
+                            defaultValue={line.quantity}
+                            className="w-20 h-8"
+                            onBlur={(e) => {
+                              const newQty = parseFloat(e.target.value);
+                              if (newQty !== line.quantity && newQty > 0) {
+                                updatePOLineQty(editingPO.id, line.rm_id, newQty);
+                              }
+                            }}
+                          />
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                  {editingPO.lines?.length > 50 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-gray-500">
+                        + {editingPO.lines.length - 50} more items (download template to see all)
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditPODialog(false)}>
+              Close
+            </Button>
+            {editingPO?.status === 'DRAFT' && (
+              <Button 
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => { approveWeeklyDraftPO(editingPO.id); setShowEditPODialog(false); }}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Approve
+              </Button>
+            )}
+            {editingPO?.status === 'APPROVED' && (
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => { convertToPO(editingPO.id); setShowEditPODialog(false); }}
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Issue PO
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
