@@ -1408,7 +1408,37 @@ Months 2-12: Uses model_level_forecasts split to SKU level using 6-month rolling
 
 ## 16. MRP ENGINE ENHANCEMENT (March 28, 2026)
 
-### Status: PLANNED - Awaiting Implementation
+### Status: ✅ PHASE 1 COMPLETE - Weekly Time-Phased MRP Implemented
+
+### What Was Implemented
+
+#### Backend (Completed)
+- **Weekly MRP Service**: `/app/backend/services/mrp_weekly_service.py` 
+  - 1107 lines of optimized code processing 417k entries in ~1.7s
+  - Dual BOM explosion (common + brand-specific for M1, common only for M2-12)
+  - 7-day site buffer calculation
+  - Weekly order bucketing with lead time consideration
+  - Chunked storage in `mrp_weekly_plans` collection (avoids 16MB BSON limit)
+
+- **API Endpoints**:
+  - `POST /api/mrp/runs/calculate-weekly` - Run weekly MRP calculation
+  - `GET /api/mrp/runs/{run_id}/weekly-plan` - Get weekly plan data
+  - `GET /api/mrp/runs/{run_id}/weekly-plan/export` - Export to Excel
+  - `GET /api/mrp/runs` - Returns `version`, `common_weeks_count`, `summary` fields (Bug fixed March 28, 2026)
+
+#### Frontend (Completed)
+- **Weekly Order Plan Tab**: New tab in MRP Dashboard
+  - Dropdown filters to show only weekly MRP runs (version=WEEKLY_V1 or common_weeks_count > 0)
+  - Summary cards: Order Weeks, Common RMs, Common Value, Brand-Specific RMs, Total Value
+  - Expandable week accordions showing detailed RM procurement data
+  - Export Excel functionality
+  - Run Weekly MRP button
+
+#### Bug Fix (March 28, 2026)
+- **Issue**: Weekly Order Plan dropdown was empty
+- **Root Cause**: `/api/mrp/runs` endpoint wasn't returning `version` and `common_weeks_count` fields
+- **Fix**: Added missing fields to MongoDB projection in `mrp_routes.py`
+- **Additional Fix**: Changed TabsList from `grid-cols-4` to `grid-cols-5` for 5 tabs
 
 ### Reference Document
 See detailed implementation plan: `/app/memory/MRP_IMPLEMENTATION_PLAN.md`
@@ -1447,19 +1477,20 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 | BS_, LB_, PM_ | BRAND_SPECIFIC | Buyer SKU level (M1 only) |
 
 ### Implementation Phases
-1. **Phase 1 (MVP)**: Weekly breakdown, dual BOM, order timing, UI
-2. **Phase 2**: Open PO integration
+1. **Phase 1 (MVP)**: ✅ COMPLETE - Weekly breakdown, dual BOM, order timing, UI
+2. **Phase 2**: 🔜 Open PO integration (Net = Gross + Safety - Stock - Open POs)
 3. **Phase 3**: Stock enhancements (quality hold, allocation)
 4. **Phase 4**: Advanced (yield factor, supplier constraints)
 5. **Phase 5**: Alerts & intelligence
 
-### New Data Models
-- Enhanced `rm_procurement_parameters` with yield_factor, lot_sizing_rule
-- Enhanced `branch_rm_inventory` with quality_hold_qty, allocated_qty
-- Enhanced `purchase_orders` with detailed status tracking
-- New `stock_allocations` collection
+### Verified Data (Test Run MRP-20260328-162256)
+- 52 Order Weeks generated
+- 1302 Common RMs processed
+- Total Order Value: ₹58,35,84,843
+- Each week has ~85 items with full RM details
 
 ---
 
-*MRP Implementation Plan saved: March 28, 2026*
+*Weekly MRP Phase 1 Completed: March 28, 2026*
+*Test Report: /app/test_reports/iteration_16.json (100% pass rate)*
 
