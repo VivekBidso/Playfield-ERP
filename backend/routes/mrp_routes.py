@@ -781,8 +781,10 @@ async def seed_mrp_test_data(
     - Model-level forecasts for next 11 months
     - RM procurement parameters with default values
     """
-    if current_user.role != "master_admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    # Allow master_admin, cpc_planner, and procurement_officer to seed data
+    allowed_roles = ["master_admin", "cpc_planner", "procurement_officer"]
+    if current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail=f"Access denied. Requires one of: {', '.join(allowed_roles)}")
     
     created_forecasts = 0
     created_params = 0

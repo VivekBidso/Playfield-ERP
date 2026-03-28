@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import {
   Table,
@@ -40,12 +41,15 @@ import {
   RefreshCw,
   Eye,
   Send,
-  ChevronRight,
   Loader2,
   Play,
   Settings,
   BarChart3,
   ShoppingCart,
+  Plus,
+  Upload,
+  Edit,
+  X,
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -78,26 +82,45 @@ export default function MRPDashboard() {
   // RM Parameters state
   const [rmParams, setRmParams] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   
   // Calculation state
   const [calculating, setCalculating] = useState(false);
   const [generatingPOs, setGeneratingPOs] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  
+  // Add Forecast Dialog
+  const [addForecastOpen, setAddForecastOpen] = useState(false);
+  const [forecastForm, setForecastForm] = useState({
+    model_id: '',
+    month_year: '',
+    forecast_qty: ''
+  });
+  const [savingForecast, setSavingForecast] = useState(false);
+  
+  // Add RM Params Dialog
+  const [addRMParamsOpen, setAddRMParamsOpen] = useState(false);
+  const [rmParamsForm, setRMParamsForm] = useState({
+    rm_id: '',
+    safety_stock: 0,
+    moq: 1,
+    batch_size: 1,
+    lead_time_days: 7,
+    preferred_vendor_id: ''
+  });
+  const [savingRMParams, setSavingRMParams] = useState(false);
+  const [editingRMParam, setEditingRMParam] = useState(null);
 
-  const headers = {
+  const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`
-  };
+  }), [token]);
 
   // Fetch dashboard stats
   const fetchDashboard = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API}/api/mrp/dashboard`, { 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch(`${API}/api/mrp/dashboard`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setDashboardStats(data);
@@ -105,18 +128,13 @@ export default function MRPDashboard() {
     } catch (err) {
       console.error('Failed to fetch dashboard:', err);
     }
-  }, [token]);
+  }, [token, getHeaders]);
 
   // Fetch MRP runs
   const fetchMRPRuns = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API}/api/mrp/runs?limit=50`, { 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch(`${API}/api/mrp/runs?limit=50`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setMrpRuns(data);
@@ -124,18 +142,13 @@ export default function MRPDashboard() {
     } catch (err) {
       console.error('Failed to fetch MRP runs:', err);
     }
-  }, [token]);
+  }, [token, getHeaders]);
 
   // Fetch Draft POs
   const fetchDraftPOs = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API}/api/mrp/draft-pos`, { 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch(`${API}/api/mrp/draft-pos`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setDraftPOs(data);
@@ -143,7 +156,7 @@ export default function MRPDashboard() {
     } catch (err) {
       console.error('Failed to fetch draft POs:', err);
     }
-  }, [token]);
+  }, [token, getHeaders]);
 
   // Fetch Model Forecasts
   const fetchModelForecasts = useCallback(async () => {
@@ -153,12 +166,7 @@ export default function MRPDashboard() {
       if (selectedVertical) {
         url += `?vertical_id=${selectedVertical}`;
       }
-      const res = await fetch(url, { 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch(url, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setModelForecasts(data);
@@ -166,18 +174,13 @@ export default function MRPDashboard() {
     } catch (err) {
       console.error('Failed to fetch forecasts:', err);
     }
-  }, [token, selectedVertical]);
+  }, [token, selectedVertical, getHeaders]);
 
   // Fetch RM Parameters
   const fetchRMParams = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API}/api/mrp/rm-params`, { 
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch(`${API}/api/mrp/rm-params`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setRmParams(data);
@@ -185,29 +188,31 @@ export default function MRPDashboard() {
     } catch (err) {
       console.error('Failed to fetch RM params:', err);
     }
-  }, [token]);
+  }, [token, getHeaders]);
 
   // Fetch master data
   const fetchMasterData = useCallback(async () => {
     if (!token) return;
     try {
-      const reqHeaders = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      };
-      const [verticalsRes, modelsRes, vendorsRes] = await Promise.all([
+      const reqHeaders = getHeaders();
+      const [verticalsRes, modelsRes, vendorsRes, rmRes] = await Promise.all([
         fetch(`${API}/api/verticals`, { headers: reqHeaders }),
         fetch(`${API}/api/models`, { headers: reqHeaders }),
-        fetch(`${API}/api/vendors`, { headers: reqHeaders })
+        fetch(`${API}/api/vendors`, { headers: reqHeaders }),
+        fetch(`${API}/api/raw-materials?limit=5000`, { headers: reqHeaders })
       ]);
       
       if (verticalsRes.ok) setVerticals(await verticalsRes.json());
       if (modelsRes.ok) setModels(await modelsRes.json());
       if (vendorsRes.ok) setVendors(await vendorsRes.json());
+      if (rmRes.ok) {
+        const rmData = await rmRes.json();
+        setRawMaterials(rmData.items || rmData || []);
+      }
     } catch (err) {
       console.error('Failed to fetch master data:', err);
     }
-  }, [token]);
+  }, [token, getHeaders]);
 
   // Initial load
   useEffect(() => {
@@ -221,13 +226,13 @@ export default function MRPDashboard() {
       ]);
       setLoading(false);
     };
-    loadData();
-  }, []);
+    if (token) loadData();
+  }, [token, fetchDashboard, fetchMRPRuns, fetchDraftPOs, fetchMasterData]);
 
   // Fetch forecasts when vertical changes
   useEffect(() => {
-    fetchModelForecasts();
-  }, [selectedVertical, fetchModelForecasts]);
+    if (token) fetchModelForecasts();
+  }, [selectedVertical, token, fetchModelForecasts]);
 
   // Run MRP Calculation
   const runMRPCalculation = async () => {
@@ -235,19 +240,18 @@ export default function MRPDashboard() {
     try {
       const res = await fetch(`${API}/api/mrp/runs/calculate`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         toast.success(`MRP Calculation Complete`, {
           description: `${data.total_skus} SKUs, ${data.total_rms} RMs, Value: ₹${data.total_order_value?.toLocaleString()}`
         });
         fetchDashboard();
         fetchMRPRuns();
       } else {
-        const err = await res.json();
-        toast.error('Calculation Failed', { description: err.detail });
+        toast.error('Calculation Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -261,11 +265,11 @@ export default function MRPDashboard() {
     try {
       const res = await fetch(`${API}/api/mrp/runs/${runId}/generate-pos`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         toast.success('Draft POs Generated', {
           description: `${data.draft_pos?.length || 0} POs created`
         });
@@ -274,8 +278,7 @@ export default function MRPDashboard() {
         fetchDraftPOs();
         setRunDetailOpen(false);
       } else {
-        const err = await res.json();
-        toast.error('Generation Failed', { description: err.detail });
+        toast.error('Generation Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -288,7 +291,7 @@ export default function MRPDashboard() {
     try {
       const res = await fetch(`${API}/api/mrp/runs/${runId}/approve`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
       if (res.ok) {
@@ -296,8 +299,8 @@ export default function MRPDashboard() {
         fetchMRPRuns();
         fetchDashboard();
       } else {
-        const err = await res.json();
-        toast.error('Approval Failed', { description: err.detail });
+        const data = await res.json();
+        toast.error('Approval Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -309,7 +312,7 @@ export default function MRPDashboard() {
     try {
       const res = await fetch(`${API}/api/mrp/draft-pos/${poId}/approve`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
       if (res.ok) {
@@ -317,8 +320,8 @@ export default function MRPDashboard() {
         fetchDraftPOs();
         fetchDashboard();
       } else {
-        const err = await res.json();
-        toast.error('Approval Failed', { description: err.detail });
+        const data = await res.json();
+        toast.error('Approval Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -330,17 +333,16 @@ export default function MRPDashboard() {
     try {
       const res = await fetch(`${API}/api/mrp/draft-pos/${poId}/convert-to-po`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         toast.success('PO Created', { description: `PO Number: ${data.po_number}` });
         fetchDraftPOs();
         setPODetailOpen(false);
       } else {
-        const err = await res.json();
-        toast.error('Conversion Failed', { description: err.detail });
+        toast.error('Conversion Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
@@ -350,7 +352,7 @@ export default function MRPDashboard() {
   // View run detail
   const viewRunDetail = async (runId) => {
     try {
-      const res = await fetch(`${API}/api/mrp/runs/${runId}`, { headers });
+      const res = await fetch(`${API}/api/mrp/runs/${runId}`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setSelectedRun(data);
@@ -364,7 +366,7 @@ export default function MRPDashboard() {
   // View PO detail
   const viewPODetail = async (poId) => {
     try {
-      const res = await fetch(`${API}/api/mrp/draft-pos/${poId}`, { headers });
+      const res = await fetch(`${API}/api/mrp/draft-pos/${poId}`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setSelectedPO(data);
@@ -375,16 +377,17 @@ export default function MRPDashboard() {
     }
   };
 
-  // Seed test data
+  // Seed test data - FIXED: proper error handling
   const seedTestData = async () => {
+    setSeeding(true);
     try {
       const res = await fetch(`${API}/api/mrp/seed-data`, {
         method: 'POST',
-        headers
+        headers: getHeaders()
       });
       
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         toast.success('Test Data Created', {
           description: `${data.model_forecasts_created} forecasts, ${data.rm_params_created} RM params`
         });
@@ -392,12 +395,136 @@ export default function MRPDashboard() {
         fetchModelForecasts();
         fetchRMParams();
       } else {
-        const err = await res.json();
-        toast.error('Seeding Failed', { description: err.detail });
+        toast.error('Seeding Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
     }
+    setSeeding(false);
+  };
+
+  // Add Model Forecast
+  const handleAddForecast = async () => {
+    if (!forecastForm.model_id || !forecastForm.month_year || !forecastForm.forecast_qty) {
+      toast.error('Please fill all fields');
+      return;
+    }
+    
+    setSavingForecast(true);
+    try {
+      const res = await fetch(`${API}/api/mrp/model-forecasts`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          model_id: forecastForm.model_id,
+          month_year: forecastForm.month_year,
+          forecast_qty: parseInt(forecastForm.forecast_qty)
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Forecast Added');
+        setAddForecastOpen(false);
+        setForecastForm({ model_id: '', month_year: '', forecast_qty: '' });
+        fetchModelForecasts();
+        fetchDashboard();
+      } else {
+        toast.error('Failed', { description: data.detail || 'Unknown error' });
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+    setSavingForecast(false);
+  };
+
+  // Delete Model Forecast
+  const handleDeleteForecast = async (forecastId) => {
+    if (!window.confirm('Delete this forecast?')) return;
+    
+    try {
+      const res = await fetch(`${API}/api/mrp/model-forecasts/${forecastId}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      });
+      
+      if (res.ok) {
+        toast.success('Forecast Deleted');
+        fetchModelForecasts();
+        fetchDashboard();
+      } else {
+        const data = await res.json();
+        toast.error('Failed', { description: data.detail || 'Unknown error' });
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+  };
+
+  // Add/Update RM Parameters
+  const handleSaveRMParams = async () => {
+    if (!rmParamsForm.rm_id) {
+      toast.error('Please select a Raw Material');
+      return;
+    }
+    
+    setSavingRMParams(true);
+    try {
+      const res = await fetch(`${API}/api/mrp/rm-params`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          rm_id: rmParamsForm.rm_id,
+          safety_stock: parseFloat(rmParamsForm.safety_stock) || 0,
+          moq: parseFloat(rmParamsForm.moq) || 1,
+          batch_size: parseFloat(rmParamsForm.batch_size) || 1,
+          lead_time_days: parseInt(rmParamsForm.lead_time_days) || 7,
+          preferred_vendor_id: rmParamsForm.preferred_vendor_id && rmParamsForm.preferred_vendor_id !== 'none' ? rmParamsForm.preferred_vendor_id : null
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(editingRMParam ? 'Parameters Updated' : 'Parameters Added');
+        setAddRMParamsOpen(false);
+        setRMParamsForm({ rm_id: '', safety_stock: 0, moq: 1, batch_size: 1, lead_time_days: 7, preferred_vendor_id: '' });
+        setEditingRMParam(null);
+        fetchRMParams();
+        fetchDashboard();
+      } else {
+        toast.error('Failed', { description: data.detail || 'Unknown error' });
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+    setSavingRMParams(false);
+  };
+
+  // Edit RM Params
+  const handleEditRMParams = (param) => {
+    setEditingRMParam(param);
+    setRMParamsForm({
+      rm_id: param.rm_id,
+      safety_stock: param.safety_stock || 0,
+      moq: param.moq || 1,
+      batch_size: param.batch_size || 1,
+      lead_time_days: param.lead_time_days || 7,
+      preferred_vendor_id: param.preferred_vendor_id || ''
+    });
+    setAddRMParamsOpen(true);
+  };
+
+  // Generate month options for the next 12 months
+  const getMonthOptions = () => {
+    const options = [];
+    const now = new Date();
+    for (let i = 1; i <= 12; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const label = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+      options.push({ value, label });
+    }
+    return options;
   };
 
   const getStatusBadge = (status) => {
@@ -451,9 +578,10 @@ export default function MRPDashboard() {
           <Button 
             variant="outline" 
             onClick={seedTestData}
+            disabled={seeding}
             data-testid="seed-data-btn"
           >
-            <Settings className="h-4 w-4 mr-2" />
+            {seeding ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Settings className="h-4 w-4 mr-2" />}
             Seed Test Data
           </Button>
           <Button 
@@ -735,7 +863,7 @@ export default function MRPDashboard() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
-                  <Select value={selectedVertical || "all"} onValueChange={(val) => setSelectedVertical(val === "all" ? "" : val)}>
+                  <Select value={selectedVertical} onValueChange={setSelectedVertical}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Filter by Vertical" />
                     </SelectTrigger>
@@ -749,6 +877,10 @@ export default function MRPDashboard() {
                   <Button variant="outline" onClick={fetchModelForecasts}>
                     <RefreshCw className="h-4 w-4" />
                   </Button>
+                  <Button onClick={() => setAddForecastOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Forecast
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -761,6 +893,7 @@ export default function MRPDashboard() {
                     <TableHead>Month</TableHead>
                     <TableHead className="text-right">Forecast Qty</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -778,12 +911,22 @@ export default function MRPDashboard() {
                       <TableCell className="text-xs text-gray-500">
                         {formatDate(f.created_at)}
                       </TableCell>
+                      <TableCell>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => handleDeleteForecast(f.id)}
+                          className="text-red-500"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {modelForecasts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
-                        No model forecasts. Click "Seed Test Data" to generate sample data.
+                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        No model forecasts. Click "Add Forecast" or "Seed Test Data" to generate sample data.
                       </TableCell>
                     </TableRow>
                   )}
@@ -809,10 +952,20 @@ export default function MRPDashboard() {
                     MOQ, lead times, safety stock, and preferred vendors
                   </CardDescription>
                 </div>
-                <Button variant="outline" onClick={fetchRMParams}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={fetchRMParams}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                  <Button onClick={() => {
+                    setEditingRMParam(null);
+                    setRMParamsForm({ rm_id: '', safety_stock: 0, moq: 1, batch_size: 1, lead_time_days: 7, preferred_vendor_id: '' });
+                    setAddRMParamsOpen(true);
+                  }}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add RM Parameters
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -826,6 +979,7 @@ export default function MRPDashboard() {
                     <TableHead className="text-right">Lead Time</TableHead>
                     <TableHead className="text-right">Safety Stock</TableHead>
                     <TableHead>Preferred Vendor</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -842,12 +996,21 @@ export default function MRPDashboard() {
                       <TableCell className="max-w-[200px] truncate" title={p.preferred_vendor_name}>
                         {p.preferred_vendor_name || <span className="text-gray-400">Not set</span>}
                       </TableCell>
+                      <TableCell>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => handleEditRMParams(p)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {rmParams.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                        No RM parameters. Click "Seed Test Data" to generate defaults.
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        No RM parameters. Click "Add RM Parameters" or "Seed Test Data" to generate defaults.
                       </TableCell>
                     </TableRow>
                   )}
@@ -1047,6 +1210,185 @@ export default function MRPDashboard() {
             )}
             <Button variant="outline" onClick={() => setPODetailOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Model Forecast Dialog */}
+      <Dialog open={addForecastOpen} onOpenChange={setAddForecastOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Model Forecast</DialogTitle>
+            <DialogDescription>
+              Add a monthly forecast quantity for a specific model
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Model *</Label>
+              <Select 
+                value={forecastForm.model_id} 
+                onValueChange={(v) => setForecastForm({...forecastForm, model_id: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {models.map(m => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.code} - {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Month *</Label>
+              <Select 
+                value={forecastForm.month_year} 
+                onValueChange={(v) => setForecastForm({...forecastForm, month_year: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select month" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getMonthOptions().map(m => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Forecast Quantity *</Label>
+              <Input
+                type="number"
+                placeholder="Enter quantity"
+                value={forecastForm.forecast_qty}
+                onChange={(e) => setForecastForm({...forecastForm, forecast_qty: e.target.value})}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddForecastOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddForecast} disabled={savingForecast}>
+              {savingForecast ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+              Add Forecast
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit RM Parameters Dialog */}
+      <Dialog open={addRMParamsOpen} onOpenChange={setAddRMParamsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingRMParam ? 'Edit RM Parameters' : 'Add RM Parameters'}</DialogTitle>
+            <DialogDescription>
+              Configure procurement parameters for a raw material
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Raw Material *</Label>
+              <Select 
+                value={rmParamsForm.rm_id} 
+                onValueChange={(v) => setRMParamsForm({...rmParamsForm, rm_id: v})}
+                disabled={!!editingRMParam}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select raw material" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rawMaterials.slice(0, 200).map(rm => (
+                    <SelectItem key={rm.rm_id} value={rm.rm_id}>
+                      {rm.rm_id} - {rm.name?.substring(0, 30)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>MOQ</Label>
+                <Input
+                  type="number"
+                  value={rmParamsForm.moq}
+                  onChange={(e) => setRMParamsForm({...rmParamsForm, moq: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Batch Size</Label>
+                <Input
+                  type="number"
+                  value={rmParamsForm.batch_size}
+                  onChange={(e) => setRMParamsForm({...rmParamsForm, batch_size: e.target.value})}
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Lead Time (days)</Label>
+                <Input
+                  type="number"
+                  value={rmParamsForm.lead_time_days}
+                  onChange={(e) => setRMParamsForm({...rmParamsForm, lead_time_days: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Safety Stock</Label>
+                <Input
+                  type="number"
+                  value={rmParamsForm.safety_stock}
+                  onChange={(e) => setRMParamsForm({...rmParamsForm, safety_stock: e.target.value})}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Preferred Vendor (Optional)</Label>
+              <Select 
+                value={rmParamsForm.preferred_vendor_id} 
+                onValueChange={(v) => setRMParamsForm({...rmParamsForm, preferred_vendor_id: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select vendor (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No preferred vendor</SelectItem>
+                  {vendors.slice(0, 100).map(v => (
+                    <SelectItem key={v.id || v.vendor_id} value={v.id || v.vendor_id}>
+                      {v.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setAddRMParamsOpen(false);
+              setEditingRMParam(null);
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveRMParams} disabled={savingRMParams}>
+              {savingRMParams ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              {editingRMParam ? 'Update' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
