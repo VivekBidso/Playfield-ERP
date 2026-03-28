@@ -55,6 +55,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -116,6 +117,15 @@ export default function MRPDashboard() {
   
   // Upload state
   const [uploading, setUploading] = useState(false);
+
+  // Weekly Order Plan state
+  const [weeklyPlanRuns, setWeeklyPlanRuns] = useState([]);
+  const [selectedWeeklyRun, setSelectedWeeklyRun] = useState(null);
+  const [weeklyPlan, setWeeklyPlan] = useState([]);
+  const [weeklyPlanFilter, setWeeklyPlanFilter] = useState('all'); // all, common, brand_specific
+  const [loadingWeeklyPlan, setLoadingWeeklyPlan] = useState(false);
+  const [expandedWeeks, setExpandedWeeks] = useState({});
+  const [calculatingWeekly, setCalculatingWeekly] = useState(false);
 
   const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
@@ -197,6 +207,114 @@ export default function MRPDashboard() {
     }
   }, [token, getHeaders]);
 
+  // Fetch Weekly MRP Runs
+  const fetchWeeklyRuns = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API}/api/mrp/runs?limit=50`, { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        // Filter runs that have weekly plan data (version WEEKLY_V1 or have common_weeks_count)
+        const weeklyRuns = data.filter(run => 
+          run.version === 'WEEKLY_V1' || run.common_weeks_count > 0
+        );
+        setWeeklyPlanRuns(weeklyRuns);
+        // Auto-select the latest weekly run
+        if (weeklyRuns.length > 0 && !selectedWeeklyRun) {
+          setSelectedWeeklyRun(weeklyRuns[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch weekly runs:', err);
+    }
+  }, [token, getHeaders, selectedWeeklyRun]);
+
+  // Fetch Weekly Order Plan
+  const fetchWeeklyPlan = useCallback(async (runId, planType = 'all') => {
+    if (!token || !runId) return;
+    setLoadingWeeklyPlan(true);
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/runs/${runId}/weekly-plan?plan_type=${planType}`,
+        { headers: getHeaders() }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setWeeklyPlan(data.weekly_plan || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch weekly plan:', err);
+    }
+    setLoadingWeeklyPlan(false);
+  }, [token, getHeaders]);
+
+  // Calculate Weekly MRP
+  const calculateWeeklyMRP = async () => {
+    setCalculatingWeekly(true);
+    try {
+      const res = await fetch(`${API}/api/mrp/runs/calculate-weekly`, {
+        method: 'POST',
+        headers: getHeaders()
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        toast.success('Weekly MRP calculation completed', {
+          description: `Run: ${data.run_code}`
+        });
+        fetchWeeklyRuns();
+        fetchMRPRuns();
+      } else {
+        const error = await res.json();
+        toast.error('Failed to calculate weekly MRP', {
+          description: error.detail || 'Unknown error'
+        });
+      }
+    } catch (err) {
+      toast.error('Failed to calculate weekly MRP', {
+        description: err.message
+      });
+    }
+    setCalculatingWeekly(false);
+  };
+
+  // Export Weekly Plan
+  const exportWeeklyPlan = async () => {
+    if (!selectedWeeklyRun) return;
+    
+    try {
+      const res = await fetch(
+        `${API}/api/mrp/runs/${selectedWeeklyRun.id}/weekly-plan/export?plan_type=${weeklyPlanFilter}`,
+        { headers: getHeaders() }
+      );
+      
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `weekly_order_plan_${selectedWeeklyRun.run_code}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success('Export downloaded');
+      } else {
+        toast.error('Failed to export');
+      }
+    } catch (err) {
+      toast.error('Export failed', { description: err.message });
+    }
+  };
+
+  // Toggle week expansion
+  const toggleWeekExpansion = (orderWeek) => {
+    setExpandedWeeks(prev => ({
+      ...prev,
+      [orderWeek]: !prev[orderWeek]
+    }));
+  };
+
   // Fetch master data
   const fetchMasterData = useCallback(async () => {
     if (!token) return;
@@ -227,12 +345,13 @@ export default function MRPDashboard() {
         fetchDashboard(),
         fetchMRPRuns(),
         fetchDraftPOs(),
-        fetchMasterData()
+        fetchMasterData(),
+        fetchWeeklyRuns()
       ]);
       setLoading(false);
     };
     if (token) loadData();
-  }, [token, fetchDashboard, fetchMRPRuns, fetchDraftPOs, fetchMasterData]);
+  }, [token, fetchDashboard, fetchMRPRuns, fetchDraftPOs, fetchMasterData, fetchWeeklyRuns]);
 
   // Fetch forecasts when vertical changes or tab switches
   useEffect(() => {
@@ -247,6 +366,13 @@ export default function MRPDashboard() {
       fetchRMParams();
     }
   }, [token, activeTab, fetchRMParams]);
+
+  // Fetch weekly plan when run or filter changes
+  useEffect(() => {
+    if (token && activeTab === 'weekly-plan' && selectedWeeklyRun) {
+      fetchWeeklyPlan(selectedWeeklyRun.id, weeklyPlanFilter);
+    }
+  }, [token, activeTab, selectedWeeklyRun, weeklyPlanFilter, fetchWeeklyPlan]);
 
   // Run MRP Calculation
   const runMRPCalculation = async () => {
@@ -861,6 +987,10 @@ export default function MRPDashboard() {
             <Package className="h-4 w-4 mr-2" />
             RM Parameters
           </TabsTrigger>
+          <TabsTrigger value="weekly-plan" data-testid="tab-weekly-plan">
+            <Calendar className="h-4 w-4 mr-2" />
+            Weekly Order Plan
+          </TabsTrigger>
         </TabsList>
 
         {/* MRP Runs Tab */}
@@ -1324,6 +1454,240 @@ export default function MRPDashboard() {
                   </div>
                 );
               })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Weekly Order Plan Tab */}
+        <TabsContent value="weekly-plan" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Weekly Order Plan</CardTitle>
+                  <CardDescription>
+                    Time-phased procurement schedule with 7-day site buffer
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={calculateWeeklyMRP}
+                    disabled={calculatingWeekly}
+                    data-testid="calculate-weekly-btn"
+                  >
+                    {calculatingWeekly ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Run Weekly MRP
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Filters */}
+              <div className="flex items-center gap-4 mb-6">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">MRP Run:</label>
+                  <Select
+                    value={selectedWeeklyRun?.id || ''}
+                    onValueChange={(val) => {
+                      const run = weeklyPlanRuns.find(r => r.id === val);
+                      setSelectedWeeklyRun(run);
+                    }}
+                  >
+                    <SelectTrigger className="w-[250px]">
+                      <SelectValue placeholder="Select a run" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {weeklyPlanRuns.map(run => (
+                        <SelectItem key={run.id} value={run.id}>
+                          {run.run_code} ({formatDate(run.run_date)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">Type:</label>
+                  <Select
+                    value={weeklyPlanFilter}
+                    onValueChange={setWeeklyPlanFilter}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Parts</SelectItem>
+                      <SelectItem value="common">Common Only</SelectItem>
+                      <SelectItem value="brand_specific">Brand-Specific Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Button variant="outline" onClick={exportWeeklyPlan} disabled={!selectedWeeklyRun}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Excel
+                </Button>
+              </div>
+
+              {/* Summary Cards */}
+              {selectedWeeklyRun?.summary && (
+                <div className="grid grid-cols-5 gap-4 mb-6">
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <p className="text-sm text-gray-500">Order Weeks</p>
+                      <p className="text-2xl font-bold">{selectedWeeklyRun.summary.total_order_weeks || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <p className="text-sm text-gray-500">Common RMs</p>
+                      <p className="text-2xl font-bold">{selectedWeeklyRun.summary.common_rms_count || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <p className="text-sm text-gray-500">Common Value</p>
+                      <p className="text-lg font-bold text-blue-600">
+                        {formatCurrency(selectedWeeklyRun.summary.common_order_value || 0)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <p className="text-sm text-gray-500">Brand-Specific RMs</p>
+                      <p className="text-2xl font-bold">{selectedWeeklyRun.summary.brand_specific_rms_count || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <p className="text-sm text-gray-500">Total Value</p>
+                      <p className="text-lg font-bold text-green-600">
+                        {formatCurrency(selectedWeeklyRun.summary.total_order_value || 0)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Weekly Plan Accordions */}
+              {loadingWeeklyPlan ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : weeklyPlan.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  {selectedWeeklyRun 
+                    ? "No weekly plan data available for this run."
+                    : "Select an MRP run or run Weekly MRP calculation."}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {weeklyPlan.map((week) => (
+                    <Card key={week.order_week} className="overflow-hidden">
+                      <div 
+                        className="p-4 bg-gray-50 cursor-pointer flex items-center justify-between hover:bg-gray-100 transition-colors"
+                        onClick={() => toggleWeekExpansion(week.order_week)}
+                      >
+                        <div className="flex items-center gap-4">
+                          {expandedWeeks[week.order_week] ? (
+                            <ChevronDown className="h-5 w-5" />
+                          ) : (
+                            <ChevronRight className="h-5 w-5" />
+                          )}
+                          <div>
+                            <p className="font-semibold">
+                              <Calendar className="h-4 w-4 inline mr-2" />
+                              {week.order_week_label || `Week of ${week.order_week}`}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              Place Order By: {week.order_week}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-8">
+                          <div className="text-right">
+                            <p className="text-sm text-gray-500">Items</p>
+                            <p className="font-semibold">{week.week_summary?.total_items || week.items?.length || 0}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-500">Total Cost</p>
+                            <p className="font-semibold text-blue-600">
+                              {formatCurrency(week.week_summary?.total_cost || 0)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {expandedWeeks[week.order_week] && week.items && (
+                        <div className="border-t">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>RM ID</TableHead>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Category</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Prod Week</TableHead>
+                                <TableHead className="text-right">Gross</TableHead>
+                                <TableHead className="text-right">Net</TableHead>
+                                <TableHead className="text-right">Order Qty</TableHead>
+                                <TableHead>Vendor</TableHead>
+                                <TableHead className="text-right">Cost</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {week.items.slice(0, 50).map((item, idx) => (
+                                <TableRow key={`${item.rm_id}-${idx}`}>
+                                  <TableCell className="font-mono text-sm">{item.rm_id}</TableCell>
+                                  <TableCell className="max-w-[150px] truncate" title={item.rm_name}>
+                                    {item.rm_name || '-'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline">{item.category || '-'}</Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={item.rm_type === 'COMMON' ? 'secondary' : 'default'}>
+                                      {item.rm_type || 'COMMON'}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-sm">{item.production_week}</TableCell>
+                                  <TableCell className="text-right">{item.gross_qty?.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{item.net_qty?.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right font-semibold">
+                                    {item.order_qty?.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="max-w-[120px] truncate" title={item.vendor_name}>
+                                    {item.vendor_name || <span className="text-gray-400">-</span>}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.total_cost || 0)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                              {week.items.length > 50 && (
+                                <TableRow>
+                                  <TableCell colSpan={10} className="text-center text-gray-500 py-4">
+                                    Showing 50 of {week.items.length} items. Export to Excel to see all.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

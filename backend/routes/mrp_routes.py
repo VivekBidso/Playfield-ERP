@@ -26,6 +26,7 @@ from models.mrp_models import (
     RMProcurementParametersUpdate,
 )
 from services.mrp_service import mrp_service
+from services.mrp_weekly_service import weekly_mrp_service
 
 # Excel support
 try:
@@ -1292,7 +1293,7 @@ async def calculate_mrp(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Run MRP calculation.
+    Run MRP calculation (Legacy - non-weekly).
     
     This calculates:
     - Month 1: From production_plans
@@ -1322,6 +1323,214 @@ async def calculate_mrp(
     except Exception as e:
         logger.error(f"MRP calculation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/runs/calculate-weekly")
+async def calculate_weekly_mrp(
+    planning_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Run Weekly Time-Phased MRP calculation.
+    
+    Features:
+    - Weekly breakdown of forecasts
+    - M1: Buyer SKU level (common + brand-specific BOMs)
+    - M2-M12: Bidso SKU level (common BOMs only)
+    - Order timing with 7-day site buffer
+    - Open PO / scheduled receipts consideration
+    - Separate common vs brand-specific ordering plan
+    """
+    try:
+        if planning_date:
+            plan_dt = datetime.fromisoformat(planning_date.replace("Z", "+00:00"))
+        else:
+            plan_dt = None
+        
+        result = await weekly_mrp_service.calculate_weekly_mrp(current_user.id, plan_dt)
+        
+        return {
+            "message": "Weekly MRP calculation completed",
+            "run_id": result["id"],
+            "run_code": result["run_code"],
+            "version": result.get("version", "WEEKLY_V1"),
+            "summary": result.get("summary", {}),
+            "alerts_count": len(result.get("alerts", []))
+        }
+        
+    except Exception as e:
+        logger.error(f"Weekly MRP calculation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/weekly-plan")
+async def get_weekly_order_plan(
+    run_id: str,
+    plan_type: str = Query("all", description="all, common, or brand_specific"),
+    order_week: Optional[str] = Query(None, description="Filter by specific order week (YYYY-MM-DD)"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get weekly order plan for an MRP run.
+    
+    Args:
+        run_id: MRP run ID
+        plan_type: Filter by plan type (all, common, brand_specific)
+        order_week: Optional filter for specific week
+    """
+    run = await db.mrp_runs.find_one({"id": run_id}, {"_id": 0})
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="MRP run not found")
+    
+    # Check if this is a weekly MRP run
+    if run.get("version") != "WEEKLY_V1":
+        raise HTTPException(
+            status_code=400, 
+            detail="This MRP run does not have weekly plan. Use calculate-weekly endpoint."
+        )
+    
+    result = {
+        "run_id": run_id,
+        "run_code": run.get("run_code"),
+        "run_date": run.get("run_date"),
+        "config": run.get("config", {}),
+        "summary": run.get("summary", {})
+    }
+    
+    # Build query
+    query = {"run_id": run_id}
+    
+    if plan_type == "common":
+        query["plan_type"] = "COMMON"
+    elif plan_type == "brand_specific":
+        query["plan_type"] = "BRAND_SPECIFIC"
+    
+    if order_week:
+        query["order_week"] = order_week
+    
+    # Fetch weekly plans from separate collection
+    weekly_plan = []
+    async for doc in db.mrp_weekly_plans.find(query, {"_id": 0}).sort("order_week", 1):
+        weekly_plan.append(doc.get("week_data", {}))
+    
+    # If getting all, merge by order week
+    if plan_type == "all" and not order_week:
+        combined = {}
+        for week in weekly_plan:
+            ow = week.get("order_week", "")
+            if ow not in combined:
+                combined[ow] = {**week, "items": list(week.get("items", []))}
+            else:
+                combined[ow]["items"].extend(week.get("items", []))
+                items = combined[ow]["items"]
+                combined[ow]["week_summary"] = {
+                    "total_items": len(items),
+                    "total_cost": round(sum(i.get("total_cost", 0) for i in items), 2)
+                }
+        weekly_plan = list(sorted(combined.values(), key=lambda x: x.get("order_week", "")))
+    
+    result["weekly_plan"] = weekly_plan
+    result["alerts"] = run.get("alerts", [])
+    
+    return result
+
+
+@router.get("/runs/{run_id}/weekly-plan/export")
+async def export_weekly_order_plan(
+    run_id: str,
+    plan_type: str = Query("all", description="all, common, or brand_specific"),
+    current_user: User = Depends(get_current_user)
+):
+    """Export weekly order plan to Excel"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    run = await db.mrp_runs.find_one({"id": run_id}, {"_id": 0})
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="MRP run not found")
+    
+    if run.get("version") != "WEEKLY_V1":
+        raise HTTPException(status_code=400, detail="Not a weekly MRP run")
+    
+    # Build query
+    query = {"run_id": run_id}
+    if plan_type == "common":
+        query["plan_type"] = "COMMON"
+    elif plan_type == "brand_specific":
+        query["plan_type"] = "BRAND_SPECIFIC"
+    
+    # Fetch weekly plan data from separate collection
+    weekly_plan = []
+    async for doc in db.mrp_weekly_plans.find(query, {"_id": 0}).sort("order_week", 1):
+        weekly_plan.append(doc.get("week_data", {}))
+    
+    # Create Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Weekly Order Plan"
+    
+    # Headers
+    headers = [
+        "Order Week", "Place By", "RM ID", "RM Name", "Category", "Type",
+        "Production Week", "Arrival Date", "Lead Time",
+        "Gross Qty", "Safety Stock", "Current Stock", "Scheduled Receipts",
+        "Net Qty", "Order Qty", "Vendor", "Unit Price", "Total Cost"
+    ]
+    
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data
+    row = 2
+    for week in weekly_plan:
+        order_week = week.get("order_week", "")
+        place_by = week.get("place_order_by", order_week)
+        
+        for item in week.get("items", []):
+            ws.cell(row=row, column=1, value=order_week)
+            ws.cell(row=row, column=2, value=place_by)
+            ws.cell(row=row, column=3, value=item.get("rm_id", ""))
+            ws.cell(row=row, column=4, value=item.get("rm_name", ""))
+            ws.cell(row=row, column=5, value=item.get("category", ""))
+            ws.cell(row=row, column=6, value=item.get("rm_type", ""))
+            ws.cell(row=row, column=7, value=item.get("production_week", ""))
+            ws.cell(row=row, column=8, value=item.get("arrival_date", ""))
+            ws.cell(row=row, column=9, value=item.get("lead_time_days", 0))
+            ws.cell(row=row, column=10, value=item.get("gross_qty", 0))
+            ws.cell(row=row, column=11, value=item.get("safety_stock", 0))
+            ws.cell(row=row, column=12, value=item.get("current_stock", 0))
+            ws.cell(row=row, column=13, value=item.get("scheduled_receipts", 0))
+            ws.cell(row=row, column=14, value=item.get("net_qty", 0))
+            ws.cell(row=row, column=15, value=item.get("order_qty", 0))
+            ws.cell(row=row, column=16, value=item.get("vendor_name", ""))
+            ws.cell(row=row, column=17, value=item.get("unit_price", 0))
+            ws.cell(row=row, column=18, value=item.get("total_cost", 0))
+            row += 1
+    
+    # Auto-width columns
+    for col in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 15
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"weekly_order_plan_{run.get('run_code', run_id)}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @router.post("/runs/{run_id}/approve")
