@@ -1510,9 +1510,44 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 - Total Order Value: ₹58,35,84,843
 - Quick Filter working: ELC filter shows 1081 items, 23 per week
 
+### Phase 3 Implementation: Weekly PO Generation (March 28, 2026)
+
+#### Features Implemented
+1. **PO Generation Toolbar**
+   - "Select Next 4 Weeks" and "Select All Weeks" buttons
+   - Week selection via checkboxes with blue ring highlight
+   - Clear button with selection count
+   - Download Template, Upload POs, Preview POs buttons
+
+2. **Preview POs Dialog**
+   - Summary cards: Vendors count, Items count, Total Amount, Items needing vendor
+   - Warning banner for items without vendor assignment
+   - Vendor PO list showing item count, weeks, amount, quantity per vendor
+   - Download Template and Upload & Generate actions
+
+3. **Download/Upload Workflow**
+   - Excel template with 3 sheets: PO_Lines (editable), Vendors_Reference, Instructions
+   - Editable columns: Final Qty, Vendor ID, Notes
+   - Yellow highlight for rows needing vendor
+   - Upload creates Draft POs grouped by vendor
+
+4. **Weekly Draft POs Management**
+   - Table showing generated POs with code, vendor, weeks, items, amount, status
+   - Edit dialog: Change vendor, modify line quantities
+   - Actions: Approve, Issue PO (convert to actual PO)
+
+#### Backend API Endpoints (New)
+- `POST /api/mrp/runs/{run_id}/weekly-pos/preview`
+- `POST /api/mrp/runs/{run_id}/weekly-pos/download-template`
+- `POST /api/mrp/runs/{run_id}/weekly-pos/upload`
+- `GET /api/mrp/weekly-draft-pos`
+- `PUT /api/mrp/weekly-draft-pos/{id}`
+- `PUT /api/mrp/weekly-draft-pos/{id}/line/{rm_id}`
+
 ---
 
 *Weekly MRP Phase 1 Completed: March 28, 2026*
 *Weekly MRP Phase 2 (Quick Filter + Open PO) Completed: March 28, 2026*
-*Test Reports: /app/test_reports/iteration_16.json, /app/test_reports/iteration_17.json (100% pass rate)*
+*Weekly MRP Phase 3 (Weekly PO Generation) Completed: March 28, 2026*
+*Test Reports: /app/test_reports/iteration_16.json, iteration_17.json, iteration_18.json (100% pass rate)*
 
