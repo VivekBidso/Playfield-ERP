@@ -15,11 +15,20 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import useAuthStore from "../store/authStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const SKUManagement = () => {
+  // Get token from zustand auth store
+  const token = useAuthStore((state) => state.token);
+  
+  // Helper to get auth headers
+  const getHeaders = () => {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const [activeTab, setActiveTab] = useState("bidso");
   
   // Data
@@ -103,10 +112,11 @@ const SKUManagement = () => {
 
   const fetchMasterData = async () => {
     try {
+      const headers = getHeaders();
       const [verticalsRes, modelsRes, brandsRes] = await Promise.all([
-        axios.get(`${API}/verticals`),
-        axios.get(`${API}/models`),
-        axios.get(`${API}/brands`)
+        axios.get(`${API}/verticals`, { headers }),
+        axios.get(`${API}/models`, { headers }),
+        axios.get(`${API}/brands`, { headers })
       ]);
       setVerticals(verticalsRes.data.filter(v => v.status === 'ACTIVE'));
       setModels(modelsRes.data.filter(m => m.status === 'ACTIVE'));
@@ -118,7 +128,7 @@ const SKUManagement = () => {
 
   const fetchStats = async () => {
     try {
-      const res = await axios.get(`${API}/sku-management/migration-stats`);
+      const res = await axios.get(`${API}/sku-management/migration-stats`, { headers: getHeaders() });
       setStats(res.data);
     } catch (error) {
       console.error("Failed to fetch stats");
@@ -133,7 +143,7 @@ const SKUManagement = () => {
       if (filterModel) url += `model_id=${filterModel}&`;
       if (searchQuery) url += `search=${searchQuery}&`;
       
-      const res = await axios.get(url);
+      const res = await axios.get(url, { headers: getHeaders() });
       setBidsoSKUs(res.data);
     } catch (error) {
       toast.error("Failed to fetch Bidso SKUs");
@@ -150,7 +160,7 @@ const SKUManagement = () => {
       if (selectedBidso) url += `bidso_sku_id=${selectedBidso.bidso_sku_id}&`;
       if (searchQuery) url += `search=${searchQuery}&`;
       
-      const res = await axios.get(url);
+      const res = await axios.get(url, { headers: getHeaders() });
       setBuyerSKUs(res.data);
     } catch (error) {
       toast.error("Failed to fetch Buyer SKUs");
@@ -162,7 +172,7 @@ const SKUManagement = () => {
   const fetchNextCode = async (verticalId, modelId) => {
     if (!verticalId || !modelId) return;
     try {
-      const res = await axios.get(`${API}/sku-management/bidso-skus/next-code?vertical_id=${verticalId}&model_id=${modelId}`);
+      const res = await axios.get(`${API}/sku-management/bidso-skus/next-code?vertical_id=${verticalId}&model_id=${modelId}`, { headers: getHeaders() });
       setSuggestedCode(res.data.suggested_code);
       setPreviewSKUID(res.data.preview_sku_id);
       setBidsoForm(prev => ({ ...prev, numeric_code: res.data.suggested_code }));
@@ -178,7 +188,7 @@ const SKUManagement = () => {
         ...bidsoForm,
         numeric_code: bidsoForm.numeric_code || suggestedCode
       };
-      await axios.post(`${API}/sku-management/bidso-skus`, payload);
+      await axios.post(`${API}/sku-management/bidso-skus`, payload, { headers: getHeaders() });
       toast.success("Bidso SKU created successfully");
       setShowBidsoDialog(false);
       setBidsoForm({ vertical_id: "", model_id: "", numeric_code: "", name: "", description: "" });
@@ -193,7 +203,7 @@ const SKUManagement = () => {
 
   const handleCreateBuyer = async () => {
     try {
-      await axios.post(`${API}/sku-management/buyer-skus`, buyerForm);
+      await axios.post(`${API}/sku-management/buyer-skus`, buyerForm, { headers: getHeaders() });
       toast.success("Buyer SKU created successfully");
       setShowBuyerDialog(false);
       setBuyerForm({ bidso_sku_id: "", brand_id: "", name: "", description: "" });
@@ -209,7 +219,8 @@ const SKUManagement = () => {
     try {
       const res = await axios.post(
         `${API}/sku-management/buyer-skus/bulk-create?bidso_sku_id=${selectedBidso.bidso_sku_id}`,
-        brandIds
+        brandIds,
+        { headers: getHeaders() }
       );
       toast.success(`Created ${res.data.created} Buyer SKUs, ${res.data.skipped} skipped`);
       setShowBulkCreateDialog(false);
@@ -223,7 +234,7 @@ const SKUManagement = () => {
   const handleViewBOM = async (bidsoSKU) => {
     setSelectedBidso(bidsoSKU);
     try {
-      const res = await axios.get(`${API}/sku-management/bom/common/${bidsoSKU.bidso_sku_id}`);
+      const res = await axios.get(`${API}/sku-management/bom/common/${bidsoSKU.bidso_sku_id}`, { headers: getHeaders() });
       setCommonBOM(res.data.items || []);
       setBomLocked(res.data.is_locked || false);
       setShowBOMDialog(true);
@@ -235,7 +246,7 @@ const SKUManagement = () => {
   const handleLockBOM = async () => {
     if (!selectedBidso) return;
     try {
-      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/lock`);
+      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/lock`, {}, { headers: getHeaders() });
       toast.success("BOM locked successfully");
       setBomLocked(true);
     } catch (error) {
@@ -246,7 +257,7 @@ const SKUManagement = () => {
   const handleUnlockBOM = async () => {
     if (!selectedBidso) return;
     try {
-      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/unlock`);
+      await axios.post(`${API}/sku-management/bom/common/${selectedBidso.bidso_sku_id}/unlock`, {}, { headers: getHeaders() });
       toast.success("BOM unlocked");
       setBomLocked(false);
     } catch (error) {
@@ -264,6 +275,7 @@ const SKUManagement = () => {
     setExportLoading(true);
     try {
       const response = await axios.get(`${API}/demand-hub/export-all-sku-data/download`, {
+        headers: getHeaders(),
         responseType: 'blob'
       });
       
@@ -294,7 +306,7 @@ const SKUManagement = () => {
       formData.append('file', file);
       
       const response = await axios.post(`${API}/demand-hub/import-sku-data/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' }
       });
       
       const results = response.data.results;

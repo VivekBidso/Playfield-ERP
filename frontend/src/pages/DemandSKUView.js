@@ -25,15 +25,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import useAuthStore from "../store/authStore";
 
 const API = process.env.REACT_APP_BACKEND_URL + "/api";
 
-const getHeaders = () => {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
 const DemandSKUView = () => {
+  // Get token from zustand auth store
+  const token = useAuthStore((state) => state.token);
+  
+  const getHeaders = () => {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const [activeTab, setActiveTab] = useState("bidso");
   
   // Data
