@@ -1403,3 +1403,63 @@ Months 2-12: Uses model_level_forecasts split to SKU level using 6-month rolling
 
 *Last updated: March 28, 2026*
 *SKU Data Consolidation complete - Single source of truth in db.buyer_skus*
+
+---
+
+## 16. MRP ENGINE ENHANCEMENT (March 28, 2026)
+
+### Status: PLANNED - Awaiting Implementation
+
+### Reference Document
+See detailed implementation plan: `/app/memory/MRP_IMPLEMENTATION_PLAN.md`
+
+### Key Features Planned
+
+#### 16.1 Weekly Time-Phased MRP
+- **Ordering Cycle**: Weekly (Mondays)
+- **Site Buffer**: 7 days (material arrives 7 days before production)
+- **Order Date Calculation**: Arrival Date - Lead Time
+- **Order Week**: Monday of the week containing Order Date
+
+#### 16.2 Dual-Level Forecasting
+| Time Horizon | Forecast Level | BOM Used | RM Categories |
+|--------------|----------------|----------|---------------|
+| Month 1 (M1) | Buyer SKU | common_bom + brand_specific_bom | ALL |
+| Months 2-12 | Bidso SKU | common_bom ONLY | Common only (skip BS_, LB_, PM_) |
+
+#### 16.3 Net Requirement Formula
+```
+NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
+    - AVAILABLE_STOCK
+    - SCHEDULED_RECEIPTS (Open POs)
+    - IN_TRANSIT
+```
+
+#### 16.4 Open PO Integration
+- Track PO status: DRAFT → ISSUED → SHIPPED → RECEIVED
+- Include pending PO quantities in MRP calculation
+- Prevent double-ordering when re-running MRP
+
+#### 16.5 RM Classification
+| Prefix | Type | Procure At |
+|--------|------|------------|
+| ACC_, INP_, SP_, INM_ | COMMON | Bidso SKU level (M1-M12) |
+| BS_, LB_, PM_ | BRAND_SPECIFIC | Buyer SKU level (M1 only) |
+
+### Implementation Phases
+1. **Phase 1 (MVP)**: Weekly breakdown, dual BOM, order timing, UI
+2. **Phase 2**: Open PO integration
+3. **Phase 3**: Stock enhancements (quality hold, allocation)
+4. **Phase 4**: Advanced (yield factor, supplier constraints)
+5. **Phase 5**: Alerts & intelligence
+
+### New Data Models
+- Enhanced `rm_procurement_parameters` with yield_factor, lot_sizing_rule
+- Enhanced `branch_rm_inventory` with quality_hold_qty, allocated_qty
+- Enhanced `purchase_orders` with detailed status tracking
+- New `stock_allocations` collection
+
+---
+
+*MRP Implementation Plan saved: March 28, 2026*
+
