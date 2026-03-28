@@ -4,7 +4,7 @@ Demand Hub Routes - For Demand Planners/KAM users to:
 2. Request new Raw Materials (labels, packaging)
 3. View their request history and status
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from typing import List, Optional
 from datetime import datetime, timezone
 import uuid
@@ -1071,4 +1071,232 @@ async def get_my_requests(current_user: User = Depends(get_current_user)):
     
     return all_requests
 
-# Last deployed: Fri Mar 27 17:36:46 UTC 2026
+
+# ============== DATA EXPORT/IMPORT FOR PRODUCTION SYNC ==============
+
+@router.get("/export-all-sku-data")
+async def export_all_sku_data(current_user: User = Depends(get_current_user)):
+    """
+    Export all SKU-related data as JSON for production import.
+    This creates a comprehensive export that can be uploaded to production.
+    """
+    export_data = {
+        "export_date": datetime.now(timezone.utc).isoformat(),
+        "exported_by": current_user.email,
+        "bidso_skus": [],
+        "buyer_skus": [],
+        "common_bom": [],
+        "brands": [],
+        "verticals": [],
+        "models": [],
+        "buyers": []
+    }
+    
+    # Export Bidso SKUs
+    bidso_skus = await db.bidso_skus.find({}, {"_id": 0}).to_list(10000)
+    export_data["bidso_skus"] = bidso_skus
+    
+    # Export Buyer SKUs
+    buyer_skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    export_data["buyer_skus"] = buyer_skus
+    
+    # Export Common BOMs
+    common_bom = await db.common_bom.find({}, {"_id": 0}).to_list(10000)
+    export_data["common_bom"] = common_bom
+    
+    # Export Brands
+    brands = await db.brands.find({}, {"_id": 0}).to_list(1000)
+    export_data["brands"] = brands
+    
+    # Export Verticals
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
+    export_data["verticals"] = verticals
+    
+    # Export Models
+    models = await db.models.find({}, {"_id": 0}).to_list(1000)
+    export_data["models"] = models
+    
+    # Export Buyers
+    buyers = await db.buyers.find({}, {"_id": 0}).to_list(1000)
+    export_data["buyers"] = buyers
+    
+    return export_data
+
+
+@router.get("/export-all-sku-data/download")
+async def download_sku_data_export(current_user: User = Depends(get_current_user)):
+    """
+    Download all SKU data as a JSON file.
+    Use this to transfer data from preview to production.
+    """
+    import io
+    import json
+    from fastapi.responses import StreamingResponse
+    
+    export_data = await export_all_sku_data(current_user)
+    
+    # Convert to JSON string
+    json_str = json.dumps(export_data, indent=2, default=str)
+    
+    # Create file-like object
+    buffer = io.BytesIO(json_str.encode('utf-8'))
+    buffer.seek(0)
+    
+    filename = f"sku_data_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/import-sku-data")
+async def import_sku_data(
+    data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Import SKU data from exported JSON.
+    This is the target endpoint for production database population.
+    """
+    results = {
+        "bidso_skus": {"imported": 0, "skipped": 0, "errors": []},
+        "buyer_skus": {"imported": 0, "skipped": 0, "errors": []},
+        "common_bom": {"imported": 0, "skipped": 0, "errors": []},
+        "brands": {"imported": 0, "skipped": 0, "errors": []},
+        "verticals": {"imported": 0, "skipped": 0, "errors": []},
+        "models": {"imported": 0, "skipped": 0, "errors": []},
+        "buyers": {"imported": 0, "skipped": 0, "errors": []}
+    }
+    
+    # Import Verticals first (dependency)
+    for v in data.get("verticals", []):
+        try:
+            existing = await db.verticals.find_one({"id": v.get("id")})
+            if existing:
+                results["verticals"]["skipped"] += 1
+            else:
+                await db.verticals.insert_one(v)
+                results["verticals"]["imported"] += 1
+        except Exception as e:
+            results["verticals"]["errors"].append(str(e))
+    
+    # Import Brands
+    for b in data.get("brands", []):
+        try:
+            existing = await db.brands.find_one({"id": b.get("id")})
+            if existing:
+                results["brands"]["skipped"] += 1
+            else:
+                await db.brands.insert_one(b)
+                results["brands"]["imported"] += 1
+        except Exception as e:
+            results["brands"]["errors"].append(str(e))
+    
+    # Import Buyers
+    for buyer in data.get("buyers", []):
+        try:
+            existing = await db.buyers.find_one({"id": buyer.get("id")})
+            if existing:
+                results["buyers"]["skipped"] += 1
+            else:
+                await db.buyers.insert_one(buyer)
+                results["buyers"]["imported"] += 1
+        except Exception as e:
+            results["buyers"]["errors"].append(str(e))
+    
+    # Import Models
+    for m in data.get("models", []):
+        try:
+            existing = await db.models.find_one({"id": m.get("id")})
+            if existing:
+                results["models"]["skipped"] += 1
+            else:
+                await db.models.insert_one(m)
+                results["models"]["imported"] += 1
+        except Exception as e:
+            results["models"]["errors"].append(str(e))
+    
+    # Import Bidso SKUs
+    for sku in data.get("bidso_skus", []):
+        try:
+            existing = await db.bidso_skus.find_one({
+                "$or": [
+                    {"id": sku.get("id")},
+                    {"bidso_sku_id": sku.get("bidso_sku_id")}
+                ]
+            })
+            if existing:
+                results["bidso_skus"]["skipped"] += 1
+            else:
+                await db.bidso_skus.insert_one(sku)
+                results["bidso_skus"]["imported"] += 1
+        except Exception as e:
+            results["bidso_skus"]["errors"].append(str(e))
+    
+    # Import Buyer SKUs
+    for sku in data.get("buyer_skus", []):
+        try:
+            existing = await db.skus.find_one({
+                "$or": [
+                    {"id": sku.get("id")},
+                    {"sku_id": sku.get("sku_id")}
+                ]
+            })
+            if existing:
+                results["buyer_skus"]["skipped"] += 1
+            else:
+                await db.skus.insert_one(sku)
+                results["buyer_skus"]["imported"] += 1
+        except Exception as e:
+            results["buyer_skus"]["errors"].append(str(e))
+    
+    # Import Common BOMs
+    for bom in data.get("common_bom", []):
+        try:
+            existing = await db.common_bom.find_one({"bidso_sku_id": bom.get("bidso_sku_id")})
+            if existing:
+                results["common_bom"]["skipped"] += 1
+            else:
+                await db.common_bom.insert_one(bom)
+                results["common_bom"]["imported"] += 1
+        except Exception as e:
+            results["common_bom"]["errors"].append(str(e))
+    
+    return {
+        "success": True,
+        "message": "Import completed",
+        "results": results
+    }
+
+
+@router.post("/import-sku-data/upload")
+async def upload_and_import_sku_data(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload a JSON file exported from preview and import all SKU data.
+    This is the easiest way to sync data to production.
+    """
+    import json
+    
+    if not file.filename.endswith('.json'):
+        raise HTTPException(status_code=400, detail="File must be a JSON file")
+    
+    try:
+        contents = await file.read()
+        data = json.loads(contents.decode('utf-8'))
+        
+        # Call the import function
+        result = await import_sku_data(data, current_user)
+        return result
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+# Last deployed: Fri Mar 28 05:45:00 UTC 2026

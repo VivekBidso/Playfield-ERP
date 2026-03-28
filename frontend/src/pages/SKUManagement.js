@@ -1,14 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { 
   Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
-  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -74,6 +74,12 @@ const SKUManagement = () => {
     buyer_skus: 0,
     common_boms: 0
   });
+  
+  // Data Sync
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const syncFileInputRef = useRef(null);
 
   useEffect(() => {
     fetchMasterData();
@@ -253,6 +259,62 @@ const SKUManagement = () => {
   const getBrandName = (id) => brands.find(b => b.id === id)?.name || "";
   const getFilteredModels = () => filterVertical ? models.filter(m => m.vertical_id === filterVertical) : models;
 
+  // Data Sync Functions
+  const handleExportData = async () => {
+    setExportLoading(true);
+    try {
+      const response = await axios.get(`${API}/demand-hub/export-all-sku-data/download`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `sku_data_export_${new Date().toISOString().slice(0,10)}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Data exported successfully');
+    } catch (error) {
+      toast.error('Failed to export data');
+    }
+    setExportLoading(false);
+  };
+
+  const handleImportData = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setSyncLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/demand-hub/import-sku-data/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      const results = response.data.results;
+      const summary = Object.entries(results)
+        .map(([key, val]) => `${key}: ${val.imported} imported, ${val.skipped} skipped`)
+        .join('\n');
+      
+      toast.success('Data imported successfully', { description: summary });
+      setShowSyncDialog(false);
+      fetchMasterData();
+      fetchBidsoSKUs();
+      fetchBuyerSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import data');
+    }
+    setSyncLoading(false);
+    event.target.value = '';
+  };
+
   return (
     <div className="p-6 space-y-6" data-testid="sku-management-page">
       {/* Header */}
@@ -260,6 +322,12 @@ const SKUManagement = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">SKU Management</h1>
           <p className="text-gray-500 mt-1">Manage Bidso SKUs (base products) and Buyer SKUs (branded variants)</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowSyncDialog(true)} data-testid="sync-data-btn">
+            <Database className="h-4 w-4 mr-2" />
+            Data Sync
+          </Button>
         </div>
       </div>
 
@@ -877,6 +945,81 @@ const SKUManagement = () => {
               </Table>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Data Sync Dialog */}
+      <Dialog open={showSyncDialog} onOpenChange={setShowSyncDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Data Sync</DialogTitle>
+            <DialogDescription>
+              Export data from preview or import data to production
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Export Section */}
+            <div className="p-4 border rounded-lg bg-blue-50">
+              <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
+                <Download className="h-5 w-5" />
+                Export Data (Preview → File)
+              </h4>
+              <p className="text-sm text-blue-700 mb-3">
+                Download all SKU data as a JSON file. Use this on the preview environment.
+              </p>
+              <Button 
+                onClick={handleExportData} 
+                disabled={exportLoading}
+                className="w-full"
+                variant="outline"
+              >
+                {exportLoading ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                Download Export File
+              </Button>
+            </div>
+
+            {/* Import Section */}
+            <div className="p-4 border rounded-lg bg-green-50">
+              <h4 className="font-medium text-green-900 mb-2 flex items-center gap-2">
+                <Upload className="h-5 w-5" />
+                Import Data (File → Database)
+              </h4>
+              <p className="text-sm text-green-700 mb-3">
+                Upload the exported JSON file to import all SKU data. Use this on production.
+              </p>
+              <input
+                type="file"
+                accept=".json"
+                ref={syncFileInputRef}
+                onChange={handleImportData}
+                className="hidden"
+              />
+              <Button 
+                onClick={() => syncFileInputRef.current?.click()} 
+                disabled={syncLoading}
+                className="w-full"
+                variant="outline"
+              >
+                {syncLoading ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                Upload Import File
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSyncDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
