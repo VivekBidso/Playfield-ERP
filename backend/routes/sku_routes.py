@@ -388,7 +388,10 @@ async def get_filtered_skus(
     branch: Optional[str] = None,
     include_inactive: bool = False
 ):
-    """Get SKUs with relational filters"""
+    """
+    Get SKUs with relational filters.
+    Now queries consolidated db.buyer_skus collection (single source of truth).
+    """
     query = {}
     if not include_inactive:
         query["status"] = {"$ne": "INACTIVE"}
@@ -402,29 +405,34 @@ async def get_filtered_skus(
     if buyer_id:
         query["buyer_id"] = buyer_id
     
-    skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
+    # Query from consolidated buyer_skus collection
+    skus = await db.buyer_skus.find(query, {"_id": 0}).to_list(10000)
     
     # Apply search filter
     if search:
         search_lower = search.lower()
         skus = [s for s in skus if 
-                search_lower in s.get("sku_id", "").lower() or
+                search_lower in s.get("buyer_sku_id", "").lower() or
+                search_lower in s.get("name", "").lower() or
                 search_lower in s.get("description", "").lower()]
     
-    # Enrich with related data
+    # Enrich with related data and add compatibility fields
     for sku in skus:
-        # Get vertical name
-        if sku.get("vertical_id"):
+        # Add sku_id alias for backward compatibility
+        sku["sku_id"] = sku.get("buyer_sku_id", "")
+        
+        # Get vertical name if not already present
+        if sku.get("vertical_id") and not sku.get("vertical_name"):
             v = await db.verticals.find_one({"id": sku["vertical_id"]}, {"_id": 0, "name": 1})
             sku["vertical_name"] = v["name"] if v else None
         
-        # Get model name
-        if sku.get("model_id"):
+        # Get model name if not already present
+        if sku.get("model_id") and not sku.get("model_name"):
             m = await db.models.find_one({"id": sku["model_id"]}, {"_id": 0, "name": 1})
             sku["model_name"] = m["name"] if m else None
         
-        # Get brand name
-        if sku.get("brand_id"):
+        # Get brand name if not already present
+        if sku.get("brand_id") and not sku.get("brand_name"):
             b = await db.brands.find_one({"id": sku["brand_id"]}, {"_id": 0, "name": 1})
             sku["brand_name"] = b["name"] if b else None
         
@@ -436,14 +444,14 @@ async def get_filtered_skus(
         # Branch inventory
         if branch:
             inv = await db.branch_sku_inventory.find_one(
-                {"sku_id": sku["sku_id"], "branch": branch},
+                {"sku_id": sku.get("buyer_sku_id"), "branch": branch},
                 {"_id": 0}
             )
             sku["branch_stock"] = inv.get("current_stock", 0) if inv else 0
             sku["is_active_in_branch"] = inv.get("is_active", False) if inv else False
             
             fg = await db.fg_inventory.find_one(
-                {"sku_id": sku["sku_id"], "branch": branch},
+                {"sku_id": sku.get("buyer_sku_id"), "branch": branch},
                 {"_id": 0}
             )
             sku["fg_stock"] = fg.get("quantity", 0) if fg else 0

@@ -1096,8 +1096,8 @@ async def export_all_sku_data(current_user: User = Depends(get_current_user)):
     bidso_skus = await db.bidso_skus.find({}, {"_id": 0}).to_list(10000)
     export_data["bidso_skus"] = bidso_skus
     
-    # Export Buyer SKUs
-    buyer_skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    # Export Buyer SKUs (from consolidated buyer_skus collection)
+    buyer_skus = await db.buyer_skus.find({}, {"_id": 0}).to_list(10000)
     export_data["buyer_skus"] = buyer_skus
     
     # Export Common BOMs
@@ -1235,19 +1235,23 @@ async def import_sku_data(
         except Exception as e:
             results["bidso_skus"]["errors"].append(str(e))
     
-    # Import Buyer SKUs
+    # Import Buyer SKUs (into consolidated buyer_skus collection)
     for sku in data.get("buyer_skus", []):
         try:
-            existing = await db.skus.find_one({
+            existing = await db.buyer_skus.find_one({
                 "$or": [
                     {"id": sku.get("id")},
-                    {"sku_id": sku.get("sku_id")}
+                    {"buyer_sku_id": sku.get("buyer_sku_id")},
+                    {"buyer_sku_id": sku.get("sku_id")}  # For backward compatibility
                 ]
             })
             if existing:
                 results["buyer_skus"]["skipped"] += 1
             else:
-                await db.skus.insert_one(sku)
+                # Ensure we have buyer_sku_id set
+                if not sku.get("buyer_sku_id") and sku.get("sku_id"):
+                    sku["buyer_sku_id"] = sku.get("sku_id")
+                await db.buyer_skus.insert_one(sku)
                 results["buyer_skus"]["imported"] += 1
         except Exception as e:
             results["buyer_skus"]["errors"].append(str(e))

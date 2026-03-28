@@ -1375,5 +1375,31 @@ Months 2-12: Uses model_level_forecasts split to SKU level using 6-month rolling
 
 ---
 
-*Last updated: March 27, 2026*
-*MRP Module complete - Full 12-month rolling forecast with BOM explosion and auto PO generation*
+---
+
+## 15. SKU DATA CONSOLIDATION (March 28, 2026)
+
+### Problem Resolved:
+- SKU Catalog (Demand Hub) showed 711 Buyer SKUs from legacy `db.skus` collection
+- SKU Management (TechOps) showed 453 Buyer SKUs from newer `db.buyer_skus` collection
+- Users saw inconsistent SKU counts depending on which page they visited
+
+### Solution Implemented:
+1. **Data Migration**: Migrated 245 missing records from `db.skus` to `db.buyer_skus`
+2. **Endpoint Update**: Modified `/api/skus/filtered` to query consolidated `db.buyer_skus` collection
+3. **Export/Import Update**: Updated Data Sync feature to use `buyer_skus` collection
+
+### Final State:
+- `db.buyer_skus` now contains **730 records** (single source of truth)
+- Both SKU Catalog and SKU Management show consistent data
+- Backward compatibility maintained via `sku_id` alias field
+- 2 test SKUs with DRAFT status (excluded from ACTIVE-only queries)
+
+### Files Modified:
+- `backend/routes/sku_routes.py` - Updated `/api/skus/filtered` endpoint
+- `backend/routes/demand_hub_routes.py` - Updated export/import functions
+
+---
+
+*Last updated: March 28, 2026*
+*SKU Data Consolidation complete - Single source of truth in db.buyer_skus*
