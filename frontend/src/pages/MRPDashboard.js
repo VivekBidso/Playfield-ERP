@@ -48,8 +48,10 @@ import {
   ShoppingCart,
   Plus,
   Upload,
+  Download,
   Edit,
   X,
+  Calendar,
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -67,17 +69,21 @@ export default function MRPDashboard() {
   const [mrpRuns, setMrpRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState(null);
   const [runDetailOpen, setRunDetailOpen] = useState(false);
+  const [runViewTab, setRunViewTab] = useState('requirements');
+  const [weeklyRequirements, setWeeklyRequirements] = useState(null);
+  const [selectedWeeks, setSelectedWeeks] = useState(12);
   
   // Draft POs state
   const [draftPOs, setDraftPOs] = useState([]);
   const [selectedPO, setSelectedPO] = useState(null);
   const [poDetailOpen, setPODetailOpen] = useState(false);
   
-  // Model Forecasts state
-  const [modelForecasts, setModelForecasts] = useState([]);
-  const [models, setModels] = useState([]);
+  // Model Forecasts state - Pivot format
+  const [forecastPivot, setForecastPivot] = useState(null);
   const [verticals, setVerticals] = useState([]);
   const [selectedVertical, setSelectedVertical] = useState('');
+  const [editingForecasts, setEditingForecasts] = useState({});
+  const [savingForecasts, setSavingForecasts] = useState(false);
   
   // RM Parameters state
   const [rmParams, setRmParams] = useState([]);
@@ -88,15 +94,6 @@ export default function MRPDashboard() {
   const [calculating, setCalculating] = useState(false);
   const [generatingPOs, setGeneratingPOs] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  
-  // Add Forecast Dialog
-  const [addForecastOpen, setAddForecastOpen] = useState(false);
-  const [forecastForm, setForecastForm] = useState({
-    model_id: '',
-    month_year: '',
-    forecast_qty: ''
-  });
-  const [savingForecast, setSavingForecast] = useState(false);
   
   // Add RM Params Dialog
   const [addRMParamsOpen, setAddRMParamsOpen] = useState(false);
@@ -110,6 +107,9 @@ export default function MRPDashboard() {
   });
   const [savingRMParams, setSavingRMParams] = useState(false);
   const [editingRMParam, setEditingRMParam] = useState(null);
+  
+  // Upload state
+  const [uploading, setUploading] = useState(false);
 
   const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
@@ -158,21 +158,22 @@ export default function MRPDashboard() {
     }
   }, [token, getHeaders]);
 
-  // Fetch Model Forecasts
-  const fetchModelForecasts = useCallback(async () => {
+  // Fetch Model Forecasts in Pivot format
+  const fetchForecastPivot = useCallback(async () => {
     if (!token) return;
     try {
-      let url = `${API}/api/mrp/model-forecasts`;
-      if (selectedVertical) {
+      let url = `${API}/api/mrp/model-forecasts/pivot`;
+      if (selectedVertical && selectedVertical !== 'all') {
         url += `?vertical_id=${selectedVertical}`;
       }
       const res = await fetch(url, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setModelForecasts(data);
+        setForecastPivot(data);
+        setEditingForecasts({});
       }
     } catch (err) {
-      console.error('Failed to fetch forecasts:', err);
+      console.error('Failed to fetch forecast pivot:', err);
     }
   }, [token, selectedVertical, getHeaders]);
 
@@ -195,15 +196,13 @@ export default function MRPDashboard() {
     if (!token) return;
     try {
       const reqHeaders = getHeaders();
-      const [verticalsRes, modelsRes, vendorsRes, rmRes] = await Promise.all([
+      const [verticalsRes, vendorsRes, rmRes] = await Promise.all([
         fetch(`${API}/api/verticals`, { headers: reqHeaders }),
-        fetch(`${API}/api/models`, { headers: reqHeaders }),
         fetch(`${API}/api/vendors`, { headers: reqHeaders }),
         fetch(`${API}/api/raw-materials?limit=5000`, { headers: reqHeaders })
       ]);
       
       if (verticalsRes.ok) setVerticals(await verticalsRes.json());
-      if (modelsRes.ok) setModels(await modelsRes.json());
       if (vendorsRes.ok) setVendors(await vendorsRes.json());
       if (rmRes.ok) {
         const rmData = await rmRes.json();
@@ -229,10 +228,19 @@ export default function MRPDashboard() {
     if (token) loadData();
   }, [token, fetchDashboard, fetchMRPRuns, fetchDraftPOs, fetchMasterData]);
 
-  // Fetch forecasts when vertical changes
+  // Fetch forecasts when vertical changes or tab switches
   useEffect(() => {
-    if (token) fetchModelForecasts();
-  }, [selectedVertical, token, fetchModelForecasts]);
+    if (token && activeTab === 'forecasts') {
+      fetchForecastPivot();
+    }
+  }, [selectedVertical, token, activeTab, fetchForecastPivot]);
+
+  // Fetch RM params when tab switches
+  useEffect(() => {
+    if (token && activeTab === 'rm-params') {
+      fetchRMParams();
+    }
+  }, [token, activeTab, fetchRMParams]);
 
   // Run MRP Calculation
   const runMRPCalculation = async () => {
@@ -349,17 +357,70 @@ export default function MRPDashboard() {
     }
   };
 
-  // View run detail
+  // View run detail with weekly requirements
   const viewRunDetail = async (runId) => {
     try {
-      const res = await fetch(`${API}/api/mrp/runs/${runId}`, { headers: getHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedRun(data);
-        setRunDetailOpen(true);
+      const [runRes, weeklyRes] = await Promise.all([
+        fetch(`${API}/api/mrp/runs/${runId}`, { headers: getHeaders() }),
+        fetch(`${API}/api/mrp/runs/${runId}/weekly-requirements?weeks=${selectedWeeks}`, { headers: getHeaders() })
+      ]);
+      
+      if (runRes.ok) {
+        const runData = await runRes.json();
+        setSelectedRun(runData);
       }
+      
+      if (weeklyRes.ok) {
+        const weeklyData = await weeklyRes.json();
+        setWeeklyRequirements(weeklyData);
+      }
+      
+      setRunDetailOpen(true);
     } catch (err) {
       toast.error('Error loading run details');
+    }
+  };
+
+  // Refresh weekly requirements with different weeks
+  const refreshWeeklyRequirements = async (weeks) => {
+    if (!selectedRun) return;
+    setSelectedWeeks(weeks);
+    try {
+      const res = await fetch(`${API}/api/mrp/runs/${selectedRun.id}/weekly-requirements?weeks=${weeks}`, { 
+        headers: getHeaders() 
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWeeklyRequirements(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch weekly requirements:', err);
+    }
+  };
+
+  // Download MRP run results
+  const downloadRunResults = async (runId) => {
+    try {
+      const res = await fetch(`${API}/api/mrp/runs/${runId}/download`, { 
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mrp_run_${runId}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success('Download started');
+      } else {
+        toast.error('Download failed');
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
     }
   };
 
@@ -377,7 +438,7 @@ export default function MRPDashboard() {
     }
   };
 
-  // Seed test data - FIXED: proper error handling
+  // Seed test data
   const seedTestData = async () => {
     setSeeding(true);
     try {
@@ -392,7 +453,7 @@ export default function MRPDashboard() {
           description: `${data.model_forecasts_created} forecasts, ${data.rm_params_created} RM params`
         });
         fetchDashboard();
-        fetchModelForecasts();
+        fetchForecastPivot();
         fetchRMParams();
       } else {
         toast.error('Seeding Failed', { description: data.detail || 'Unknown error' });
@@ -403,65 +464,175 @@ export default function MRPDashboard() {
     setSeeding(false);
   };
 
-  // Add Model Forecast
-  const handleAddForecast = async () => {
-    if (!forecastForm.model_id || !forecastForm.month_year || !forecastForm.forecast_qty) {
-      toast.error('Please fill all fields');
+  // Update forecast in pivot
+  const handleForecastChange = (modelId, monthYear, value) => {
+    setEditingForecasts(prev => ({
+      ...prev,
+      [`${modelId}_${monthYear}`]: value
+    }));
+  };
+
+  // Save edited forecasts
+  const saveForecasts = async () => {
+    const changes = Object.entries(editingForecasts);
+    if (changes.length === 0) {
+      toast.info('No changes to save');
       return;
     }
     
-    setSavingForecast(true);
+    setSavingForecasts(true);
     try {
-      const res = await fetch(`${API}/api/mrp/model-forecasts`, {
+      const forecasts = changes.map(([key, value]) => {
+        const [modelId, monthYear] = key.split('_').slice(0, 2);
+        const actualMonthYear = key.substring(modelId.length + 1);
+        return {
+          model_id: modelId,
+          month_year: actualMonthYear,
+          forecast_qty: parseInt(value) || 0
+        };
+      });
+      
+      const res = await fetch(`${API}/api/mrp/model-forecasts/bulk`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({
-          model_id: forecastForm.model_id,
-          month_year: forecastForm.month_year,
-          forecast_qty: parseInt(forecastForm.forecast_qty)
-        })
+        body: JSON.stringify(forecasts)
       });
       
       const data = await res.json();
       if (res.ok) {
-        toast.success('Forecast Added');
-        setAddForecastOpen(false);
-        setForecastForm({ model_id: '', month_year: '', forecast_qty: '' });
-        fetchModelForecasts();
+        toast.success('Forecasts Saved', {
+          description: `${data.created} created, ${data.updated} updated`
+        });
+        fetchForecastPivot();
         fetchDashboard();
       } else {
-        toast.error('Failed', { description: data.detail || 'Unknown error' });
+        toast.error('Save Failed', { description: data.detail || 'Unknown error' });
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
     }
-    setSavingForecast(false);
+    setSavingForecasts(false);
   };
 
-  // Delete Model Forecast
-  const handleDeleteForecast = async (forecastId) => {
-    if (!window.confirm('Delete this forecast?')) return;
-    
+  // Download forecast template
+  const downloadForecastTemplate = async () => {
     try {
-      const res = await fetch(`${API}/api/mrp/model-forecasts/${forecastId}`, {
-        method: 'DELETE',
-        headers: getHeaders()
+      const res = await fetch(`${API}/api/mrp/model-forecasts/template`, { 
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
       if (res.ok) {
-        toast.success('Forecast Deleted');
-        fetchModelForecasts();
-        fetchDashboard();
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'model_forecast_template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success('Template downloaded');
       } else {
-        const data = await res.json();
-        toast.error('Failed', { description: data.detail || 'Unknown error' });
+        toast.error('Download failed');
       }
     } catch (err) {
       toast.error('Error', { description: err.message });
     }
   };
 
-  // Add/Update RM Parameters
+  // Upload forecasts
+  const handleForecastUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch(`${API}/api/mrp/model-forecasts/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Forecasts Uploaded', {
+          description: `${data.created} created, ${data.updated} updated`
+        });
+        fetchForecastPivot();
+        fetchDashboard();
+      } else {
+        toast.error('Upload Failed', { description: data.detail || 'Unknown error' });
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  // Download RM params template
+  const downloadRMParamsTemplate = async () => {
+    try {
+      const res = await fetch(`${API}/api/mrp/rm-params/template`, { 
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'rm_parameters_template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success('Template downloaded');
+      } else {
+        toast.error('Download failed');
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+  };
+
+  // Upload RM params
+  const handleRMParamsUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch(`${API}/api/mrp/rm-params/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Parameters Uploaded', {
+          description: `${data.created} created, ${data.updated} updated`
+        });
+        fetchRMParams();
+        fetchDashboard();
+      } else {
+        toast.error('Upload Failed', { description: data.detail || 'Unknown error' });
+      }
+    } catch (err) {
+      toast.error('Error', { description: err.message });
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  // Save RM Parameters
   const handleSaveRMParams = async () => {
     if (!rmParamsForm.rm_id) {
       toast.error('Please select a Raw Material');
@@ -512,19 +683,6 @@ export default function MRPDashboard() {
       preferred_vendor_id: param.preferred_vendor_id || ''
     });
     setAddRMParamsOpen(true);
-  };
-
-  // Generate month options for the next 12 months
-  const getMonthOptions = () => {
-    const options = [];
-    const now = new Date();
-    for (let i = 1; i <= 12; i++) {
-      const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const label = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-      options.push({ value, label });
-    }
-    return options;
   };
 
   const getStatusBadge = (status) => {
@@ -738,8 +896,17 @@ export default function MRPDashboard() {
                             size="sm" 
                             variant="ghost"
                             onClick={() => viewRunDetail(run.id)}
+                            title="View Details"
                           >
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            onClick={() => downloadRunResults(run.id)}
+                            title="Download Excel"
+                          >
+                            <Download className="h-4 w-4" />
                           </Button>
                           {run.status === 'CALCULATED' && (
                             <Button 
@@ -747,6 +914,7 @@ export default function MRPDashboard() {
                               variant="ghost"
                               onClick={() => approveMRPRun(run.id)}
                               className="text-green-600"
+                              title="Approve"
                             >
                               <CheckCircle className="h-4 w-4" />
                             </Button>
@@ -851,7 +1019,7 @@ export default function MRPDashboard() {
           </Card>
         </TabsContent>
 
-        {/* Model Forecasts Tab */}
+        {/* Model Forecasts Tab - Pivot Format */}
         <TabsContent value="forecasts" className="space-y-4">
           <Card>
             <CardHeader>
@@ -859,13 +1027,13 @@ export default function MRPDashboard() {
                 <div>
                   <CardTitle>Model-Level Forecasts</CardTitle>
                   <CardDescription>
-                    Monthly forecasts at model level - split to SKUs using rolling ratios
+                    Monthly forecasts in pivot format (Model × Month)
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Select value={selectedVertical} onValueChange={setSelectedVertical}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Filter by Vertical" />
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="All Verticals" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Verticals</SelectItem>
@@ -874,68 +1042,102 @@ export default function MRPDashboard() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" onClick={fetchModelForecasts}>
+                  <Button variant="outline" onClick={fetchForecastPivot}>
                     <RefreshCw className="h-4 w-4" />
                   </Button>
-                  <Button onClick={() => setAddForecastOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Forecast
+                  <Button variant="outline" onClick={downloadForecastTemplate}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Template
                   </Button>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleForecastUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={uploading}
+                    />
+                    <Button variant="outline" disabled={uploading}>
+                      {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                      Upload
+                    </Button>
+                  </div>
+                  {Object.keys(editingForecasts).length > 0 && (
+                    <Button onClick={saveForecasts} disabled={savingForecasts}>
+                      {savingForecasts ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+                      Save Changes ({Object.keys(editingForecasts).length})
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vertical</TableHead>
-                    <TableHead>Model</TableHead>
-                    <TableHead>Month</TableHead>
-                    <TableHead className="text-right">Forecast Qty</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {modelForecasts.slice(0, 50).map(f => (
-                    <TableRow key={f.id}>
-                      <TableCell>{f.vertical_code}</TableCell>
-                      <TableCell>
-                        <span className="font-medium">{f.model_code}</span>
-                        <span className="text-gray-500 ml-2 text-sm">{f.model_name}</span>
-                      </TableCell>
-                      <TableCell>{f.month_year}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        {f.forecast_qty?.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-xs text-gray-500">
-                        {formatDate(f.created_at)}
-                      </TableCell>
-                      <TableCell>
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={() => handleDeleteForecast(f.id)}
-                          className="text-red-500"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {modelForecasts.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                        No model forecasts. Click "Add Forecast" or "Seed Test Data" to generate sample data.
-                      </TableCell>
-                    </TableRow>
+              {forecastPivot ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="sticky left-0 bg-white z-10 min-w-[120px]">Model</TableHead>
+                        <TableHead className="min-w-[100px]">Vertical</TableHead>
+                        {forecastPivot.months?.map(m => (
+                          <TableHead key={m.month_year} className="text-center min-w-[80px]">
+                            {m.display}
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-right font-bold">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {forecastPivot.models?.slice(0, 100).map(model => (
+                        <TableRow key={model.model_id}>
+                          <TableCell className="sticky left-0 bg-white z-10 font-medium">
+                            {model.model_code}
+                            <span className="text-gray-400 text-xs block">{model.model_name}</span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{model.vertical_code}</Badge>
+                          </TableCell>
+                          {forecastPivot.months?.map(m => {
+                            const key = `${model.model_id}_${m.month_year}`;
+                            const currentValue = editingForecasts[key] !== undefined 
+                              ? editingForecasts[key] 
+                              : model.forecasts[m.month_year];
+                            return (
+                              <TableCell key={m.month_year} className="p-1">
+                                <Input
+                                  type="number"
+                                  className="w-20 h-8 text-center text-sm"
+                                  value={currentValue || ''}
+                                  placeholder="-"
+                                  onChange={(e) => handleForecastChange(model.model_id, m.month_year, e.target.value)}
+                                />
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell className="text-right font-bold">
+                            {model.total?.toLocaleString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(!forecastPivot.models || forecastPivot.models.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={forecastPivot.months?.length + 3 || 15} className="text-center py-8 text-gray-500">
+                            No models found. Use "Seed Test Data" or upload a forecast file.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                  {forecastPivot.models?.length > 100 && (
+                    <p className="text-sm text-gray-500 text-center mt-4">
+                      Showing 100 of {forecastPivot.models.length} models
+                    </p>
                   )}
-                </TableBody>
-              </Table>
-              {modelForecasts.length > 50 && (
-                <p className="text-sm text-gray-500 text-center mt-4">
-                  Showing 50 of {modelForecasts.length} forecasts
-                </p>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  Loading forecast data...
+                </div>
               )}
             </CardContent>
           </Card>
@@ -957,13 +1159,30 @@ export default function MRPDashboard() {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh
                   </Button>
+                  <Button variant="outline" onClick={downloadRMParamsTemplate}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Template
+                  </Button>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleRMParamsUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={uploading}
+                    />
+                    <Button variant="outline" disabled={uploading}>
+                      {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                      Upload
+                    </Button>
+                  </div>
                   <Button onClick={() => {
                     setEditingRMParam(null);
                     setRMParamsForm({ rm_id: '', safety_stock: 0, moq: 1, batch_size: 1, lead_time_days: 7, preferred_vendor_id: '' });
                     setAddRMParamsOpen(true);
                   }}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add RM Parameters
+                    Add
                   </Button>
                 </div>
               </div>
@@ -1010,7 +1229,7 @@ export default function MRPDashboard() {
                   {rmParams.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                        No RM parameters. Click "Add RM Parameters" or "Seed Test Data" to generate defaults.
+                        No RM parameters. Click "Add" or upload a template.
                       </TableCell>
                     </TableRow>
                   )}
@@ -1028,11 +1247,11 @@ export default function MRPDashboard() {
 
       {/* MRP Run Detail Dialog */}
       <Dialog open={runDetailOpen} onOpenChange={setRunDetailOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>MRP Run Details</DialogTitle>
+            <DialogTitle>MRP Run Details - {selectedRun?.run_code}</DialogTitle>
             <DialogDescription>
-              {selectedRun?.run_code} - {formatDate(selectedRun?.run_date)}
+              {formatDate(selectedRun?.run_date)} | Status: {selectedRun?.status}
             </DialogDescription>
           </DialogHeader>
           
@@ -1068,58 +1287,144 @@ export default function MRPDashboard() {
                 </Card>
               </div>
 
-              {/* RM Requirements Table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">RM Requirements (Top 20)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>RM ID</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead className="text-right">Required</TableHead>
-                        <TableHead className="text-right">Stock</TableHead>
-                        <TableHead className="text-right">Net Req</TableHead>
-                        <TableHead className="text-right">Order Qty</TableHead>
-                        <TableHead>Vendor</TableHead>
-                        <TableHead className="text-right">Cost</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedRun.rm_requirements?.slice(0, 20).map((rm, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell className="font-mono text-xs">{rm.rm_id}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">{rm.category}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right">{rm.total_required?.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{rm.current_stock?.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">
-                            <span className={rm.net_requirement > 0 ? 'text-red-600 font-medium' : ''}>
-                              {rm.net_requirement?.toLocaleString()}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {rm.order_qty?.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="max-w-[150px] truncate text-xs" title={rm.vendor_name}>
-                            {rm.vendor_name || '-'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(rm.total_cost)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              {/* View Tabs */}
+              <Tabs value={runViewTab} onValueChange={setRunViewTab}>
+                <TabsList>
+                  <TabsTrigger value="requirements">RM Requirements</TabsTrigger>
+                  <TabsTrigger value="weekly">Weekly Breakdown</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="requirements">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">RM Requirements</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>RM ID</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead className="text-right">Required</TableHead>
+                            <TableHead className="text-right">Stock</TableHead>
+                            <TableHead className="text-right">Net Req</TableHead>
+                            <TableHead className="text-right">Order Qty</TableHead>
+                            <TableHead>Vendor</TableHead>
+                            <TableHead className="text-right">Cost</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedRun.rm_requirements?.slice(0, 30).map((rm, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-mono text-xs">{rm.rm_id}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs">{rm.category}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right">{rm.total_required?.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">{rm.current_stock?.toLocaleString()}</TableCell>
+                              <TableCell className="text-right">
+                                <span className={rm.net_requirement > 0 ? 'text-red-600 font-medium' : ''}>
+                                  {rm.net_requirement?.toLocaleString()}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {rm.order_qty?.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="max-w-[150px] truncate text-xs" title={rm.vendor_name}>
+                                {rm.vendor_name || '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency(rm.total_cost)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                
+                <TabsContent value="weekly">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex justify-between items-center">
+                        <CardTitle className="text-lg">Weekly Requirements</CardTitle>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant={selectedWeeks === 12 ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => refreshWeeklyRequirements(12)}
+                          >
+                            <Calendar className="h-4 w-4 mr-1" />
+                            12 Weeks
+                          </Button>
+                          <Button 
+                            variant={selectedWeeks === 24 ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => refreshWeeklyRequirements(24)}
+                          >
+                            <Calendar className="h-4 w-4 mr-1" />
+                            24 Weeks
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {weeklyRequirements ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="sticky left-0 bg-white z-10 min-w-[120px]">RM ID</TableHead>
+                                <TableHead className="min-w-[80px]">Total Qty</TableHead>
+                                {weeklyRequirements.week_labels?.slice(0, selectedWeeks).map(w => (
+                                  <TableHead key={w.week_num} className="text-center min-w-[70px] text-xs">
+                                    {w.label}
+                                  </TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {weeklyRequirements.requirements?.slice(0, 30).map((rm, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="sticky left-0 bg-white z-10 font-mono text-xs">
+                                    {rm.rm_id}
+                                  </TableCell>
+                                  <TableCell className="font-bold">
+                                    {rm.order_qty?.toLocaleString()}
+                                  </TableCell>
+                                  {weeklyRequirements.week_labels?.slice(0, selectedWeeks).map(w => (
+                                    <TableCell key={w.week_num} className="text-center text-sm">
+                                      {rm.weekly_qty?.[`week_${w.week_num}`] || '-'}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          {weeklyRequirements.requirements?.length > 30 && (
+                            <p className="text-sm text-gray-500 text-center mt-4">
+                              Showing 30 of {weeklyRequirements.requirements.length} RMs
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          Loading weekly data...
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
           
           <DialogFooter>
+            <Button variant="outline" onClick={() => downloadRunResults(selectedRun?.id)}>
+              <Download className="h-4 w-4 mr-2" />
+              Download Excel
+            </Button>
             {selectedRun?.status === 'CALCULATED' && (
               <Button 
                 onClick={() => generateDraftPOs(selectedRun.id)}
@@ -1193,11 +1498,6 @@ export default function MRPDashboard() {
                   ))}
                 </TableBody>
               </Table>
-              {selectedPO.lines?.length > 30 && (
-                <p className="text-sm text-gray-500 text-center">
-                  Showing 30 of {selectedPO.lines.length} line items
-                </p>
-              )}
             </div>
           )}
           
@@ -1210,78 +1510,6 @@ export default function MRPDashboard() {
             )}
             <Button variant="outline" onClick={() => setPODetailOpen(false)}>
               Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Model Forecast Dialog */}
-      <Dialog open={addForecastOpen} onOpenChange={setAddForecastOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Model Forecast</DialogTitle>
-            <DialogDescription>
-              Add a monthly forecast quantity for a specific model
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Model *</Label>
-              <Select 
-                value={forecastForm.model_id} 
-                onValueChange={(v) => setForecastForm({...forecastForm, model_id: v})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} - {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Month *</Label>
-              <Select 
-                value={forecastForm.month_year} 
-                onValueChange={(v) => setForecastForm({...forecastForm, month_year: v})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select month" />
-                </SelectTrigger>
-                <SelectContent>
-                  {getMonthOptions().map(m => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Forecast Quantity *</Label>
-              <Input
-                type="number"
-                placeholder="Enter quantity"
-                value={forecastForm.forecast_qty}
-                onChange={(e) => setForecastForm({...forecastForm, forecast_qty: e.target.value})}
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddForecastOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddForecast} disabled={savingForecast}>
-              {savingForecast ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-              Add Forecast
             </Button>
           </DialogFooter>
         </DialogContent>
