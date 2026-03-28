@@ -52,6 +52,9 @@ import {
   Edit,
   X,
   Calendar,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -89,6 +92,9 @@ export default function MRPDashboard() {
   const [rmParams, setRmParams] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
+  const [rmParamsPage, setRmParamsPage] = useState(1);
+  const [rmParamsSearch, setRmParamsSearch] = useState('');
+  const rmParamsPerPage = 50;
   
   // Calculation state
   const [calculating, setCalculating] = useState(false);
@@ -1188,6 +1194,29 @@ export default function MRPDashboard() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* Search and Pagination Controls */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search by RM ID or Vendor..."
+                    value={rmParamsSearch}
+                    onChange={(e) => {
+                      setRmParamsSearch(e.target.value);
+                      setRmParamsPage(1);
+                    }}
+                    className="w-[300px]"
+                  />
+                </div>
+                <div className="text-sm text-gray-500">
+                  Total: {rmParams.filter(p => 
+                    !rmParamsSearch || 
+                    p.rm_id?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                    p.preferred_vendor_name?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                    p.category?.toLowerCase().includes(rmParamsSearch.toLowerCase())
+                  ).length} parameters
+                </div>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1202,7 +1231,15 @@ export default function MRPDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rmParams.slice(0, 50).map(p => (
+                  {rmParams
+                    .filter(p => 
+                      !rmParamsSearch || 
+                      p.rm_id?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                      p.preferred_vendor_name?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                      p.category?.toLowerCase().includes(rmParamsSearch.toLowerCase())
+                    )
+                    .slice((rmParamsPage - 1) * rmParamsPerPage, rmParamsPage * rmParamsPerPage)
+                    .map(p => (
                     <TableRow key={p.id}>
                       <TableCell className="font-mono">{p.rm_id}</TableCell>
                       <TableCell>
@@ -1235,11 +1272,58 @@ export default function MRPDashboard() {
                   )}
                 </TableBody>
               </Table>
-              {rmParams.length > 50 && (
-                <p className="text-sm text-gray-500 text-center mt-4">
-                  Showing 50 of {rmParams.length} parameters
-                </p>
-              )}
+              {/* Pagination */}
+              {(() => {
+                const filteredParams = rmParams.filter(p => 
+                  !rmParamsSearch || 
+                  p.rm_id?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                  p.preferred_vendor_name?.toLowerCase().includes(rmParamsSearch.toLowerCase()) ||
+                  p.category?.toLowerCase().includes(rmParamsSearch.toLowerCase())
+                );
+                const totalPages = Math.ceil(filteredParams.length / rmParamsPerPage);
+                
+                if (totalPages <= 1) return null;
+                
+                return (
+                  <div className="flex items-center justify-center gap-2 mt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRmParamsPage(1)}
+                      disabled={rmParamsPage === 1}
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRmParamsPage(p => Math.max(1, p - 1))}
+                      disabled={rmParamsPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm px-4">
+                      Page {rmParamsPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRmParamsPage(p => Math.min(totalPages, p + 1))}
+                      disabled={rmParamsPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRmParamsPage(totalPages)}
+                      disabled={rmParamsPage === totalPages}
+                    >
+                      Last
+                    </Button>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
