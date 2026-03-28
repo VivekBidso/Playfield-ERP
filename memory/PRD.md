@@ -1478,19 +1478,41 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 
 ### Implementation Phases
 1. **Phase 1 (MVP)**: ✅ COMPLETE - Weekly breakdown, dual BOM, order timing, UI
-2. **Phase 2**: 🔜 Open PO integration (Net = Gross + Safety - Stock - Open POs)
-3. **Phase 3**: Stock enhancements (quality hold, allocation)
+2. **Phase 2**: ✅ COMPLETE - Open PO integration (Net = Gross + Safety - Stock - Open POs)
+3. **Phase 3**: 🔜 Stock enhancements (quality hold, allocation)
 4. **Phase 4**: Advanced (yield factor, supplier constraints)
 5. **Phase 5**: Alerts & intelligence
 
-### Verified Data (Test Run MRP-20260328-162256)
+### Phase 2 Implementation (March 28, 2026)
+
+#### Quick Filter Feature (Frontend)
+- Added Category dropdown (ACC, ELC, INM, INP, SPR)
+- Added Vendor dropdown with all vendors from loaded data
+- Clear button to reset filters
+- "Showing X items" badge for filtered count
+- Week accordion item counts update dynamically
+
+#### Open PO / Scheduled Receipts (Backend)
+- Fixed `_get_scheduled_receipts` to query `purchase_order_lines` collection
+- Open PO statuses: DRAFT, ISSUED, ACKNOWLEDGED, SHIPPED, IN_TRANSIT, PARTIAL_RECEIVED
+- New formula: **Net = Gross + Safety - Stock - Scheduled_Receipts**
+
+#### New Table Columns
+- Safety Stock
+- Current Stock
+- Open PO (purple highlight)
+- Net Qty
+- Order Qty
+
+### Verified Data (Test Run MRP-20260328-165305)
 - 52 Order Weeks generated
-- 1302 Common RMs processed
+- 1302 Common RMs processed  
 - Total Order Value: ₹58,35,84,843
-- Each week has ~85 items with full RM details
+- Quick Filter working: ELC filter shows 1081 items, 23 per week
 
 ---
 
 *Weekly MRP Phase 1 Completed: March 28, 2026*
-*Test Report: /app/test_reports/iteration_16.json (100% pass rate)*
+*Weekly MRP Phase 2 (Quick Filter + Open PO) Completed: March 28, 2026*
+*Test Reports: /app/test_reports/iteration_16.json, /app/test_reports/iteration_17.json (100% pass rate)*
 
