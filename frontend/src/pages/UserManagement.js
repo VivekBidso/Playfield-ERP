@@ -52,6 +52,11 @@ const UserManagement = () => {
     rbac_role: "BRANCH_OPS_USER",  // New RBAC role field
     assigned_branches: []
   });
+  
+  // Admin cleanup state
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const [dataAudit, setDataAudit] = useState(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -250,6 +255,36 @@ const UserManagement = () => {
         assigned_branches: [...formData.assigned_branches, branch]
       });
     }
+  };
+
+  // Fetch data audit for cleanup preview
+  const fetchDataAudit = async () => {
+    try {
+      const res = await axios.get(`${API}/admin/data-audit`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDataAudit(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to fetch data audit");
+    }
+  };
+
+  // Execute cleanup
+  const executeCleanup = async () => {
+    setCleanupLoading(true);
+    try {
+      const res = await axios.post(
+        `${API}/admin/cleanup-transactional-data`,
+        { confirm: "CONFIRM_CLEANUP" },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(res.data.message);
+      setShowCleanupDialog(false);
+      setDataAudit(null);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Cleanup failed");
+    }
+    setCleanupLoading(false);
   };
 
   return (
@@ -560,6 +595,109 @@ const UserManagement = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* System Admin Section */}
+      <div className="mt-12 border-t pt-8">
+        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+          <Shield className="w-6 h-6 text-red-600" />
+          System Administration
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Critical system operations. Only master_admin can perform these actions.
+        </p>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="font-semibold text-red-800 mb-2">Data Cleanup</h3>
+          <p className="text-sm text-red-700 mb-4">
+            Remove all transactional/test data (forecasts, dispatch lots, production schedules, MRP runs, purchase orders).
+            Master data (SKUs, models, vendors, BOMs) will be preserved.
+          </p>
+          
+          <Dialog open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>
+            <DialogTrigger asChild>
+              <Button 
+                variant="destructive" 
+                onClick={() => {
+                  setShowCleanupDialog(true);
+                  fetchDataAudit();
+                }}
+                data-testid="cleanup-data-btn"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clean Transactional Data
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-red-600 flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Production Data Cleanup
+                </DialogTitle>
+              </DialogHeader>
+              
+              {dataAudit ? (
+                <div className="space-y-4">
+                  <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                    <h4 className="font-semibold text-red-800 mb-2">⚠️ Data to be DELETED:</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {Object.entries(dataAudit.transactional_data?.collections || {}).map(([key, value]) => (
+                        <div key={key} className="flex justify-between">
+                          <span className="text-gray-600">{key}:</span>
+                          <span className="font-mono font-bold text-red-600">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-red-300 flex justify-between font-bold">
+                      <span>TOTAL TO DELETE:</span>
+                      <span className="text-red-600">{dataAudit.transactional_data?.total_records}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                    <h4 className="font-semibold text-green-800 mb-2">✅ Data to be PRESERVED:</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {Object.entries(dataAudit.master_data?.collections || {}).map(([key, value]) => (
+                        <div key={key} className="flex justify-between">
+                          <span className="text-gray-600">{key}:</span>
+                          <span className="font-mono font-bold text-green-600">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-green-300 flex justify-between font-bold">
+                      <span>TOTAL PRESERVED:</span>
+                      <span className="text-green-600">{dataAudit.master_data?.total_records}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                    <p className="text-yellow-800 font-medium text-center">
+                      ⚠️ This action is IRREVERSIBLE. All transactional data will be permanently deleted.
+                    </p>
+                  </div>
+                  
+                  <div className="flex justify-end gap-3">
+                    <Button variant="outline" onClick={() => setShowCleanupDialog(false)}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      onClick={executeCleanup}
+                      disabled={cleanupLoading}
+                      data-testid="confirm-cleanup-btn"
+                    >
+                      {cleanupLoading ? "Cleaning..." : "Confirm Cleanup"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  Loading data audit...
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>
