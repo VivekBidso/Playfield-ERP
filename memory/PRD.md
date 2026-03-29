@@ -1572,3 +1572,31 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 
 **Priority Order**: P0 → P1 → P2 → P3 (see document for details)
 
+---
+
+## Pantone Shade Management - SAVED FOR FUTURE IMPLEMENTATION
+
+**Reference Document**: `/app/memory/PANTONE_SYSTEM_PLAN.md`
+
+**Trigger**: When user says "implement Pantone system" or "implement Pantone management"
+
+**Overview**: Replace vendor-specific Master Batch codes with universal Pantone shade references for INP, INM, and ACC raw materials.
+
+**Key Features**:
+1. Pantone Library in TechOps (CRUD, vendor mapping, color preview)
+2. Vendor-Master Batch mapping with QC approval workflow
+3. Color Development menu for Demand Planner (design team requests)
+4. BOM integration (select Pantone instead of master batch)
+5. MRP/PO expansion (resolve Pantone → vendor master batch at order time)
+6. Bulk import template for migration
+
+**New Collections**:
+- `pantone_shades`: Pantone code registry with color hex, family, categories
+- `pantone_vendor_masterbatch`: Vendor × Master Batch mapping with approval workflow
+
+**User Clarifications Captured**:
+- Scope: INP, INM, ACC categories
+- Approval: QC team approves master batches
+- Design Team: Separate sidebar in Demand Planner role
+- Pricing: Master Batch level (vendor-specific)
+
