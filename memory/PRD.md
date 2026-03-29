@@ -1574,29 +1574,86 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 
 ---
 
-## Pantone Shade Management - SAVED FOR FUTURE IMPLEMENTATION
+## 21. PANTONE SHADE MANAGEMENT SYSTEM (March 29, 2026)
+
+### Phase 1: COMPLETE ✅
 
 **Reference Document**: `/app/memory/PANTONE_SYSTEM_PLAN.md`
 
-**Trigger**: When user says "implement Pantone system" or "implement Pantone management"
+**Overview**: Universal Pantone shade references for INP, INM, and ACC raw materials with vendor-specific master batch mapping and QC approval workflow.
 
-**Overview**: Replace vendor-specific Master Batch codes with universal Pantone shade references for INP, INM, and ACC raw materials.
+### What Was Implemented
 
-**Key Features**:
-1. Pantone Library in TechOps (CRUD, vendor mapping, color preview)
-2. Vendor-Master Batch mapping with QC approval workflow
-3. Color Development menu for Demand Planner (design team requests)
-4. BOM integration (select Pantone instead of master batch)
-5. MRP/PO expansion (resolve Pantone → vendor master batch at order time)
-6. Bulk import template for migration
+#### Backend (`/app/backend/routes/pantone_routes.py` - 952 lines):
+- **Pantone Shades CRUD**: Full create, read, update, soft-delete (deprecate)
+- **Vendor Master Batch Mapping**: Link vendors to Pantone codes with master batch codes
+- **QC Approval Workflow**: PENDING → APPROVED/REJECTED status flow
+- **Set Preferred Vendor**: Only one vendor can be preferred per Pantone shade
+- **Bulk Import/Export**: Excel template with 3 sheets (Shades, Vendor Mapping, RM Mapping)
+- **Color Development Requests**: Design team can request new Pantone codes (Phase 2 scope)
 
-**New Collections**:
-- `pantone_shades`: Pantone code registry with color hex, family, categories
-- `pantone_vendor_masterbatch`: Vendor × Master Batch mapping with approval workflow
+#### API Endpoints:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/pantone/shades` | GET | List all shades with filters (category, color_family, search) |
+| `/api/pantone/shades` | POST | Create new Pantone shade |
+| `/api/pantone/shades/{id}` | GET | Get shade with vendor mappings |
+| `/api/pantone/shades/{id}` | PUT | Update shade |
+| `/api/pantone/shades/{id}` | DELETE | Soft delete (deprecate) |
+| `/api/pantone/shades/export` | GET | Export all data to Excel |
+| `/api/pantone/shades/download-template` | GET | Download import template |
+| `/api/pantone/shades/bulk-import` | POST | Bulk import from Excel |
+| `/api/pantone/vendor-masterbatch` | POST | Add vendor mapping |
+| `/api/pantone/vendor-masterbatch/{id}` | PUT | Update mapping |
+| `/api/pantone/vendor-masterbatch/{id}/approve` | PUT | QC approve (master_admin, quality_inspector) |
+| `/api/pantone/vendor-masterbatch/{id}/reject` | PUT | QC reject |
+| `/api/pantone/vendor-masterbatch/{id}/set-preferred` | PUT | Set as preferred vendor |
+| `/api/pantone/vendor-masterbatch/pending` | GET | Get pending approvals |
+| `/api/pantone/by-category/{category}` | GET | Get shades by category |
 
-**User Clarifications Captured**:
-- Scope: INP, INM, ACC categories
-- Approval: QC team approves master batches
-- Design Team: Separate sidebar in Demand Planner role
-- Pricing: Master Batch level (vendor-specific)
+#### Frontend (`/app/frontend/src/components/PantoneLibrary.jsx` - 835 lines):
+- **New Tab in TechOps**: "Pantone Library" tab with full CRUD UI
+- **Color Swatches**: Visual preview of Pantone colors using hex codes
+- **Stats Cards**: Total Shades, With Approved Vendors, Pending Vendor Setup, Total Vendor Mappings
+- **Filters**: Search by code/name, Category filter (INP/INM/ACC), Color Family filter
+- **Expandable Rows**: Click to see vendor master batch mappings
+- **QC Actions**: Approve/Reject buttons for pending vendor mappings
+- **Import/Export**: Download template, bulk import, export all data
+
+#### Bug Fix Applied (Testing Agent):
+- **Issue**: Export and Download Template endpoints returning 404 "Pantone shade not found"
+- **Root Cause**: Route ordering issue - `/shades/{shade_id}` was matching "export" and "download-template" as IDs
+- **Fix**: Moved static routes (`/shades/export`, `/shades/download-template`) before dynamic route (`/shades/{shade_id}`)
+
+#### New Collections:
+- `pantone_shades`: Universal Pantone code registry with color hex, color family, applicable categories
+- `pantone_vendor_masterbatch`: Vendor × Master Batch mapping with approval workflow, delta E values, lead time, MOQ
+- `color_development_requests`: Design team requests for new Pantone codes (Phase 2)
+
+### Phase 2: PENDING
+
+**Trigger**: "implement Pantone Phase 2"
+
+**Pending Features**:
+1. Link RMs to Pantone IDs (update `raw_materials` collection)
+2. Update BOM flow to support Pantone selection
+3. Add "Color Development" sidebar menu for Demand Planner role
+4. MRP/PO expansion (resolve Pantone → vendor master batch at order time)
+5. RM Repository integration (filter RMs by Pantone shade)
+
+### User Requirements Captured:
+- **Scope**: INP, INM, ACC categories only
+- **Approval**: QC team approves master batches
+- **Design Team**: Separate sidebar in Demand Planner role (Phase 2)
+- **Pricing**: Master Batch level (vendor-specific)
+
+### Test Results:
+- Backend: 23/23 tests passed (100%)
+- Frontend: All UI elements verified
+- Test report: `/app/test_reports/iteration_19.json`
+
+---
+
+*Phase 1 Completed: March 29, 2026*
+*Test Coverage: 100% backend, 100% frontend UI verification*
 
