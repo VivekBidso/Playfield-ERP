@@ -1551,3 +1551,24 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 *Weekly MRP Phase 3 (Weekly PO Generation) Completed: March 28, 2026*
 *Test Reports: /app/test_reports/iteration_16.json, iteration_17.json, iteration_18.json (100% pass rate)*
 
+---
+
+## MRP v1 - SAVED FOR FUTURE IMPLEMENTATION
+
+**Reference Document**: `/app/memory/MRP_V1_REQUIREMENTS.md`
+
+**Trigger**: When user says "implement MRP v1", refer to the above document.
+
+**Key Features Pending**:
+1. Site × RM × Vendor Parameters (multi-dimensional)
+2. PO Lot Splitting with staggered delivery dates
+3. Safety Days + Frozen Window in calculations
+4. Partial Receipt date tracking with GRN
+5. Day/Week/Month aggregation toggle
+6. Vendor Capacity correlation
+7. Air vs Ship transit modes for imports
+8. Demand fallback to historical data
+9. Zoho Books integration
+
+**Priority Order**: P0 → P1 → P2 → P3 (see document for details)
+
