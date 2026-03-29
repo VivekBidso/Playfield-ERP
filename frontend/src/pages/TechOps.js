@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag } from "lucide-react";
+import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette } from "lucide-react";
+import PantoneLibrary from "../components/PantoneLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -303,6 +304,10 @@ const TechOps = () => {
             <Users className="w-4 h-4 mr-2" />
             Buyers ({buyers.length})
           </TabsTrigger>
+          <TabsTrigger value="pantone" className="uppercase text-xs tracking-wide">
+            <Palette className="w-4 h-4 mr-2" />
+            Pantone Library
+          </TabsTrigger>
         </TabsList>
 
         {/* Verticals Tab */}
@@ -508,6 +513,11 @@ const TechOps = () => {
               </tbody>
             </table>
           </div>
+        </TabsContent>
+
+        {/* Pantone Library Tab */}
+        <TabsContent value="pantone">
+          <PantoneLibrary />
         </TabsContent>
       </Tabs>
 

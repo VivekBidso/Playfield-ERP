@@ -88,6 +88,189 @@ async def get_pantone_shades(
     }
 
 
+# NOTE: Static routes must be defined BEFORE dynamic routes like /shades/{shade_id}
+@router.get("/shades/export")
+async def export_pantone_shades(
+    current_user: User = Depends(get_current_user)
+):
+    """Export all Pantone data to Excel"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="Excel support not available")
+    
+    wb = openpyxl.Workbook()
+    
+    # Sheet 1: Pantone Shades
+    ws1 = wb.active
+    ws1.title = "Pantone_Shades"
+    headers1 = ["pantone_code", "pantone_name", "color_hex", "color_family", "categories", "notes", "status"]
+    
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    
+    for col, header in enumerate(headers1, 1):
+        cell = ws1.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+    
+    shades = await db.pantone_shades.find({}, {"_id": 0}).to_list(1000)
+    for row, shade in enumerate(shades, 2):
+        ws1.cell(row=row, column=1, value=shade.get("pantone_code"))
+        ws1.cell(row=row, column=2, value=shade.get("pantone_name"))
+        ws1.cell(row=row, column=3, value=shade.get("color_hex"))
+        ws1.cell(row=row, column=4, value=shade.get("color_family"))
+        ws1.cell(row=row, column=5, value=",".join(shade.get("applicable_categories", [])))
+        ws1.cell(row=row, column=6, value=shade.get("notes"))
+        ws1.cell(row=row, column=7, value=shade.get("status"))
+    
+    # Sheet 2: Vendor Mapping
+    ws2 = wb.create_sheet("Vendor_Mapping")
+    headers2 = ["pantone_code", "vendor_code", "master_batch_code", "is_preferred", "delta_e", "lead_time", "moq", "status"]
+    
+    for col, header in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+    
+    mappings = await db.pantone_vendor_masterbatch.find({}, {"_id": 0}).to_list(5000)
+    
+    # Get vendor codes
+    vendors = await db.vendors.find({}, {"_id": 0, "id": 1, "code": 1}).to_list(1000)
+    vendor_codes = {v["id"]: v.get("code", "") for v in vendors}
+    
+    for row, m in enumerate(mappings, 2):
+        ws2.cell(row=row, column=1, value=m.get("pantone_code"))
+        ws2.cell(row=row, column=2, value=vendor_codes.get(m.get("vendor_id"), ""))
+        ws2.cell(row=row, column=3, value=m.get("master_batch_code"))
+        ws2.cell(row=row, column=4, value=str(m.get("is_preferred", False)))
+        ws2.cell(row=row, column=5, value=m.get("delta_e_value"))
+        ws2.cell(row=row, column=6, value=m.get("lead_time_days"))
+        ws2.cell(row=row, column=7, value=m.get("moq"))
+        ws2.cell(row=row, column=8, value=m.get("approval_status"))
+    
+    # Sheet 3: RM Mapping
+    ws3 = wb.create_sheet("RM_Mapping")
+    headers3 = ["rm_id", "pantone_code", "rm_name", "category"]
+    
+    for col, header in enumerate(headers3, 1):
+        cell = ws3.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+    
+    rms = await db.raw_materials.find(
+        {"pantone_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "rm_id": 1, "pantone_code": 1, "name": 1, "category": 1}
+    ).to_list(5000)
+    
+    for row, rm in enumerate(rms, 2):
+        ws3.cell(row=row, column=1, value=rm.get("rm_id"))
+        ws3.cell(row=row, column=2, value=rm.get("pantone_code"))
+        ws3.cell(row=row, column=3, value=rm.get("name"))
+        ws3.cell(row=row, column=4, value=rm.get("category"))
+    
+    # Save
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=Pantone_Export.xlsx"}
+    )
+
+
+@router.get("/shades/download-template")
+async def download_import_template(
+    current_user: User = Depends(get_current_user)
+):
+    """Download blank import template"""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="Excel support not available")
+    
+    wb = openpyxl.Workbook()
+    
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    
+    # Sheet 1
+    ws1 = wb.active
+    ws1.title = "Pantone_Shades"
+    headers1 = ["pantone_code", "pantone_name", "color_hex", "color_family", "categories", "notes"]
+    for col, h in enumerate(headers1, 1):
+        cell = ws1.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+    # Sample row
+    ws1.cell(row=2, column=1, value="485 C")
+    ws1.cell(row=2, column=2, value="Bright Red")
+    ws1.cell(row=2, column=3, value="#DA291C")
+    ws1.cell(row=2, column=4, value="RED")
+    ws1.cell(row=2, column=5, value="INP,INM,ACC")
+    ws1.cell(row=2, column=6, value="Primary red")
+    
+    # Sheet 2
+    ws2 = wb.create_sheet("Vendor_Mapping")
+    headers2 = ["pantone_code", "vendor_code", "master_batch_code", "is_preferred", "delta_e", "lead_time_days", "moq"]
+    for col, h in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+    ws2.cell(row=2, column=1, value="485 C")
+    ws2.cell(row=2, column=2, value="VND001")
+    ws2.cell(row=2, column=3, value="CT-RED-485")
+    ws2.cell(row=2, column=4, value="TRUE")
+    ws2.cell(row=2, column=5, value="0.8")
+    ws2.cell(row=2, column=6, value="14")
+    ws2.cell(row=2, column=7, value="100")
+    
+    # Sheet 3
+    ws3 = wb.create_sheet("RM_Mapping")
+    headers3 = ["rm_id", "pantone_code"]
+    for col, h in enumerate(headers3, 1):
+        cell = ws3.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+    ws3.cell(row=2, column=1, value="INP_001")
+    ws3.cell(row=2, column=2, value="485 C")
+    
+    # Instructions
+    ws4 = wb.create_sheet("Instructions")
+    instructions = [
+        ["Pantone Import Template Instructions"],
+        [""],
+        ["Sheet: Pantone_Shades"],
+        ["- pantone_code: Official Pantone code (e.g., '485 C')"],
+        ["- pantone_name: Descriptive name"],
+        ["- color_hex: Hex color code with # (e.g., '#DA291C')"],
+        ["- color_family: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, BROWN, BLACK, WHITE, GREY, METALLIC, OTHER"],
+        ["- categories: Comma-separated list (INP, INM, ACC)"],
+        [""],
+        ["Sheet: Vendor_Mapping"],
+        ["- pantone_code: Must match a code from Pantone_Shades"],
+        ["- vendor_code: Vendor code from your system"],
+        ["- master_batch_code: Vendor's master batch code"],
+        ["- is_preferred: TRUE or FALSE (only one preferred per Pantone)"],
+        ["- delta_e: Color difference measurement (optional)"],
+        [""],
+        ["Sheet: RM_Mapping"],
+        ["- rm_id: Raw Material ID (must exist)"],
+        ["- pantone_code: Pantone code to assign"],
+    ]
+    for row, data in enumerate(instructions, 1):
+        ws4.cell(row=row, column=1, value=data[0] if data else "")
+    ws4.cell(row=1, column=1).font = Font(bold=True, size=14)
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=Pantone_Import_Template.xlsx"}
+    )
+
+
 @router.get("/shades/{shade_id}")
 async def get_pantone_shade(
     shade_id: str,
@@ -730,188 +913,6 @@ async def bulk_import_pantone(
     logger.info(f"Bulk import completed: {results}")
     
     return results
-
-
-@router.get("/shades/export")
-async def export_pantone_shades(
-    current_user: User = Depends(get_current_user)
-):
-    """Export all Pantone data to Excel"""
-    if not openpyxl:
-        raise HTTPException(status_code=500, detail="Excel support not available")
-    
-    wb = openpyxl.Workbook()
-    
-    # Sheet 1: Pantone Shades
-    ws1 = wb.active
-    ws1.title = "Pantone_Shades"
-    headers1 = ["pantone_code", "pantone_name", "color_hex", "color_family", "categories", "notes", "status"]
-    
-    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    
-    for col, header in enumerate(headers1, 1):
-        cell = ws1.cell(row=1, column=col, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-    
-    shades = await db.pantone_shades.find({}, {"_id": 0}).to_list(1000)
-    for row, shade in enumerate(shades, 2):
-        ws1.cell(row=row, column=1, value=shade.get("pantone_code"))
-        ws1.cell(row=row, column=2, value=shade.get("pantone_name"))
-        ws1.cell(row=row, column=3, value=shade.get("color_hex"))
-        ws1.cell(row=row, column=4, value=shade.get("color_family"))
-        ws1.cell(row=row, column=5, value=",".join(shade.get("applicable_categories", [])))
-        ws1.cell(row=row, column=6, value=shade.get("notes"))
-        ws1.cell(row=row, column=7, value=shade.get("status"))
-    
-    # Sheet 2: Vendor Mapping
-    ws2 = wb.create_sheet("Vendor_Mapping")
-    headers2 = ["pantone_code", "vendor_code", "master_batch_code", "is_preferred", "delta_e", "lead_time", "moq", "status"]
-    
-    for col, header in enumerate(headers2, 1):
-        cell = ws2.cell(row=1, column=col, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-    
-    mappings = await db.pantone_vendor_masterbatch.find({}, {"_id": 0}).to_list(5000)
-    
-    # Get vendor codes
-    vendors = await db.vendors.find({}, {"_id": 0, "id": 1, "code": 1}).to_list(1000)
-    vendor_codes = {v["id"]: v.get("code", "") for v in vendors}
-    
-    for row, m in enumerate(mappings, 2):
-        ws2.cell(row=row, column=1, value=m.get("pantone_code"))
-        ws2.cell(row=row, column=2, value=vendor_codes.get(m.get("vendor_id"), ""))
-        ws2.cell(row=row, column=3, value=m.get("master_batch_code"))
-        ws2.cell(row=row, column=4, value=str(m.get("is_preferred", False)))
-        ws2.cell(row=row, column=5, value=m.get("delta_e_value"))
-        ws2.cell(row=row, column=6, value=m.get("lead_time_days"))
-        ws2.cell(row=row, column=7, value=m.get("moq"))
-        ws2.cell(row=row, column=8, value=m.get("approval_status"))
-    
-    # Sheet 3: RM Mapping
-    ws3 = wb.create_sheet("RM_Mapping")
-    headers3 = ["rm_id", "pantone_code", "rm_name", "category"]
-    
-    for col, header in enumerate(headers3, 1):
-        cell = ws3.cell(row=1, column=col, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-    
-    rms = await db.raw_materials.find(
-        {"pantone_id": {"$exists": True, "$ne": None}},
-        {"_id": 0, "rm_id": 1, "pantone_code": 1, "name": 1, "category": 1}
-    ).to_list(5000)
-    
-    for row, rm in enumerate(rms, 2):
-        ws3.cell(row=row, column=1, value=rm.get("rm_id"))
-        ws3.cell(row=row, column=2, value=rm.get("pantone_code"))
-        ws3.cell(row=row, column=3, value=rm.get("name"))
-        ws3.cell(row=row, column=4, value=rm.get("category"))
-    
-    # Save
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=Pantone_Export.xlsx"}
-    )
-
-
-@router.get("/shades/download-template")
-async def download_import_template(
-    current_user: User = Depends(get_current_user)
-):
-    """Download blank import template"""
-    if not openpyxl:
-        raise HTTPException(status_code=500, detail="Excel support not available")
-    
-    wb = openpyxl.Workbook()
-    
-    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    
-    # Sheet 1
-    ws1 = wb.active
-    ws1.title = "Pantone_Shades"
-    headers1 = ["pantone_code", "pantone_name", "color_hex", "color_family", "categories", "notes"]
-    for col, h in enumerate(headers1, 1):
-        cell = ws1.cell(row=1, column=col, value=h)
-        cell.fill = header_fill
-        cell.font = header_font
-    # Sample row
-    ws1.cell(row=2, column=1, value="485 C")
-    ws1.cell(row=2, column=2, value="Bright Red")
-    ws1.cell(row=2, column=3, value="#DA291C")
-    ws1.cell(row=2, column=4, value="RED")
-    ws1.cell(row=2, column=5, value="INP,INM,ACC")
-    ws1.cell(row=2, column=6, value="Primary red")
-    
-    # Sheet 2
-    ws2 = wb.create_sheet("Vendor_Mapping")
-    headers2 = ["pantone_code", "vendor_code", "master_batch_code", "is_preferred", "delta_e", "lead_time_days", "moq"]
-    for col, h in enumerate(headers2, 1):
-        cell = ws2.cell(row=1, column=col, value=h)
-        cell.fill = header_fill
-        cell.font = header_font
-    ws2.cell(row=2, column=1, value="485 C")
-    ws2.cell(row=2, column=2, value="VND001")
-    ws2.cell(row=2, column=3, value="CT-RED-485")
-    ws2.cell(row=2, column=4, value="TRUE")
-    ws2.cell(row=2, column=5, value="0.8")
-    ws2.cell(row=2, column=6, value="14")
-    ws2.cell(row=2, column=7, value="100")
-    
-    # Sheet 3
-    ws3 = wb.create_sheet("RM_Mapping")
-    headers3 = ["rm_id", "pantone_code"]
-    for col, h in enumerate(headers3, 1):
-        cell = ws3.cell(row=1, column=col, value=h)
-        cell.fill = header_fill
-        cell.font = header_font
-    ws3.cell(row=2, column=1, value="INP_001")
-    ws3.cell(row=2, column=2, value="485 C")
-    
-    # Instructions
-    ws4 = wb.create_sheet("Instructions")
-    instructions = [
-        ["Pantone Import Template Instructions"],
-        [""],
-        ["Sheet: Pantone_Shades"],
-        ["- pantone_code: Official Pantone code (e.g., '485 C')"],
-        ["- pantone_name: Descriptive name"],
-        ["- color_hex: Hex color code with # (e.g., '#DA291C')"],
-        ["- color_family: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, BROWN, BLACK, WHITE, GREY, METALLIC, OTHER"],
-        ["- categories: Comma-separated list (INP, INM, ACC)"],
-        [""],
-        ["Sheet: Vendor_Mapping"],
-        ["- pantone_code: Must match a code from Pantone_Shades"],
-        ["- vendor_code: Vendor code from your system"],
-        ["- master_batch_code: Vendor's master batch code"],
-        ["- is_preferred: TRUE or FALSE (only one preferred per Pantone)"],
-        ["- delta_e: Color difference measurement (optional)"],
-        [""],
-        ["Sheet: RM_Mapping"],
-        ["- rm_id: Raw Material ID (must exist)"],
-        ["- pantone_code: Pantone code to assign"],
-    ]
-    for row, data in enumerate(instructions, 1):
-        ws4.cell(row=row, column=1, value=data[0] if data else "")
-    ws4.cell(row=1, column=1).font = Font(bold=True, size=14)
-    
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=Pantone_Import_Template.xlsx"}
-    )
 
 
 # ============ Integration Helpers ============
