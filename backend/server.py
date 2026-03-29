@@ -44,6 +44,7 @@ from routes import (
     mrp_router
 )
 from routes.admin_routes import router as admin_router
+from routes.pantone_routes import router as pantone_router
 
 # Include all routers
 api_router.include_router(auth_router)
@@ -64,6 +65,7 @@ api_router.include_router(demand_hub_router)
 api_router.include_router(upload_router)
 api_router.include_router(mrp_router)
 api_router.include_router(admin_router)
+api_router.include_router(pantone_router)
 
 # Register main router
 app.include_router(api_router)
