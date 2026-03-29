@@ -30,6 +30,7 @@ import BranchOps from "@/pages/BranchOps";
 import DemandHub from "@/pages/DemandHub";
 import DemandSKUView from "@/pages/DemandSKUView";
 import MRPDashboard from "@/pages/MRPDashboard";
+import ColorDevelopment from "@/pages/ColorDevelopment";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -111,6 +112,7 @@ function App() {
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
             <Route path="mrp" element={<MRPDashboard />} />
+            <Route path="color-development" element={<ColorDevelopment />} />
           </Route>
         </Routes>
       </BrowserRouter>

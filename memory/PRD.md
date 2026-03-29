@@ -1630,16 +1630,24 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 - `pantone_vendor_masterbatch`: Vendor × Master Batch mapping with approval workflow, delta E values, lead time, MOQ
 - `color_development_requests`: Design team requests for new Pantone codes (Phase 2)
 
-### Phase 2: PENDING
+### Phase 2: PARTIAL ✅
 
-**Trigger**: "implement Pantone Phase 2"
+**What Was Implemented (March 29, 2026)**:
+1. **Color Development Sidebar** for Demand Planner role ✅
+   - New page at `/color-development`
+   - "My Requests" tab - track submitted requests
+   - "Available Pantone Shades" tab - browse existing colors
+   - "All Requests" tab - view organization-wide requests
+   - Submit new color development requests with priority
+   - Color preview, category selection, notes/justification
 
-**Pending Features**:
+**Still Pending**:
 1. Link RMs to Pantone IDs (update `raw_materials` collection)
 2. Update BOM flow to support Pantone selection
-3. Add "Color Development" sidebar menu for Demand Planner role
-4. MRP/PO expansion (resolve Pantone → vendor master batch at order time)
-5. RM Repository integration (filter RMs by Pantone shade)
+3. MRP/PO expansion (resolve Pantone → vendor master batch at order time)
+4. RM Repository integration (filter RMs by Pantone shade)
+
+**Trigger for remaining Phase 2**: "implement Pantone RM linkage"
 
 ### User Requirements Captured:
 - **Scope**: INP, INM, ACC categories only
