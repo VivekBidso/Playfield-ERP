@@ -3,17 +3,19 @@ import axios from "axios";
 import { 
   Plus, Search, Download, Upload, Check, X, Star, 
   Palette, Building2, ChevronDown, ChevronRight, Edit, Trash2,
-  FileSpreadsheet, AlertTriangle
+  FileSpreadsheet, AlertTriangle, Clock, Bell, CheckCircle, XCircle,
+  ArrowRight, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import useAuthStore from "../store/authStore";
 
@@ -31,8 +33,10 @@ const PantoneLibrary = () => {
   const { token } = useAuthStore();
   
   // State
+  const [activeTab, setActiveTab] = useState("shades");
   const [shades, setShades] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [colorRequests, setColorRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -43,6 +47,8 @@ const PantoneLibrary = () => {
   const [showAddShadeDialog, setShowAddShadeDialog] = useState(false);
   const [showAddVendorDialog, setShowAddVendorDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showRequestDetailDialog, setShowRequestDetailDialog] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
   const [editingShade, setEditingShade] = useState(null);
   const [selectedShadeForVendor, setSelectedShadeForVendor] = useState(null);
   
@@ -76,6 +82,7 @@ const PantoneLibrary = () => {
   useEffect(() => {
     fetchShades();
     fetchVendors();
+    fetchColorRequests();
   }, [token]);
 
   const fetchShades = async () => {
@@ -104,6 +111,17 @@ const PantoneLibrary = () => {
       setVendors(res.data || []);
     } catch (err) {
       console.error("Failed to fetch vendors");
+    }
+  };
+
+  const fetchColorRequests = async () => {
+    try {
+      const res = await axios.get(`${API}/pantone/color-requests`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setColorRequests(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch color requests");
     }
   };
 
@@ -337,6 +355,77 @@ const PantoneLibrary = () => {
     return <Badge className={styles[status] || "bg-gray-100"}>{status}</Badge>;
   };
 
+  const getRequestStatusBadge = (status) => {
+    const config = {
+      REQUESTED: { label: "New Request", color: "bg-blue-100 text-blue-800", icon: Clock },
+      VENDOR_DEVELOPMENT: { label: "Vendor Development", color: "bg-purple-100 text-purple-800", icon: Loader2 },
+      QC_PENDING: { label: "QC Pending", color: "bg-yellow-100 text-yellow-800", icon: AlertTriangle },
+      APPROVED: { label: "Approved", color: "bg-green-100 text-green-800", icon: CheckCircle },
+      REJECTED: { label: "Rejected", color: "bg-red-100 text-red-800", icon: XCircle }
+    };
+    const cfg = config[status] || { label: status, color: "bg-gray-100 text-gray-800" };
+    const Icon = cfg.icon;
+    return (
+      <Badge className={`${cfg.color} gap-1`}>
+        {Icon && <Icon className="w-3 h-3" />}
+        {cfg.label}
+      </Badge>
+    );
+  };
+
+  const handleUpdateRequestStatus = async (requestId, newStatus, notes = null) => {
+    try {
+      await axios.put(`${API}/pantone/color-requests/${requestId}/status`, 
+        { status: newStatus, notes },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(`Request status updated to ${newStatus}`);
+      fetchColorRequests();
+      setShowRequestDetailDialog(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update status");
+    }
+  };
+
+  const handleApproveAndCreateShade = async (request) => {
+    // First create the Pantone shade
+    try {
+      const shadeData = {
+        pantone_code: request.pantone_code,
+        pantone_name: request.pantone_name,
+        color_hex: request.color_hex || "#808080",
+        color_family: request.color_family || "OTHER",
+        applicable_categories: request.applicable_categories || ["INP", "INM", "ACC"],
+        notes: `Created from request by ${request.requested_by_name}`
+      };
+      
+      await axios.post(`${API}/pantone/shades`, shadeData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Then update the request status
+      await handleUpdateRequestStatus(request.id, "APPROVED");
+      
+      toast.success(`Pantone shade ${request.pantone_code} created and request approved`);
+      fetchShades();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to create shade");
+    }
+  };
+
+  const pendingRequestsCount = colorRequests.filter(r => 
+    ["REQUESTED", "VENDOR_DEVELOPMENT", "QC_PENDING"].includes(r.status)
+  ).length;
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "-";
+    return new Date(dateStr).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    });
+  };
+
   return (
     <div className="space-y-6" data-testid="pantone-library">
       {/* Header */}
@@ -366,88 +455,104 @@ const PantoneLibrary = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-4 items-center">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input
-            placeholder="Search Pantone code or name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-            data-testid="pantone-search"
-          />
-        </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {CATEGORIES.map(cat => (
-              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={colorFamilyFilter} onValueChange={setColorFamilyFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Color Family" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Colors</SelectItem>
-            {COLOR_FAMILIES.map(cf => (
-              <SelectItem key={cf} value={cf}>{cf}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Tabs for Shades and Color Requests */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="shades">Pantone Shades ({shades.length})</TabsTrigger>
+          <TabsTrigger value="requests" className="relative">
+            Color Requests
+            {pendingRequestsCount > 0 && (
+              <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">
+                {pendingRequestsCount}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-2xl font-bold">{shades.length}</div>
-            <div className="text-sm text-muted-foreground">Total Shades</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-green-600">
-              {shades.filter(s => s.approved_vendor_count > 0).length}
+        {/* Shades Tab */}
+        <TabsContent value="shades" className="space-y-4">
+          {/* Filters */}
+          <div className="flex gap-4 items-center">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder="Search Pantone code or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="pantone-search"
+              />
             </div>
-            <div className="text-sm text-muted-foreground">With Approved Vendors</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-yellow-600">
-              {shades.filter(s => !s.approved_vendor_count).length}
-            </div>
-            <div className="text-sm text-muted-foreground">Pending Vendor Setup</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-purple-600">
-              {shades.reduce((sum, s) => sum + (s.approved_vendor_count || 0), 0)}
-            </div>
-            <div className="text-sm text-muted-foreground">Total Vendor Mappings</div>
-          </CardContent>
-        </Card>
-      </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {CATEGORIES.map(cat => (
+                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={colorFamilyFilter} onValueChange={setColorFamilyFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Color Family" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Colors</SelectItem>
+                {COLOR_FAMILIES.map(cf => (
+                  <SelectItem key={cf} value={cf}>{cf}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {/* Shades List */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
-          ) : shades.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              No Pantone shades found. Add your first shade or import from Excel.
-            </div>
-          ) : (
-            <div className="divide-y">
-              {shades.map(shade => (
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold">{shades.length}</div>
+                <div className="text-sm text-muted-foreground">Total Shades</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-green-600">
+                  {shades.filter(s => s.approved_vendor_count > 0).length}
+                </div>
+                <div className="text-sm text-muted-foreground">With Approved Vendors</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-yellow-600">
+                  {shades.filter(s => !s.approved_vendor_count).length}
+                </div>
+                <div className="text-sm text-muted-foreground">Pending Vendor Setup</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-purple-600">
+                  {shades.reduce((sum, s) => sum + (s.approved_vendor_count || 0), 0)}
+                </div>
+                <div className="text-sm text-muted-foreground">Total Vendor Mappings</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Shades List */}
+          <Card>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="p-8 text-center text-gray-500">Loading...</div>
+              ) : shades.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  No Pantone shades found. Add your first shade or import from Excel.
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {shades.map(shade => (
                 <div key={shade.id} className="hover:bg-gray-50">
                   {/* Shade Row */}
                   <div 
@@ -613,6 +718,147 @@ const PantoneLibrary = () => {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        {/* Color Requests Tab */}
+        <TabsContent value="requests" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-blue-600" />
+                Color Development Requests
+              </CardTitle>
+              <CardDescription>
+                Review and process color requests from Demand Planners. Approve requests to add new Pantone shades to the library.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {colorRequests.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No color development requests yet.</p>
+                  <p className="text-sm mt-1">Requests from Demand Planners will appear here.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Color</TableHead>
+                      <TableHead>Pantone Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Categories</TableHead>
+                      <TableHead>Requested By</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {colorRequests.map(req => (
+                      <TableRow key={req.id} className={
+                        req.status === "REQUESTED" ? "bg-blue-50/50" : ""
+                      }>
+                        <TableCell>
+                          <div 
+                            className="w-8 h-8 rounded border-2 border-gray-200"
+                            style={{ backgroundColor: req.color_hex || "#808080" }}
+                          />
+                        </TableCell>
+                        <TableCell className="font-mono font-semibold">{req.pantone_code}</TableCell>
+                        <TableCell>{req.pantone_name}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {req.applicable_categories?.map(cat => (
+                              <Badge key={cat} variant="outline" className="text-xs">{cat}</Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm">{req.requested_by_name || "-"}</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            req.priority === "URGENT" ? "bg-red-100 text-red-700" :
+                            req.priority === "HIGH" ? "bg-orange-100 text-orange-700" :
+                            req.priority === "NORMAL" ? "bg-blue-100 text-blue-700" :
+                            "bg-gray-100 text-gray-700"
+                          }>
+                            {req.priority}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{getRequestStatusBadge(req.status)}</TableCell>
+                        <TableCell className="text-sm">{formatDate(req.requested_at)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {req.status === "REQUESTED" && (
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                                  onClick={() => handleUpdateRequestStatus(req.id, "VENDOR_DEVELOPMENT")}
+                                  title="Start Vendor Development"
+                                >
+                                  <ArrowRight className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost"
+                                  className="text-red-600"
+                                  onClick={() => handleUpdateRequestStatus(req.id, "REJECTED")}
+                                  title="Reject"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {req.status === "VENDOR_DEVELOPMENT" && (
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="text-yellow-600 border-yellow-200 hover:bg-yellow-50"
+                                onClick={() => handleUpdateRequestStatus(req.id, "QC_PENDING")}
+                                title="Send to QC"
+                              >
+                                <ArrowRight className="w-4 h-4 mr-1" />
+                                QC
+                              </Button>
+                            )}
+                            {req.status === "QC_PENDING" && (
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => handleApproveAndCreateShade(req)}
+                                  title="Approve & Create Shade"
+                                >
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  Approve
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost"
+                                  className="text-red-600"
+                                  onClick={() => handleUpdateRequestStatus(req.id, "REJECTED")}
+                                  title="Reject"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {(req.status === "APPROVED" || req.status === "REJECTED") && (
+                              <span className="text-sm text-gray-400">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Add/Edit Shade Dialog */}
       <Dialog open={showAddShadeDialog} onOpenChange={setShowAddShadeDialog}>
