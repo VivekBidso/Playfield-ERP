@@ -90,6 +90,12 @@ const SKUManagement = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const syncFileInputRef = useRef(null);
+  
+  // Bulk BOM Upload
+  const [showBOMUploadDialog, setShowBOMUploadDialog] = useState(false);
+  const [bomUploadLoading, setBomUploadLoading] = useState(false);
+  const [bomUploadResult, setBomUploadResult] = useState(null);
+  const bomFileInputRef = useRef(null);
 
   // Pagination state for Bidso SKUs
   const [bidsoPage, setBidsoPage] = useState(1);
@@ -389,6 +395,78 @@ const SKUManagement = () => {
     event.target.value = '';
   };
 
+  // BOM Upload Functions
+  const handleDownloadBOMTemplate = async () => {
+    try {
+      const response = await axios.get(`${API}/sku-management/bom/bulk-upload/template`, {
+        headers: getHeaders(),
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'BOM_Upload_Template.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Template downloaded');
+    } catch (error) {
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleBOMUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setBomUploadLoading(true);
+    setBomUploadResult(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/sku-management/bom/bulk-upload`, formData, {
+        headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' }
+      });
+      
+      setBomUploadResult(response.data);
+      toast.success('BOM upload completed');
+      fetchBidsoSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to upload BOM');
+    }
+    
+    setBomUploadLoading(false);
+    event.target.value = '';
+  };
+
+  const handleExportBOM = async () => {
+    try {
+      const response = await axios.get(`${API}/sku-management/bom/export`, {
+        headers: getHeaders(),
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `BOM_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('BOM data exported');
+    } catch (error) {
+      toast.error('Failed to export BOM');
+    }
+  };
+
   return (
     <div className="p-6 space-y-6" data-testid="sku-management-page">
       {/* Header */}
@@ -398,6 +476,10 @@ const SKUManagement = () => {
           <p className="text-gray-500 mt-1">Manage Bidso SKUs (base products) and Buyer SKUs (branded variants)</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowBOMUploadDialog(true)} data-testid="bom-upload-btn">
+            <Upload className="h-4 w-4 mr-2" />
+            BOM Upload
+          </Button>
           <Button variant="outline" onClick={() => setShowSyncDialog(true)} data-testid="sync-data-btn">
             <Database className="h-4 w-4 mr-2" />
             Data Sync
@@ -1113,6 +1195,130 @@ const SKUManagement = () => {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSyncDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* BOM Upload Dialog */}
+      <Dialog open={showBOMUploadDialog} onOpenChange={setShowBOMUploadDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Bulk BOM Upload
+            </DialogTitle>
+            <DialogDescription>
+              Upload Bill of Materials for multiple SKUs at once
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Download Template */}
+            <div className="p-4 border rounded-lg bg-gray-50">
+              <h4 className="font-medium mb-2">Step 1: Download Template</h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Get the Excel template with instructions and sample data.
+              </p>
+              <Button variant="outline" onClick={handleDownloadBOMTemplate} className="w-full">
+                <Download className="h-4 w-4 mr-2" />
+                Download BOM Template
+              </Button>
+            </div>
+
+            {/* Upload BOM */}
+            <div className="p-4 border rounded-lg bg-blue-50">
+              <h4 className="font-medium text-blue-900 mb-2">Step 2: Upload Filled Template</h4>
+              <p className="text-sm text-blue-700 mb-3">
+                Fill in the template and upload. For Buyer SKU BOM:<br/>
+                • Items marked <strong>NOT brand-specific</strong> → Common BOM (Bidso SKU)<br/>
+                • Items marked <strong>brand-specific</strong> → Brand-specific BOM
+              </p>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                ref={bomFileInputRef}
+                onChange={handleBOMUpload}
+                className="hidden"
+              />
+              <Button 
+                onClick={() => bomFileInputRef.current?.click()} 
+                disabled={bomUploadLoading}
+                className="w-full"
+              >
+                {bomUploadLoading ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                Upload BOM Excel
+              </Button>
+            </div>
+
+            {/* Export Existing BOM */}
+            <div className="p-4 border rounded-lg bg-green-50">
+              <h4 className="font-medium text-green-900 mb-2">Export Existing BOM</h4>
+              <p className="text-sm text-green-700 mb-3">
+                Download all current BOM data as Excel.
+              </p>
+              <Button variant="outline" onClick={handleExportBOM} className="w-full">
+                <Download className="h-4 w-4 mr-2" />
+                Export All BOM Data
+              </Button>
+            </div>
+
+            {/* Upload Results */}
+            {bomUploadResult && (
+              <div className="p-4 border rounded-lg bg-white">
+                <h4 className="font-medium mb-2">Upload Results</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="p-2 bg-blue-100 rounded">
+                    <span className="font-medium">{bomUploadResult.buyer_sku_processed}</span>
+                    <span className="text-gray-600 ml-1">Buyer SKUs processed</span>
+                  </div>
+                  <div className="p-2 bg-purple-100 rounded">
+                    <span className="font-medium">{bomUploadResult.bidso_sku_processed}</span>
+                    <span className="text-gray-600 ml-1">Bidso SKUs processed</span>
+                  </div>
+                  <div className="p-2 bg-green-100 rounded">
+                    <span className="font-medium">{bomUploadResult.common_bom_updated}</span>
+                    <span className="text-gray-600 ml-1">Common BOMs updated</span>
+                  </div>
+                  <div className="p-2 bg-orange-100 rounded">
+                    <span className="font-medium">{bomUploadResult.brand_bom_updated}</span>
+                    <span className="text-gray-600 ml-1">Brand BOMs updated</span>
+                  </div>
+                </div>
+                {bomUploadResult.errors?.length > 0 && (
+                  <div className="mt-3">
+                    <h5 className="text-sm font-medium text-red-600">Errors:</h5>
+                    <ul className="text-xs text-red-500 max-h-32 overflow-y-auto">
+                      {bomUploadResult.errors.slice(0, 10).map((err, i) => (
+                        <li key={i}>• {err}</li>
+                      ))}
+                      {bomUploadResult.errors.length > 10 && (
+                        <li>... and {bomUploadResult.errors.length - 10} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {bomUploadResult.warnings?.length > 0 && (
+                  <div className="mt-3">
+                    <h5 className="text-sm font-medium text-yellow-600">Warnings:</h5>
+                    <ul className="text-xs text-yellow-600 max-h-32 overflow-y-auto">
+                      {bomUploadResult.warnings.slice(0, 5).map((w, i) => (
+                        <li key={i}>• {w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowBOMUploadDialog(false); setBomUploadResult(null); }}>
               Close
             </Button>
           </DialogFooter>

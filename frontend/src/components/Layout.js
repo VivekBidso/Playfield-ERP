@@ -78,7 +78,7 @@ const Layout = () => {
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     { path: "/skus", label: "SKUs (Legacy)", icon: Box, show: !isCPCPlanner && isAdmin },
-    { path: "/sku-mapping", label: "RM-SKU Mapping", icon: GitMerge, show: isAdmin || hasRole('TECH_OPS_ENGINEER') },
+    // RM-SKU Mapping removed - use SKU Management BOM instead
     // Production Planning removed - CPC handles all production planning from forecasts
     { path: "/production", label: "Production", icon: Factory, show: isAdmin },
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: isAdmin || hasRole('QUALITY_INSPECTOR') },

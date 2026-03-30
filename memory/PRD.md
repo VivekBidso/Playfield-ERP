@@ -1724,3 +1724,69 @@ All paginated endpoints return:
 ---
 
 *Phase 1 Completed: March 30, 2026*
+
+
+
+## 23. BOM DATA CONSOLIDATION (March 30, 2026)
+
+### COMPLETE ✅
+
+**Problem**: Two conflicting BOM systems existed:
+- Old: `sku_mappings` collection (legacy, 1 document)
+- New: `common_bom` + `brand_specific_bom` collections (253+ BOMs)
+
+### Changes Made
+
+#### 1. Removed Legacy SKU Mapping Page
+- Removed `/sku-mapping` route from App.js
+- Removed "RM-SKU Mapping" from sidebar in Layout.js
+- Cleared `sku_mappings` collection (1 document)
+- Cleared `bill_of_materials` collection (20,159 legacy documents)
+
+#### 2. Added Bulk BOM Upload to SKU Management
+
+**New Endpoints**:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sku-management/bom/bulk-upload/template` | GET | Download Excel template |
+| `/api/sku-management/bom/bulk-upload` | POST | Upload BOM from Excel |
+| `/api/sku-management/bom/export` | GET | Export all BOM data |
+
+**Upload Logic (Buyer SKU → Bidso SKU)**:
+- When uploading Buyer SKU BOM, system finds linked Bidso SKU
+- Items marked `BRAND_SPECIFIC=N` → Common BOM (Bidso SKU's `common_bom`)
+- Items marked `BRAND_SPECIFIC=Y` → Brand-specific BOM (`brand_specific_bom`)
+- Existing items are updated, new items are added (merge logic)
+- Locked BOMs are skipped with warning
+
+**Template Structure**:
+```
+BuyerSKU_BOM sheet: BUYER_SKU_ID | RM_ID | QUANTITY | UNIT | BRAND_SPECIFIC
+BidsoSKU_BOM sheet: BIDSO_SKU_ID | RM_ID | QUANTITY | UNIT
+```
+
+**Export Structure**:
+- Common_BOM sheet: All Bidso SKU common BOMs
+- Brand_Specific_BOM sheet: All brand-specific additions
+- Full_BuyerSKU_BOM sheet: Combined view per Buyer SKU
+
+#### Current Data State
+- `common_bom`: 253 BOMs (linked to Bidso SKUs)
+- `brand_specific_bom`: Brand additions
+- `sku_mappings`: CLEARED (legacy)
+- `bill_of_materials`: CLEARED (legacy)
+
+### Single Source of Truth
+```
+Bidso SKU (Base Product)
+├── Common BOM → `common_bom` collection
+│
+└── Buyer SKU (Branded Variant)
+    └── Brand-Specific BOM → `brand_specific_bom` collection
+
+Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
+```
+
+---
+
+*Completed: March 30, 2026*

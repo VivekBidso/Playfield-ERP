@@ -746,6 +746,442 @@ async def delete_brand_specific_bom(bidso_sku_id: str, brand_id: str):
     return {"message": "Brand-specific BOM deleted"}
 
 
+# ============ Bulk BOM Upload ============
+
+@router.get("/bom/bulk-upload/template")
+async def download_bom_template():
+    """Download Excel template for bulk BOM upload"""
+    import openpyxl
+    from fastapi.responses import StreamingResponse
+    
+    wb = openpyxl.Workbook()
+    
+    # Instructions sheet
+    ws_info = wb.active
+    ws_info.title = "Instructions"
+    instructions = [
+        ["BOM Bulk Upload Template"],
+        [""],
+        ["IMPORTANT: Read before uploading"],
+        [""],
+        ["For Buyer SKU BOM Upload:"],
+        ["1. Use the 'BuyerSKU_BOM' sheet"],
+        ["2. BUYER_SKU_ID is required - system will find linked Bidso SKU automatically"],
+        ["3. RM_ID and QUANTITY are required for each row"],
+        ["4. BRAND_SPECIFIC: Set to 'Y' for items specific to the brand (labels, packaging)"],
+        ["5. Items marked as NOT brand-specific will go to the Common BOM of the linked Bidso SKU"],
+        [""],
+        ["For Bidso SKU BOM Upload:"],
+        ["1. Use the 'BidsoSKU_BOM' sheet"],
+        ["2. BIDSO_SKU_ID, RM_ID, QUANTITY are required"],
+        ["3. All items will be added to the Common BOM"],
+        [""],
+        ["Column Descriptions:"],
+        ["- BUYER_SKU_ID / BIDSO_SKU_ID: The SKU ID (must exist in system)"],
+        ["- RM_ID: Raw Material ID (must exist in system)"],
+        ["- QUANTITY: Quantity required per unit"],
+        ["- UNIT: Unit of measure (default: PCS)"],
+        ["- BRAND_SPECIFIC: Y/N - whether item is brand-specific (for Buyer SKU only)"],
+    ]
+    for r_idx, row in enumerate(instructions, 1):
+        for c_idx, val in enumerate(row, 1):
+            ws_info.cell(row=r_idx, column=c_idx, value=val)
+    
+    # Buyer SKU BOM sheet
+    ws_buyer = wb.create_sheet("BuyerSKU_BOM")
+    headers_buyer = ["BUYER_SKU_ID", "RM_ID", "QUANTITY", "UNIT", "BRAND_SPECIFIC"]
+    for c_idx, header in enumerate(headers_buyer, 1):
+        ws_buyer.cell(row=1, column=c_idx, value=header)
+    # Sample row
+    ws_buyer.cell(row=2, column=1, value="BAYBEE_KS_PE_001")
+    ws_buyer.cell(row=2, column=2, value="INP_001")
+    ws_buyer.cell(row=2, column=3, value=2)
+    ws_buyer.cell(row=2, column=4, value="PCS")
+    ws_buyer.cell(row=2, column=5, value="N")  # Common BOM
+    ws_buyer.cell(row=3, column=1, value="BAYBEE_KS_PE_001")
+    ws_buyer.cell(row=3, column=2, value="LBL_001")
+    ws_buyer.cell(row=3, column=3, value=1)
+    ws_buyer.cell(row=3, column=4, value="PCS")
+    ws_buyer.cell(row=3, column=5, value="Y")  # Brand-specific
+    
+    # Bidso SKU BOM sheet
+    ws_bidso = wb.create_sheet("BidsoSKU_BOM")
+    headers_bidso = ["BIDSO_SKU_ID", "RM_ID", "QUANTITY", "UNIT"]
+    for c_idx, header in enumerate(headers_bidso, 1):
+        ws_bidso.cell(row=1, column=c_idx, value=header)
+    # Sample row
+    ws_bidso.cell(row=2, column=1, value="KS_PE_001")
+    ws_bidso.cell(row=2, column=2, value="INP_001")
+    ws_bidso.cell(row=2, column=3, value=2)
+    ws_bidso.cell(row=2, column=4, value="PCS")
+    
+    # Save to bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=BOM_Upload_Template.xlsx"}
+    )
+
+
+@router.post("/bom/bulk-upload")
+async def bulk_upload_bom(file: UploadFile = File(...)):
+    """
+    Bulk upload BOM data from Excel.
+    
+    For Buyer SKU BOM: Items marked as NOT brand-specific will automatically
+    populate the Common BOM of the linked Bidso SKU.
+    """
+    import openpyxl
+    
+    content = await file.read()
+    wb = openpyxl.load_workbook(io.BytesIO(content))
+    
+    results = {
+        "buyer_sku_processed": 0,
+        "bidso_sku_processed": 0,
+        "common_bom_updated": 0,
+        "brand_bom_updated": 0,
+        "errors": [],
+        "warnings": []
+    }
+    
+    # Process BuyerSKU_BOM sheet
+    if "BuyerSKU_BOM" in wb.sheetnames:
+        ws = wb["BuyerSKU_BOM"]
+        
+        # Group items by buyer_sku_id
+        buyer_sku_boms = {}
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0]:
+                continue
+            
+            buyer_sku_id = str(row[0]).strip()
+            rm_id = str(row[1]).strip() if row[1] else None
+            quantity = float(row[2]) if row[2] else 1.0
+            unit = str(row[3]).strip() if row[3] else "PCS"
+            brand_specific = str(row[4]).strip().upper() if row[4] else "N"
+            
+            if not rm_id:
+                results["errors"].append(f"Row {row_idx}: RM_ID is required")
+                continue
+            
+            if buyer_sku_id not in buyer_sku_boms:
+                buyer_sku_boms[buyer_sku_id] = {"common": [], "brand_specific": []}
+            
+            item = {"rm_id": rm_id, "quantity": quantity, "unit": unit}
+            
+            if brand_specific == "Y":
+                buyer_sku_boms[buyer_sku_id]["brand_specific"].append(item)
+            else:
+                buyer_sku_boms[buyer_sku_id]["common"].append(item)
+        
+        # Process each buyer SKU
+        for buyer_sku_id, bom_data in buyer_sku_boms.items():
+            # Find buyer SKU and linked Bidso SKU
+            buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+            if not buyer_sku:
+                results["errors"].append(f"Buyer SKU {buyer_sku_id} not found")
+                continue
+            
+            bidso_sku_id = buyer_sku["bidso_sku_id"]
+            brand_id = buyer_sku["brand_id"]
+            brand_code = buyer_sku.get("brand_code", "")
+            
+            # Validate RMs and prepare data
+            common_items = []
+            for item in bom_data["common"]:
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                if not rm:
+                    results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
+                    continue
+                common_items.append({
+                    "rm_id": item["rm_id"],
+                    "rm_name": rm["name"],
+                    "quantity": item["quantity"],
+                    "unit": item["unit"]
+                })
+            
+            brand_items = []
+            for item in bom_data["brand_specific"]:
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                if not rm:
+                    results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
+                    continue
+                brand_items.append({
+                    "rm_id": item["rm_id"],
+                    "rm_name": rm["name"],
+                    "quantity": item["quantity"],
+                    "unit": item["unit"]
+                })
+            
+            # Update Common BOM (for the linked Bidso SKU)
+            if common_items:
+                existing_common = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
+                if existing_common and existing_common.get("is_locked"):
+                    results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped common items")
+                else:
+                    if existing_common:
+                        # Merge items - add new RMs, update existing quantities
+                        existing_rm_ids = {item["rm_id"] for item in existing_common.get("items", [])}
+                        merged_items = list(existing_common.get("items", []))
+                        for item in common_items:
+                            if item["rm_id"] not in existing_rm_ids:
+                                merged_items.append(item)
+                            else:
+                                # Update quantity
+                                for i, ei in enumerate(merged_items):
+                                    if ei["rm_id"] == item["rm_id"]:
+                                        merged_items[i] = item
+                                        break
+                        
+                        await db.common_bom.update_one(
+                            {"bidso_sku_id": bidso_sku_id},
+                            {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                        )
+                    else:
+                        await db.common_bom.insert_one({
+                            "id": str(uuid.uuid4()),
+                            "bidso_sku_id": bidso_sku_id,
+                            "items": common_items,
+                            "is_locked": False,
+                            "created_at": datetime.now(timezone.utc)
+                        })
+                    results["common_bom_updated"] += 1
+            
+            # Update Brand-specific BOM
+            if brand_items:
+                existing_brand = await db.brand_specific_bom.find_one({
+                    "bidso_sku_id": bidso_sku_id,
+                    "brand_id": brand_id
+                })
+                
+                if existing_brand:
+                    # Merge items
+                    existing_rm_ids = {item["rm_id"] for item in existing_brand.get("items", [])}
+                    merged_items = list(existing_brand.get("items", []))
+                    for item in brand_items:
+                        if item["rm_id"] not in existing_rm_ids:
+                            merged_items.append(item)
+                        else:
+                            for i, ei in enumerate(merged_items):
+                                if ei["rm_id"] == item["rm_id"]:
+                                    merged_items[i] = item
+                                    break
+                    
+                    await db.brand_specific_bom.update_one(
+                        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+                        {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                    )
+                else:
+                    await db.brand_specific_bom.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "bidso_sku_id": bidso_sku_id,
+                        "brand_id": brand_id,
+                        "brand_code": brand_code,
+                        "items": brand_items,
+                        "created_at": datetime.now(timezone.utc)
+                    })
+                results["brand_bom_updated"] += 1
+            
+            results["buyer_sku_processed"] += 1
+    
+    # Process BidsoSKU_BOM sheet (direct common BOM)
+    if "BidsoSKU_BOM" in wb.sheetnames:
+        ws = wb["BidsoSKU_BOM"]
+        
+        # Group items by bidso_sku_id
+        bidso_sku_boms = {}
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0]:
+                continue
+            
+            bidso_sku_id = str(row[0]).strip()
+            rm_id = str(row[1]).strip() if row[1] else None
+            quantity = float(row[2]) if row[2] else 1.0
+            unit = str(row[3]).strip() if row[3] else "PCS"
+            
+            if not rm_id:
+                results["errors"].append(f"BidsoSKU_BOM Row {row_idx}: RM_ID is required")
+                continue
+            
+            if bidso_sku_id not in bidso_sku_boms:
+                bidso_sku_boms[bidso_sku_id] = []
+            
+            bidso_sku_boms[bidso_sku_id].append({
+                "rm_id": rm_id,
+                "quantity": quantity,
+                "unit": unit
+            })
+        
+        # Process each Bidso SKU
+        for bidso_sku_id, items in bidso_sku_boms.items():
+            # Verify Bidso SKU exists
+            bidso = await db.bidso_skus.find_one({"bidso_sku_id": bidso_sku_id})
+            if not bidso:
+                results["errors"].append(f"Bidso SKU {bidso_sku_id} not found")
+                continue
+            
+            # Check if locked
+            existing = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
+            if existing and existing.get("is_locked"):
+                results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped")
+                continue
+            
+            # Validate RMs
+            valid_items = []
+            for item in items:
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                if not rm:
+                    results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
+                    continue
+                valid_items.append({
+                    "rm_id": item["rm_id"],
+                    "rm_name": rm["name"],
+                    "quantity": item["quantity"],
+                    "unit": item["unit"]
+                })
+            
+            if not valid_items:
+                continue
+            
+            # Update or create Common BOM
+            if existing:
+                # Merge
+                existing_rm_ids = {item["rm_id"] for item in existing.get("items", [])}
+                merged_items = list(existing.get("items", []))
+                for item in valid_items:
+                    if item["rm_id"] not in existing_rm_ids:
+                        merged_items.append(item)
+                    else:
+                        for i, ei in enumerate(merged_items):
+                            if ei["rm_id"] == item["rm_id"]:
+                                merged_items[i] = item
+                                break
+                
+                await db.common_bom.update_one(
+                    {"bidso_sku_id": bidso_sku_id},
+                    {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                )
+            else:
+                await db.common_bom.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "bidso_sku_id": bidso_sku_id,
+                    "items": valid_items,
+                    "is_locked": False,
+                    "created_at": datetime.now(timezone.utc)
+                })
+            
+            results["bidso_sku_processed"] += 1
+            results["common_bom_updated"] += 1
+    
+    return results
+
+
+@router.get("/bom/export")
+async def export_all_bom():
+    """Export all BOM data to Excel"""
+    import openpyxl
+    from fastapi.responses import StreamingResponse
+    
+    wb = openpyxl.Workbook()
+    
+    # Common BOM sheet
+    ws_common = wb.active
+    ws_common.title = "Common_BOM"
+    headers = ["BIDSO_SKU_ID", "BIDSO_SKU_NAME", "RM_ID", "RM_NAME", "QUANTITY", "UNIT"]
+    for c_idx, h in enumerate(headers, 1):
+        ws_common.cell(row=1, column=c_idx, value=h)
+    
+    row_idx = 2
+    async for bom in db.common_bom.find({}, {"_id": 0}):
+        bidso = await db.bidso_skus.find_one({"bidso_sku_id": bom["bidso_sku_id"]}, {"_id": 0, "name": 1})
+        bidso_name = bidso["name"] if bidso else ""
+        
+        for item in bom.get("items", []):
+            ws_common.cell(row=row_idx, column=1, value=bom["bidso_sku_id"])
+            ws_common.cell(row=row_idx, column=2, value=bidso_name)
+            ws_common.cell(row=row_idx, column=3, value=item.get("rm_id", ""))
+            ws_common.cell(row=row_idx, column=4, value=item.get("rm_name", ""))
+            ws_common.cell(row=row_idx, column=5, value=item.get("quantity", 1))
+            ws_common.cell(row=row_idx, column=6, value=item.get("unit", "PCS"))
+            row_idx += 1
+    
+    # Brand-specific BOM sheet
+    ws_brand = wb.create_sheet("Brand_Specific_BOM")
+    headers_brand = ["BIDSO_SKU_ID", "BRAND_CODE", "RM_ID", "RM_NAME", "QUANTITY", "UNIT"]
+    for c_idx, h in enumerate(headers_brand, 1):
+        ws_brand.cell(row=1, column=c_idx, value=h)
+    
+    row_idx = 2
+    async for bom in db.brand_specific_bom.find({}, {"_id": 0}):
+        for item in bom.get("items", []):
+            ws_brand.cell(row=row_idx, column=1, value=bom.get("bidso_sku_id", ""))
+            ws_brand.cell(row=row_idx, column=2, value=bom.get("brand_code", ""))
+            ws_brand.cell(row=row_idx, column=3, value=item.get("rm_id", ""))
+            ws_brand.cell(row=row_idx, column=4, value=item.get("rm_name", ""))
+            ws_brand.cell(row=row_idx, column=5, value=item.get("quantity", 1))
+            ws_brand.cell(row=row_idx, column=6, value=item.get("unit", "PCS"))
+            row_idx += 1
+    
+    # Full Buyer SKU BOM sheet (combined view)
+    ws_full = wb.create_sheet("Full_BuyerSKU_BOM")
+    headers_full = ["BUYER_SKU_ID", "BIDSO_SKU_ID", "BRAND_CODE", "RM_ID", "RM_NAME", "QUANTITY", "UNIT", "BOM_TYPE"]
+    for c_idx, h in enumerate(headers_full, 1):
+        ws_full.cell(row=1, column=c_idx, value=h)
+    
+    row_idx = 2
+    async for buyer_sku in db.buyer_skus.find({"status": "ACTIVE"}, {"_id": 0}):
+        buyer_sku_id = buyer_sku["buyer_sku_id"]
+        bidso_sku_id = buyer_sku["bidso_sku_id"]
+        brand_code = buyer_sku.get("brand_code", "")
+        brand_id = buyer_sku.get("brand_id", "")
+        
+        # Get common BOM
+        common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
+        if common_bom:
+            for item in common_bom.get("items", []):
+                ws_full.cell(row=row_idx, column=1, value=buyer_sku_id)
+                ws_full.cell(row=row_idx, column=2, value=bidso_sku_id)
+                ws_full.cell(row=row_idx, column=3, value=brand_code)
+                ws_full.cell(row=row_idx, column=4, value=item.get("rm_id", ""))
+                ws_full.cell(row=row_idx, column=5, value=item.get("rm_name", ""))
+                ws_full.cell(row=row_idx, column=6, value=item.get("quantity", 1))
+                ws_full.cell(row=row_idx, column=7, value=item.get("unit", "PCS"))
+                ws_full.cell(row=row_idx, column=8, value="Common")
+                row_idx += 1
+        
+        # Get brand-specific BOM
+        brand_bom = await db.brand_specific_bom.find_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"_id": 0}
+        )
+        if brand_bom:
+            for item in brand_bom.get("items", []):
+                ws_full.cell(row=row_idx, column=1, value=buyer_sku_id)
+                ws_full.cell(row=row_idx, column=2, value=bidso_sku_id)
+                ws_full.cell(row=row_idx, column=3, value=brand_code)
+                ws_full.cell(row=row_idx, column=4, value=item.get("rm_id", ""))
+                ws_full.cell(row=row_idx, column=5, value=item.get("rm_name", ""))
+                ws_full.cell(row=row_idx, column=6, value=item.get("quantity", 1))
+                ws_full.cell(row=row_idx, column=7, value=item.get("unit", "PCS"))
+                ws_full.cell(row=row_idx, column=8, value="Brand-Specific")
+                row_idx += 1
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=BOM_Export.xlsx"}
+    )
+
+
 # ============ Full BOM View ============
 
 async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:

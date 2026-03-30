@@ -8,7 +8,7 @@ import RawMaterials from "@/pages/RawMaterials";
 import RMInward from "@/pages/RMInward";
 import RMRepository from "@/pages/RMRepository";
 import SKUs from "@/pages/SKUs";
-import SKUMapping from "@/pages/SKUMapping";
+// SKUMapping removed - use SKU Management BOM instead
 import SKUSubscription from "@/pages/SKUSubscription";
 import SKUManagement from "@/pages/SKUManagement";
 import VendorManagement from "@/pages/VendorManagement";
@@ -90,7 +90,7 @@ function App() {
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="rm-inward" element={<RMInward />} />
             <Route path="skus" element={<SKUs />} />
-            <Route path="sku-mapping" element={<SKUMapping />} />
+            {/* sku-mapping route removed - use SKU Management BOM instead */}
             <Route path="sku-subscription" element={<SKUSubscription />} />
             <Route path="sku-management" element={<SKUManagement />} />
             <Route path="vendors" element={<VendorManagement />} />
