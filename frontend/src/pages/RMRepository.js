@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import Pagination from "../components/Pagination";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -99,7 +100,9 @@ const RMRepository = () => {
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 50;
+  const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     fetchMasterData();
@@ -118,7 +121,7 @@ const RMRepository = () => {
     } else if (activeTab === "clone-requests") {
       fetchBidsoCloneRequests();
     }
-  }, [activeTab, filters, currentPage]);
+  }, [activeTab, filters, currentPage, pageSize]);
 
   const fetchMasterData = async () => {
     try {
@@ -139,28 +142,19 @@ const RMRepository = () => {
     setLoading(true);
     try {
       // Build query params
-      let url = `${API}/raw-materials/by-tags?`;
-      if (filters.brand_id) url += `brand_id=${filters.brand_id}&`;
-      if (filters.vertical_id) url += `vertical_id=${filters.vertical_id}&`;
-      if (filters.model_id) url += `model_id=${filters.model_id}&`;
-      if (filters.is_brand_specific === "true") url += `is_brand_specific=true&`;
-      if (filters.is_brand_specific === "false") url += `is_brand_specific=false&`;
-      if (filters.category) url += `category=${filters.category}&`;
+      let url = `${API}/raw-materials/by-tags?page=${currentPage}&page_size=${pageSize}`;
+      if (filters.brand_id) url += `&brand_id=${filters.brand_id}`;
+      if (filters.vertical_id) url += `&vertical_id=${filters.vertical_id}`;
+      if (filters.model_id) url += `&model_id=${filters.model_id}`;
+      if (filters.is_brand_specific === "true") url += `&is_brand_specific=true`;
+      if (filters.is_brand_specific === "false") url += `&is_brand_specific=false`;
+      if (filters.category) url += `&category=${filters.category}`;
+      if (filters.search) url += `&search=${encodeURIComponent(filters.search)}`;
       
       const res = await axios.get(url);
-      let data = res.data;
-      
-      // Client-side search filter
-      if (filters.search) {
-        const search = filters.search.toLowerCase();
-        data = data.filter(rm => 
-          rm.rm_id?.toLowerCase().includes(search) ||
-          rm.category_data?.name?.toLowerCase().includes(search) ||
-          rm.category_data?.model_name?.toLowerCase().includes(search)
-        );
-      }
-      
-      setMaterials(data);
+      setMaterials(res.data.items || []);
+      setTotalItems(res.data.total || 0);
+      setTotalPages(res.data.total_pages || 1);
       setSelectedRMs(new Set());
       setSelectAll(false);
     } catch (error) {
@@ -418,14 +412,24 @@ const RMRepository = () => {
       model_id: "",
       is_brand_specific: ""
     });
+    setCurrentPage(1);
   };
 
-  // Paginated materials
-  const paginatedMaterials = materials.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
-  const totalPages = Math.ceil(materials.length / pageSize);
+  // Pagination handlers
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
+  // Handle filter changes with page reset
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
 
   return (
     <div className="p-6 space-y-6" data-testid="rm-repository-page">
@@ -541,6 +545,7 @@ const RMRepository = () => {
                       placeholder="Search RM ID or name..."
                       value={filters.search}
                       onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                      onKeyDown={(e) => e.key === 'Enter' && fetchMaterials()}
                       className="pl-10"
                       data-testid="rm-search"
                     />
@@ -549,7 +554,7 @@ const RMRepository = () => {
                 
                 <div className="w-[150px]">
                   <Label className="text-xs text-gray-500">Category</Label>
-                  <Select value={filters.category} onValueChange={(v) => setFilters({ ...filters, category: v === "all" ? "" : v })}>
+                  <Select value={filters.category} onValueChange={(v) => handleFilterChange('category', v === "all" ? "" : v)}>
                     <SelectTrigger data-testid="filter-category">
                       <SelectValue placeholder="All" />
                     </SelectTrigger>
@@ -564,7 +569,7 @@ const RMRepository = () => {
                 
                 <div className="w-[180px]">
                   <Label className="text-xs text-gray-500">Brand</Label>
-                  <Select value={filters.brand_id} onValueChange={(v) => setFilters({ ...filters, brand_id: v === "all" ? "" : v })}>
+                  <Select value={filters.brand_id} onValueChange={(v) => handleFilterChange('brand_id', v === "all" ? "" : v)}>
                     <SelectTrigger data-testid="filter-brand">
                       <SelectValue placeholder="All Brands" />
                     </SelectTrigger>
@@ -579,7 +584,7 @@ const RMRepository = () => {
                 
                 <div className="w-[180px]">
                   <Label className="text-xs text-gray-500">Vertical</Label>
-                  <Select value={filters.vertical_id} onValueChange={(v) => setFilters({ ...filters, vertical_id: v === "all" ? "" : v, model_id: "" })}>
+                  <Select value={filters.vertical_id} onValueChange={(v) => { handleFilterChange('vertical_id', v === "all" ? "" : v); setFilters(prev => ({ ...prev, model_id: "" })); }}>
                     <SelectTrigger data-testid="filter-vertical">
                       <SelectValue placeholder="All Verticals" />
                     </SelectTrigger>
@@ -594,7 +599,7 @@ const RMRepository = () => {
                 
                 <div className="w-[180px]">
                   <Label className="text-xs text-gray-500">Model</Label>
-                  <Select value={filters.model_id} onValueChange={(v) => setFilters({ ...filters, model_id: v === "all" ? "" : v })} disabled={!filters.vertical_id}>
+                  <Select value={filters.model_id} onValueChange={(v) => handleFilterChange('model_id', v === "all" ? "" : v)} disabled={!filters.vertical_id}>
                     <SelectTrigger data-testid="filter-model">
                       <SelectValue placeholder="All Models" />
                     </SelectTrigger>
@@ -609,7 +614,7 @@ const RMRepository = () => {
                 
                 <div className="w-[150px]">
                   <Label className="text-xs text-gray-500">Brand Specific</Label>
-                  <Select value={filters.is_brand_specific} onValueChange={(v) => setFilters({ ...filters, is_brand_specific: v === "all" ? "" : v })}>
+                  <Select value={filters.is_brand_specific} onValueChange={(v) => handleFilterChange('is_brand_specific', v === "all" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All" />
                     </SelectTrigger>
@@ -683,14 +688,14 @@ const RMRepository = () => {
                         Loading...
                       </TableCell>
                     </TableRow>
-                  ) : paginatedMaterials.length === 0 ? (
+                  ) : materials.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                         No raw materials found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginatedMaterials.map(rm => (
+                    materials.map(rm => (
                       <TableRow key={rm.rm_id} data-testid={`rm-row-${rm.rm_id}`}>
                         <TableCell>
                           <Checkbox 
@@ -780,38 +785,18 @@ const RMRepository = () => {
                   )}
                 </TableBody>
               </Table>
+              {/* Pagination */}
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                loading={loading}
+              />
             </CardContent>
           </Card>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">
-                Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, materials.length)} of {materials.length}
-              </span>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                >
-                  Previous
-                </Button>
-                <span className="px-3 py-1 text-sm">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
         </TabsContent>
 
         {/* RM Requests Tab */}

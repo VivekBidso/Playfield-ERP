@@ -1,5 +1,5 @@
 """Raw Materials routes - RM CRUD, inventory, bulk upload"""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
@@ -413,9 +413,12 @@ async def get_raw_materials_by_tags(
     vertical_id: Optional[str] = None,
     model_id: Optional[str] = None,
     is_brand_specific: Optional[bool] = None,
-    category: Optional[str] = None
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page")
 ):
-    """Get RMs filtered by brand/vertical/model tags"""
+    """Get RMs filtered by brand/vertical/model tags with pagination"""
     query = {"status": {"$ne": "INACTIVE"}}
     
     if brand_id:
@@ -429,7 +432,32 @@ async def get_raw_materials_by_tags(
     if category:
         query["category"] = category
     
-    rms = await db.raw_materials.find(query, {"_id": 0}).to_list(10000)
+    # Handle search with pagination
+    if search:
+        search_lower = search.lower()
+        # First get all matching IDs for search
+        all_rms = await db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "category": 1}).to_list(10000)
+        matching_ids = [rm["rm_id"] for rm in all_rms if
+                       search_lower in rm.get("rm_id", "").lower() or
+                       search_lower in rm.get("category", "").lower()]
+        total = len(matching_ids)
+        
+        # Paginate
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_ids = matching_ids[start_idx:end_idx]
+        
+        if paginated_ids:
+            rms = await db.raw_materials.find(
+                {"rm_id": {"$in": paginated_ids}},
+                {"_id": 0}
+            ).to_list(page_size)
+        else:
+            rms = []
+    else:
+        total = await db.raw_materials.count_documents(query)
+        skip = (page - 1) * page_size
+        rms = await db.raw_materials.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     # Enrich with names
     for rm in rms:
@@ -454,7 +482,15 @@ async def get_raw_materials_by_tags(
         else:
             rm["models"] = []
     
-    return rms
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    return {
+        "items": rms,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 
 @router.post("/raw-materials/{rm_id}/tag")

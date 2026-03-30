@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import Pagination from "../components/Pagination";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -39,6 +40,13 @@ const Demand = () => {
     brand_id: "",
     model_id: ""
   });
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(false);
   
   // Dispatch Lots popup state
   const [showLotsDialog, setShowLotsDialog] = useState(false);
@@ -89,15 +97,18 @@ const Demand = () => {
   });
 
   useEffect(() => {
-    fetchAllData();
+    fetchMasterData();
   }, []);
 
-  const fetchAllData = async () => {
+  useEffect(() => {
+    fetchForecasts();
+  }, [currentPage, pageSize, forecastFilters]);
+
+  const fetchMasterData = async () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       
-      const [forecastsRes, buyersRes, skusRes, verticalsRes, modelsRes, brandsRes] = await Promise.all([
-        axios.get(`${API}/forecasts`, { headers }),
+      const [buyersRes, skusRes, verticalsRes, modelsRes, brandsRes] = await Promise.all([
         axios.get(`${API}/buyers`, { headers }),
         axios.get(`${API}/skus`, { headers }),
         axios.get(`${API}/verticals`, { headers }),
@@ -105,7 +116,6 @@ const Demand = () => {
         axios.get(`${API}/brands`, { headers })
       ]);
       
-      setForecasts(forecastsRes.data);
       setBuyers(buyersRes.data);
       setSkus(skusRes.data);
       setVerticals(verticalsRes.data);
@@ -116,9 +126,34 @@ const Demand = () => {
       await fetchBomData(skusRes.data, headers);
       
     } catch (error) {
-      console.error("Failed to fetch data:", error);
+      console.error("Failed to fetch master data:", error);
       toast.error("Failed to fetch data");
     }
+  };
+
+  const fetchForecasts = async () => {
+    setLoading(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      let url = `${API}/forecasts?page=${currentPage}&page_size=${pageSize}`;
+      if (forecastFilters.buyer_id) url += `&buyer_id=${forecastFilters.buyer_id}`;
+      if (forecastFilters.vertical_id) url += `&vertical_id=${forecastFilters.vertical_id}`;
+      
+      const res = await axios.get(url, { headers });
+      setForecasts(res.data.items || []);
+      setTotalItems(res.data.total || 0);
+      setTotalPages(res.data.total_pages || 1);
+    } catch (error) {
+      console.error("Failed to fetch forecasts:", error);
+      toast.error("Failed to fetch forecasts");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAllData = async () => {
+    await fetchMasterData();
+    await fetchForecasts();
   };
 
   const fetchBomData = async (skuList, headers) => {
@@ -257,37 +292,23 @@ const Demand = () => {
 
   // Get filtered forecasts based on filter selections
   const getFilteredForecasts = () => {
-    let filtered = [...forecasts];
-    
-    if (forecastFilters.buyer_id) {
-      filtered = filtered.filter(f => f.buyer_id === forecastFilters.buyer_id);
-    }
-    
-    if (forecastFilters.vertical_id) {
-      const verticalName = verticals.find(v => v.id === forecastFilters.vertical_id)?.name;
-      filtered = filtered.filter(f => 
-        f.vertical_id === forecastFilters.vertical_id || 
-        f.vertical === verticalName
-      );
-    }
-    
-    if (forecastFilters.brand_id) {
-      const brandName = brands.find(b => b.id === forecastFilters.brand_id)?.name;
-      filtered = filtered.filter(f => 
-        f.brand_id === forecastFilters.brand_id || 
-        f.brand === brandName
-      );
-    }
-    
-    if (forecastFilters.model_id) {
-      const modelName = models.find(m => m.id === forecastFilters.model_id)?.name;
-      filtered = filtered.filter(f => 
-        f.model_id === forecastFilters.model_id || 
-        f.model === modelName
-      );
-    }
-    
-    return filtered;
+    // Server-side filtering is now used - just return the forecasts
+    return forecasts;
+  };
+
+  // Pagination handlers
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
+  const handleFilterChange = (key, value) => {
+    setForecastFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
   };
 
   // Get models filtered for the forecast filter dropdown
@@ -1011,7 +1032,7 @@ const Demand = () => {
             {/* Customer/Buyer Filter */}
             <Select 
               value={forecastFilters.buyer_id || "_all"} 
-              onValueChange={(v) => setForecastFilters({...forecastFilters, buyer_id: v === "_all" ? "" : v})}
+              onValueChange={(v) => handleFilterChange('buyer_id', v === "_all" ? "" : v)}
             >
               <SelectTrigger className="w-[180px] h-9 text-xs" data-testid="forecast-buyer-filter">
                 <SelectValue placeholder="All Customers" />
@@ -1027,11 +1048,10 @@ const Demand = () => {
             {/* Vertical Filter */}
             <Select 
               value={forecastFilters.vertical_id || "_all"} 
-              onValueChange={(v) => setForecastFilters({
-                ...forecastFilters, 
-                vertical_id: v === "_all" ? "" : v,
-                model_id: "" // Reset model when vertical changes
-              })}
+              onValueChange={(v) => {
+                handleFilterChange('vertical_id', v === "_all" ? "" : v);
+                setForecastFilters(prev => ({ ...prev, model_id: "" })); // Reset model when vertical changes
+              }}
             >
               <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-vertical-filter">
                 <SelectValue placeholder="All Verticals" />
@@ -1047,7 +1067,7 @@ const Demand = () => {
             {/* Brand Filter */}
             <Select 
               value={forecastFilters.brand_id || "_all"} 
-              onValueChange={(v) => setForecastFilters({...forecastFilters, brand_id: v === "_all" ? "" : v})}
+              onValueChange={(v) => handleFilterChange('brand_id', v === "_all" ? "" : v)}
             >
               <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-brand-filter">
                 <SelectValue placeholder="All Brands" />
@@ -1063,7 +1083,7 @@ const Demand = () => {
             {/* Model Filter */}
             <Select 
               value={forecastFilters.model_id || "_all"} 
-              onValueChange={(v) => setForecastFilters({...forecastFilters, model_id: v === "_all" ? "" : v})}
+              onValueChange={(v) => handleFilterChange('model_id', v === "_all" ? "" : v)}
             >
               <SelectTrigger className="w-[150px] h-9 text-xs" data-testid="forecast-model-filter">
                 <SelectValue placeholder="All Models" />
@@ -1082,7 +1102,7 @@ const Demand = () => {
                 variant="ghost" 
                 size="sm"
                 className="text-xs h-9"
-                onClick={() => setForecastFilters({ buyer_id: "", vertical_id: "", brand_id: "", model_id: "" })}
+                onClick={() => { setForecastFilters({ buyer_id: "", vertical_id: "", brand_id: "", model_id: "" }); setCurrentPage(1); }}
               >
                 <X className="w-3 h-3 mr-1" />
                 Clear
@@ -1091,7 +1111,7 @@ const Demand = () => {
             
             {/* Results count */}
             <span className="text-xs text-zinc-500 ml-auto">
-              Showing {getFilteredForecasts().length} of {forecasts.length} forecasts
+              Showing {forecasts.length} of {totalItems} forecasts
             </span>
           </div>
           
@@ -1289,11 +1309,22 @@ const Demand = () => {
                   </tr>
                 ))}
                 {forecasts.length === 0 && (
-                  <tr><td colSpan={canConfirmForecasts ? 17 : 16} className="p-8 text-center text-muted-foreground">No forecasts yet. Create one to get started.</td></tr>
+                  <tr><td colSpan={canConfirmForecasts ? 17 : 16} className="p-8 text-center text-muted-foreground">{loading ? "Loading..." : "No forecasts yet. Create one to get started."}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            loading={loading}
+          />
         </TabsContent>
 
         {/* SKU BOM & Cost Tab */}

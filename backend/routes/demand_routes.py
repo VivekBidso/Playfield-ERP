@@ -1,5 +1,5 @@
 """Demand routes - Forecasts, Dispatch Lots"""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
@@ -81,7 +81,10 @@ class DispatchLotUpdate(BaseModel):
 async def get_forecasts(
     buyer_id: Optional[str] = None,
     vertical_id: Optional[str] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page")
 ):
     query = {}
     if buyer_id:
@@ -90,10 +93,39 @@ async def get_forecasts(
         query["vertical_id"] = vertical_id
     if status:
         query["status"] = status
-    forecasts = await db.forecasts.find(query, {"_id": 0}).to_list(1000)
+    
+    # Handle search with pagination
+    if search:
+        search_lower = search.lower()
+        all_forecasts = await db.forecasts.find(query, {"_id": 0, "id": 1, "forecast_code": 1}).to_list(5000)
+        matching_ids = [f["id"] for f in all_forecasts if
+                       search_lower in f.get("forecast_code", "").lower()]
+        total = len(matching_ids)
+        
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_ids = matching_ids[start_idx:end_idx]
+        
+        if paginated_ids:
+            forecasts = await db.forecasts.find(
+                {"id": {"$in": paginated_ids}},
+                {"_id": 0}
+            ).to_list(page_size)
+        else:
+            forecasts = []
+    else:
+        total = await db.forecasts.count_documents(query)
+        skip = (page - 1) * page_size
+        forecasts = await db.forecasts.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     if not forecasts:
-        return []
+        return {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1
+        }
     
     # Get all forecast IDs
     forecast_ids = [f["id"] for f in forecasts]
@@ -154,7 +186,15 @@ async def get_forecasts(
         }
         result.append(serialize_doc(enriched))
     
-    return result
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    return {
+        "items": result,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 @router.post("/forecasts")
 async def create_forecast(data: ForecastCreate):

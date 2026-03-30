@@ -72,9 +72,11 @@ async def get_bidso_skus(
     vertical_id: Optional[str] = None,
     model_id: Optional[str] = None,
     search: Optional[str] = None,
-    include_inactive: bool = False
+    include_inactive: bool = False,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page")
 ):
-    """Get all Bidso SKUs with optional filters"""
+    """Get all Bidso SKUs with optional filters and pagination"""
     query = {}
     if not include_inactive:
         query["status"] = "ACTIVE"
@@ -83,15 +85,41 @@ async def get_bidso_skus(
     if model_id:
         query["model_id"] = model_id
     
-    bidso_skus = await db.bidso_skus.find(query, {"_id": 0}).to_list(10000)
-    
-    # Apply search filter
+    # If search is provided, we need to search in text fields
+    # For MongoDB text search, we need to fetch and filter in Python
+    # since the search spans multiple fields
     if search:
         search_lower = search.lower()
-        bidso_skus = [s for s in bidso_skus if
-                      search_lower in s.get("bidso_sku_id", "").lower() or
-                      search_lower in s.get("name", "").lower() or
-                      search_lower in s.get("description", "").lower()]
+        # First get total matching count efficiently
+        all_skus = await db.bidso_skus.find(query, {"_id": 0, "bidso_sku_id": 1, "name": 1, "description": 1}).to_list(10000)
+        matching_ids = [s["bidso_sku_id"] for s in all_skus if
+                       search_lower in s.get("bidso_sku_id", "").lower() or
+                       search_lower in s.get("name", "").lower() or
+                       search_lower in s.get("description", "").lower()]
+        total = len(matching_ids)
+        
+        # Paginate the matching IDs
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_ids = matching_ids[start_idx:end_idx]
+        
+        # Fetch full documents for paginated IDs
+        if paginated_ids:
+            bidso_skus = await db.bidso_skus.find(
+                {"bidso_sku_id": {"$in": paginated_ids}},
+                {"_id": 0}
+            ).to_list(page_size)
+        else:
+            bidso_skus = []
+    else:
+        # Get total count for pagination
+        total = await db.bidso_skus.count_documents(query)
+        
+        # Calculate skip value
+        skip = (page - 1) * page_size
+        
+        # Fetch paginated results
+        bidso_skus = await db.bidso_skus.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     # Enrich with related data
     for sku in bidso_skus:
@@ -114,7 +142,16 @@ async def get_bidso_skus(
         sku["has_bom"] = common_bom is not None
         sku["bom_locked"] = common_bom.get("is_locked", False) if common_bom else False
     
-    return bidso_skus
+    # Calculate total pages
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    return {
+        "items": bidso_skus,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 
 @router.get("/bidso-skus/{bidso_sku_id}")
@@ -272,9 +309,11 @@ async def get_buyer_skus(
     brand_id: Optional[str] = None,
     buyer_id: Optional[str] = None,
     search: Optional[str] = None,
-    include_inactive: bool = False
+    include_inactive: bool = False,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page")
 ):
-    """Get all Buyer SKUs with optional filters"""
+    """Get all Buyer SKUs with optional filters and pagination"""
     query = {}
     if not include_inactive:
         query["status"] = "ACTIVE"
@@ -285,15 +324,31 @@ async def get_buyer_skus(
     if buyer_id:
         query["buyer_id"] = buyer_id
     
-    buyer_skus = await db.buyer_skus.find(query, {"_id": 0}).to_list(10000)
-    
-    # Apply search filter
+    # Handle search with pagination
     if search:
         search_lower = search.lower()
-        buyer_skus = [s for s in buyer_skus if
-                      search_lower in s.get("buyer_sku_id", "").lower() or
-                      search_lower in s.get("bidso_sku_id", "").lower() or
-                      search_lower in s.get("name", "").lower()]
+        all_skus = await db.buyer_skus.find(query, {"_id": 0, "buyer_sku_id": 1, "bidso_sku_id": 1, "name": 1}).to_list(10000)
+        matching_ids = [s["buyer_sku_id"] for s in all_skus if
+                       search_lower in s.get("buyer_sku_id", "").lower() or
+                       search_lower in s.get("bidso_sku_id", "").lower() or
+                       search_lower in s.get("name", "").lower()]
+        total = len(matching_ids)
+        
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_ids = matching_ids[start_idx:end_idx]
+        
+        if paginated_ids:
+            buyer_skus = await db.buyer_skus.find(
+                {"buyer_sku_id": {"$in": paginated_ids}},
+                {"_id": 0}
+            ).to_list(page_size)
+        else:
+            buyer_skus = []
+    else:
+        total = await db.buyer_skus.count_documents(query)
+        skip = (page - 1) * page_size
+        buyer_skus = await db.buyer_skus.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     # Enrich with related data
     for sku in buyer_skus:
@@ -318,7 +373,15 @@ async def get_buyer_skus(
                 sku["vertical_code"] = bidso.get("vertical_code")
                 sku["model_code"] = bidso.get("model_code")
     
-    return buyer_skus
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    return {
+        "items": buyer_skus,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 
 @router.get("/buyer-skus/{buyer_sku_id}")

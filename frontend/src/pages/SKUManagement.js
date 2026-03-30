@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import useAuthStore from "../store/authStore";
+import Pagination from "../components/Pagination";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -90,6 +91,18 @@ const SKUManagement = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const syncFileInputRef = useRef(null);
 
+  // Pagination state for Bidso SKUs
+  const [bidsoPage, setBidsoPage] = useState(1);
+  const [bidsoPageSize, setBidsoPageSize] = useState(50);
+  const [bidsoTotal, setBidsoTotal] = useState(0);
+  const [bidsoTotalPages, setBidsoTotalPages] = useState(1);
+
+  // Pagination state for Buyer SKUs
+  const [buyerPage, setBuyerPage] = useState(1);
+  const [buyerPageSize, setBuyerPageSize] = useState(50);
+  const [buyerTotal, setBuyerTotal] = useState(0);
+  const [buyerTotalPages, setBuyerTotalPages] = useState(1);
+
   useEffect(() => {
     fetchMasterData();
     fetchStats();
@@ -101,7 +114,7 @@ const SKUManagement = () => {
     } else {
       fetchBuyerSKUs();
     }
-  }, [activeTab, filterVertical, filterModel, filterBrand]);
+  }, [activeTab, filterVertical, filterModel, filterBrand, bidsoPage, bidsoPageSize, buyerPage, buyerPageSize]);
 
   // Clear selectedBidso when switching to buyer tab without a specific selection
   useEffect(() => {
@@ -138,13 +151,15 @@ const SKUManagement = () => {
   const fetchBidsoSKUs = async () => {
     setLoading(true);
     try {
-      let url = `${API}/sku-management/bidso-skus?`;
-      if (filterVertical) url += `vertical_id=${filterVertical}&`;
-      if (filterModel) url += `model_id=${filterModel}&`;
-      if (searchQuery) url += `search=${searchQuery}&`;
+      let url = `${API}/sku-management/bidso-skus?page=${bidsoPage}&page_size=${bidsoPageSize}`;
+      if (filterVertical) url += `&vertical_id=${filterVertical}`;
+      if (filterModel) url += `&model_id=${filterModel}`;
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
       
       const res = await axios.get(url, { headers: getHeaders() });
-      setBidsoSKUs(res.data);
+      setBidsoSKUs(res.data.items || []);
+      setBidsoTotal(res.data.total || 0);
+      setBidsoTotalPages(res.data.total_pages || 1);
     } catch (error) {
       toast.error("Failed to fetch Bidso SKUs");
     } finally {
@@ -155,13 +170,15 @@ const SKUManagement = () => {
   const fetchBuyerSKUs = async () => {
     setLoading(true);
     try {
-      let url = `${API}/sku-management/buyer-skus?`;
-      if (filterBrand) url += `brand_id=${filterBrand}&`;
-      if (selectedBidso) url += `bidso_sku_id=${selectedBidso.bidso_sku_id}&`;
-      if (searchQuery) url += `search=${searchQuery}&`;
+      let url = `${API}/sku-management/buyer-skus?page=${buyerPage}&page_size=${buyerPageSize}`;
+      if (filterBrand) url += `&brand_id=${filterBrand}`;
+      if (selectedBidso) url += `&bidso_sku_id=${selectedBidso.bidso_sku_id}`;
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
       
       const res = await axios.get(url, { headers: getHeaders() });
-      setBuyerSKUs(res.data);
+      setBuyerSKUs(res.data.items || []);
+      setBuyerTotal(res.data.total || 0);
+      setBuyerTotalPages(res.data.total_pages || 1);
     } catch (error) {
       toast.error("Failed to fetch Buyer SKUs");
     } finally {
@@ -178,6 +195,51 @@ const SKUManagement = () => {
       setBidsoForm(prev => ({ ...prev, numeric_code: res.data.suggested_code }));
     } catch (error) {
       console.error("Failed to get next code");
+    }
+  };
+
+  // Pagination handlers
+  const handleBidsoPageChange = (page) => {
+    setBidsoPage(page);
+  };
+
+  const handleBidsoPageSizeChange = (size) => {
+    setBidsoPageSize(size);
+    setBidsoPage(1); // Reset to first page when changing page size
+  };
+
+  const handleBuyerPageChange = (page) => {
+    setBuyerPage(page);
+  };
+
+  const handleBuyerPageSizeChange = (size) => {
+    setBuyerPageSize(size);
+    setBuyerPage(1);
+  };
+
+  // Reset pagination when filters change
+  const handleFilterVerticalChange = (value) => {
+    setFilterVertical(value);
+    setBidsoPage(1);
+  };
+
+  const handleFilterModelChange = (value) => {
+    setFilterModel(value);
+    setBidsoPage(1);
+  };
+
+  const handleFilterBrandChange = (value) => {
+    setFilterBrand(value);
+    setBuyerPage(1);
+  };
+
+  const handleSearch = () => {
+    if (activeTab === "bidso") {
+      setBidsoPage(1);
+      fetchBidsoSKUs();
+    } else {
+      setBuyerPage(1);
+      fetchBuyerSKUs();
     }
   };
 
@@ -417,7 +479,7 @@ const SKUManagement = () => {
           {/* Filters & Actions */}
           <div className="flex flex-wrap gap-4 items-center justify-between">
             <div className="flex gap-3 flex-wrap">
-              <Select value={filterVertical} onValueChange={(v) => { setFilterVertical(v === "all" ? "" : v); setFilterModel(""); }}>
+              <Select value={filterVertical} onValueChange={(v) => { handleFilterVerticalChange(v === "all" ? "" : v); setFilterModel(""); }}>
                 <SelectTrigger className="w-[180px]" data-testid="filter-vertical">
                   <SelectValue placeholder="All Verticals" />
                 </SelectTrigger>
@@ -429,7 +491,7 @@ const SKUManagement = () => {
                 </SelectContent>
               </Select>
               
-              <Select value={filterModel} onValueChange={(v) => setFilterModel(v === "all" ? "" : v)} disabled={!filterVertical}>
+              <Select value={filterModel} onValueChange={(v) => handleFilterModelChange(v === "all" ? "" : v)} disabled={!filterVertical}>
                 <SelectTrigger className="w-[180px]" data-testid="filter-model">
                   <SelectValue placeholder="All Models" />
                 </SelectTrigger>
@@ -447,12 +509,13 @@ const SKUManagement = () => {
                   placeholder="Search SKU ID..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   className="pl-10 w-[200px]"
                   data-testid="search-input"
                 />
               </div>
               
-              <Button variant="outline" onClick={fetchBidsoSKUs}>
+              <Button variant="outline" onClick={handleSearch}>
                 <Search className="h-4 w-4 mr-2" />
                 Search
               </Button>
@@ -558,6 +621,16 @@ const SKUManagement = () => {
                   )}
                 </TableBody>
               </Table>
+              {/* Pagination for Bidso SKUs */}
+              <Pagination
+                currentPage={bidsoPage}
+                totalPages={bidsoTotalPages}
+                totalItems={bidsoTotal}
+                pageSize={bidsoPageSize}
+                onPageChange={handleBidsoPageChange}
+                onPageSizeChange={handleBidsoPageSizeChange}
+                loading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -567,7 +640,7 @@ const SKUManagement = () => {
           {/* Filters */}
           <div className="flex flex-wrap gap-4 items-center justify-between">
             <div className="flex gap-3 flex-wrap">
-              <Select value={filterBrand} onValueChange={(v) => setFilterBrand(v === "all" ? "" : v)}>
+              <Select value={filterBrand} onValueChange={(v) => handleFilterBrandChange(v === "all" ? "" : v)}>
                 <SelectTrigger className="w-[180px]" data-testid="filter-brand">
                   <SelectValue placeholder="All Brands" />
                 </SelectTrigger>
@@ -585,11 +658,12 @@ const SKUManagement = () => {
                   placeholder="Search Buyer SKU..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   className="pl-10 w-[200px]"
                 />
               </div>
               
-              <Button variant="outline" onClick={fetchBuyerSKUs}>
+              <Button variant="outline" onClick={handleSearch}>
                 <Search className="h-4 w-4 mr-2" />
                 Search
               </Button>
@@ -652,6 +726,16 @@ const SKUManagement = () => {
                   )}
                 </TableBody>
               </Table>
+              {/* Pagination for Buyer SKUs */}
+              <Pagination
+                currentPage={buyerPage}
+                totalPages={buyerTotalPages}
+                totalItems={buyerTotal}
+                pageSize={buyerPageSize}
+                onPageChange={handleBuyerPageChange}
+                onPageSizeChange={handleBuyerPageSizeChange}
+                loading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>

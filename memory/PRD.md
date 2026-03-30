@@ -1665,3 +1665,62 @@ NET = GROSS + SAFETY_STOCK + SCRAP_ALLOWANCE
 *Phase 1 Completed: March 29, 2026*
 *Test Coverage: 100% backend, 100% frontend UI verification*
 
+
+
+
+## 22. SERVER-SIDE PAGINATION (March 30, 2026)
+
+### Phase 1: COMPLETE ✅
+
+**Overview**: Implemented server-side pagination to improve loading performance for pages with 100+ rows.
+
+### What Was Implemented
+
+#### Reusable Pagination Component (`/app/frontend/src/components/Pagination.jsx`):
+- Page size selector (10, 25, 50 rows)
+- Current page indicator with "Showing X - Y of Z"
+- First/Previous/Next/Last page buttons
+- Clickable page numbers with ellipsis for large page counts
+- Disabled states during loading
+
+#### Backend Updates:
+All paginated endpoints return:
+```json
+{
+  "items": [...],
+  "total": 258,
+  "page": 1,
+  "page_size": 50,
+  "total_pages": 6
+}
+```
+
+#### Pages Updated (Phase 1):
+| Page | Collection | Total Rows | Status |
+|------|-----------|------------|--------|
+| SKU Management - Bidso SKUs | `bidso_skus` | 258 | ✅ DONE |
+| SKU Management - Buyer SKUs | `buyer_skus` | 730 | ✅ DONE |
+| RM Repository | `raw_materials` | 200+ | ✅ DONE |
+| Demand Forecasts | `forecasts` | 100+ | ✅ DONE |
+
+#### Backend Endpoints Updated:
+- `GET /api/sku-management/bidso-skus` - Added `page`, `page_size` params
+- `GET /api/sku-management/buyer-skus` - Added `page`, `page_size` params
+- `GET /api/raw-materials/by-tags` - Added `page`, `page_size` params
+- `GET /api/forecasts` - Added `page`, `page_size`, `search` params
+
+#### Key Features:
+- **Server-side filtering**: Filters apply to entire dataset before pagination
+- **Page reset on filter change**: Changing filters resets to page 1
+- **Search integration**: Search queries are sent to server for full-dataset search
+
+### Phase 2: PENDING
+- Dispatch Lots page
+- MRP Dashboard (500+ rows)
+- Vendors page
+- Production entries
+- CPC plans
+
+---
+
+*Phase 1 Completed: March 30, 2026*
