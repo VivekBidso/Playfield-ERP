@@ -225,18 +225,32 @@ const RawMaterials = () => {
     return field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   };
 
-  const handleExport = () => {
-    const ws = XLSX.utils.json_to_sheet(materials.map(m => ({
-      'RM ID': m.rm_id,
-      'Category': m.category,
-      ...m.category_data,
-      'Threshold': m.low_stock_threshold
-    })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Raw Materials');
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'raw_materials.xlsx');
-    toast.success("Exported to Excel");
+  const handleExport = async () => {
+    try {
+      toast.info("Preparing export...");
+      const params = new URLSearchParams();
+      if (selectedBranch) params.append('branch', selectedBranch);
+      if (filters.search) params.append('search', filters.search);
+      if (filters.category) params.append('category', filters.category);
+      if (filters.type) params.append('type_filter', filters.type);
+      if (filters.model) params.append('model_filter', filters.model);
+      if (filters.colour) params.append('colour_filter', filters.colour);
+      if (filters.brand) params.append('brand_filter', filters.brand);
+
+      const response = await axios.get(`${API}/raw-materials/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      const filename = response.headers['content-disposition']?.split('filename=')[1] || 'raw_materials_export.xlsx';
+      saveAs(blob, filename);
+      toast.success(`Exported ${totalItems} raw materials to Excel`);
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast.error("Failed to export raw materials");
+    }
   };
 
   const downloadCategoryTemplate = (category) => {

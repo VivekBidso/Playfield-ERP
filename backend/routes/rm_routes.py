@@ -325,6 +325,113 @@ async def get_raw_materials_filtered(
     }
 
 
+@router.get("/raw-materials/export")
+async def export_raw_materials(
+    branch: Optional[str] = None,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    colour_filter: Optional[str] = None,
+    brand_filter: Optional[str] = None
+):
+    """Export ALL raw materials matching filters (no pagination) as Excel"""
+    from fastapi.responses import StreamingResponse
+    
+    query = {"status": {"$ne": "INACTIVE"}}
+    
+    if category:
+        query["category"] = category
+    
+    rms = await db.raw_materials.find(query, {"_id": 0}).to_list(15000)
+    
+    # Apply text search
+    if search:
+        search_lower = search.lower()
+        filtered = []
+        for rm in rms:
+            if search_lower in rm.get("rm_id", "").lower():
+                filtered.append(rm)
+                continue
+            if search_lower in rm.get("description", "").lower():
+                filtered.append(rm)
+                continue
+            for val in rm.get("category_data", {}).values():
+                if val and search_lower in str(val).lower():
+                    filtered.append(rm)
+                    break
+        rms = filtered
+    
+    # Apply category_data filters
+    if type_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("type") == type_filter]
+    if model_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("model_name") == model_filter or rm.get("category_data", {}).get("model") == model_filter]
+    if colour_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("colour") == colour_filter]
+    if brand_filter:
+        rms = [rm for rm in rms if rm.get("category_data", {}).get("brand") == brand_filter]
+    
+    # Add branch inventory if specified
+    if branch:
+        branch_inv = await db.branch_rm_inventory.find(
+            {"branch": branch},
+            {"_id": 0, "rm_id": 1, "current_stock": 1, "is_active": 1}
+        ).to_list(15000)
+        inv_map = {inv["rm_id"]: inv for inv in branch_inv}
+        for rm in rms:
+            inv = inv_map.get(rm["rm_id"])
+            rm["branch_stock"] = inv.get("current_stock", 0.0) if inv else 0.0
+            rm["is_active_in_branch"] = inv.get("is_active", False) if inv else False
+    
+    # Create Excel file
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Raw Materials"
+    
+    # Headers
+    headers = ["RM ID", "Category", "Description", "Unit", "Threshold"]
+    all_cat_fields = set()
+    for rm in rms:
+        all_cat_fields.update(rm.get("category_data", {}).keys())
+    cat_field_list = sorted(list(all_cat_fields))
+    headers.extend([f.replace("_", " ").title() for f in cat_field_list])
+    if branch:
+        headers.extend(["Branch Stock", "Active in Branch"])
+    
+    ws.append(headers)
+    
+    # Data rows
+    for rm in rms:
+        row = [
+            rm.get("rm_id", ""),
+            rm.get("category", ""),
+            rm.get("description", ""),
+            rm.get("unit", ""),
+            rm.get("low_stock_threshold", "")
+        ]
+        cat_data = rm.get("category_data", {})
+        for field in cat_field_list:
+            row.append(cat_data.get(field, ""))
+        if branch:
+            row.append(rm.get("branch_stock", 0))
+            row.append("Yes" if rm.get("is_active_in_branch") else "No")
+        ws.append(row)
+    
+    # Save to buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"raw_materials_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 @router.post("/raw-materials/activate")
 async def activate_rm_in_branch(request: ActivateItemRequest):
     """Activate a raw material in a specific branch"""

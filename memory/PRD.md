@@ -1789,4 +1789,25 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 
 ---
 
-*Completed: March 30, 2026*
+## CHANGELOG
+
+### March 30, 2026 - Raw Materials Export Fix
+**Issue**: When exporting Raw Materials, only the paginated view (50-100 rows) was downloaded instead of the complete dataset.
+
+**Root Cause**: The frontend `handleExport` function was exporting the client-side `materials` state, which only contained the current page's data after server-side pagination was implemented.
+
+**Fix Applied**:
+1. Added new backend endpoint `GET /api/raw-materials/export` that:
+   - Accepts all filter parameters (search, category, type, model, colour, brand, branch)
+   - Explicitly ignores pagination parameters
+   - Returns ALL matching records as an Excel file
+2. Updated frontend `RawMaterials.js` to call this new endpoint with current filters
+3. Verified export now returns full dataset (2,583 records vs. 50 paginated rows)
+
+**Testing**: 
+- Backend endpoint tested with curl - returns 200 with full dataset
+- Filtered export tested (INP category returned 961 rows correctly)
+
+---
+
+*Last Updated: March 30, 2026*
