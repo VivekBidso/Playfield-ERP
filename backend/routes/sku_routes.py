@@ -391,19 +391,33 @@ async def get_filtered_skus(
     """
     Get SKUs with relational filters.
     Now queries consolidated db.buyer_skus collection (single source of truth).
+    Enriches with vertical/model from parent Bidso SKU.
     """
     query = {}
     if not include_inactive:
         query["status"] = {"$ne": "INACTIVE"}
     
-    if vertical_id:
-        query["vertical_id"] = vertical_id
-    if model_id:
-        query["model_id"] = model_id
     if brand_id:
         query["brand_id"] = brand_id
     if buyer_id:
         query["buyer_id"] = buyer_id
+    
+    # If filtering by vertical or model, we need to find matching bidso_skus first
+    bidso_filter = None
+    if vertical_id or model_id:
+        bidso_query = {}
+        if vertical_id:
+            bidso_query["vertical_id"] = vertical_id
+        if model_id:
+            bidso_query["model_id"] = model_id
+        
+        matching_bidso = await db.bidso_skus.find(bidso_query, {"_id": 0, "bidso_sku_id": 1}).to_list(5000)
+        bidso_filter = [b["bidso_sku_id"] for b in matching_bidso]
+        
+        if not bidso_filter:
+            return []  # No matching Bidso SKUs, so no Buyer SKUs will match
+        
+        query["bidso_sku_id"] = {"$in": bidso_filter}
     
     # Query from consolidated buyer_skus collection
     skus = await db.buyer_skus.find(query, {"_id": 0}).to_list(10000)
@@ -416,20 +430,43 @@ async def get_filtered_skus(
                 search_lower in s.get("name", "").lower() or
                 search_lower in s.get("description", "").lower()]
     
+    # Cache for bidso_sku lookups to avoid repeated queries
+    bidso_cache = {}
+    
     # Enrich with related data and add compatibility fields
     for sku in skus:
         # Add sku_id alias for backward compatibility
         sku["sku_id"] = sku.get("buyer_sku_id", "")
         
-        # Get vertical name if not already present
-        if sku.get("vertical_id") and not sku.get("vertical_name"):
-            v = await db.verticals.find_one({"id": sku["vertical_id"]}, {"_id": 0, "name": 1})
-            sku["vertical_name"] = v["name"] if v else None
+        # Get vertical and model from parent Bidso SKU
+        bidso_sku_id = sku.get("bidso_sku_id")
+        if bidso_sku_id:
+            if bidso_sku_id not in bidso_cache:
+                bidso = await db.bidso_skus.find_one(
+                    {"bidso_sku_id": bidso_sku_id},
+                    {"_id": 0, "vertical_id": 1, "model_id": 1}
+                )
+                bidso_cache[bidso_sku_id] = bidso or {}
+            
+            bidso_data = bidso_cache[bidso_sku_id]
+            sku["vertical_id"] = bidso_data.get("vertical_id")
+            sku["model_id"] = bidso_data.get("model_id")
         
-        # Get model name if not already present
-        if sku.get("model_id") and not sku.get("model_name"):
-            m = await db.models.find_one({"id": sku["model_id"]}, {"_id": 0, "name": 1})
-            sku["model_name"] = m["name"] if m else None
+        # Get vertical name
+        if sku.get("vertical_id"):
+            v = await db.verticals.find_one({"id": sku["vertical_id"]}, {"_id": 0, "name": 1, "code": 1})
+            if v:
+                sku["vertical_name"] = v["name"]
+                sku["vertical_code"] = v.get("code")
+                sku["vertical"] = {"id": sku["vertical_id"], "name": v["name"], "code": v.get("code")}
+        
+        # Get model name
+        if sku.get("model_id"):
+            m = await db.models.find_one({"id": sku["model_id"]}, {"_id": 0, "name": 1, "code": 1})
+            if m:
+                sku["model_name"] = m["name"]
+                sku["model_code"] = m.get("code")
+                sku["model"] = {"id": sku["model_id"], "name": m["name"], "code": m.get("code")}
         
         # Get brand name if not already present
         if sku.get("brand_id") and not sku.get("brand_name"):

@@ -759,6 +759,8 @@ const SKUManagement = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Buyer SKU ID</TableHead>
+                    <TableHead>Vertical</TableHead>
+                    <TableHead>Model</TableHead>
                     <TableHead>Brand</TableHead>
                     <TableHead>Parent Bidso SKU</TableHead>
                     <TableHead>Name</TableHead>
@@ -769,13 +771,13 @@ const SKUManagement = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : buyerSKUs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                         No Buyer SKUs found. Create from a Bidso SKU first.
                       </TableCell>
                     </TableRow>
@@ -784,6 +786,12 @@ const SKUManagement = () => {
                       <TableRow key={sku.id} data-testid={`buyer-row-${sku.buyer_sku_id}`}>
                         <TableCell>
                           <span className="font-mono font-medium text-green-600">{sku.buyer_sku_id}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{sku.vertical_name || sku.vertical_code || "-"}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{sku.model_name || sku.model_code || "-"}</span>
                         </TableCell>
                         <TableCell>
                           <Badge>{sku.brand_code}</Badge>

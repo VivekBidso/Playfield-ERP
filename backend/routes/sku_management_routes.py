@@ -362,16 +362,28 @@ async def get_buyer_skus(
             bu = await db.buyers.find_one({"id": sku["buyer_id"]}, {"_id": 0, "name": 1})
             sku["buyer_name"] = bu["name"] if bu else None
         
-        # Get parent Bidso SKU info
+        # Get parent Bidso SKU info including vertical and model
         if sku.get("bidso_sku_id"):
             bidso = await db.bidso_skus.find_one(
                 {"bidso_sku_id": sku["bidso_sku_id"]},
-                {"_id": 0, "name": 1, "vertical_code": 1, "model_code": 1}
+                {"_id": 0, "name": 1, "vertical_id": 1, "vertical_code": 1, "model_id": 1, "model_code": 1}
             )
             if bidso:
                 sku["bidso_name"] = bidso.get("name")
+                sku["vertical_id"] = bidso.get("vertical_id")
                 sku["vertical_code"] = bidso.get("vertical_code")
+                sku["model_id"] = bidso.get("model_id")
                 sku["model_code"] = bidso.get("model_code")
+                
+                # Get vertical name
+                if bidso.get("vertical_id"):
+                    v = await db.verticals.find_one({"id": bidso["vertical_id"]}, {"_id": 0, "name": 1})
+                    sku["vertical_name"] = v["name"] if v else None
+                
+                # Get model name
+                if bidso.get("model_id"):
+                    m = await db.models.find_one({"id": bidso["model_id"]}, {"_id": 0, "name": 1})
+                    sku["model_name"] = m["name"] if m else None
     
     total_pages = (total + page_size - 1) // page_size if total > 0 else 1
     
