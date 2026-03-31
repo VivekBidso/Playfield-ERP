@@ -30,6 +30,8 @@ const RawMaterials = () => {
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [showCreatedDialog, setShowCreatedDialog] = useState(false);
+  const [createdRMs, setCreatedRMs] = useState([]);
   const [migrating, setMigrating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
   const fileInputRef = useRef(null);
@@ -143,12 +145,15 @@ const RawMaterials = () => {
 
     try {
       const response = await axios.post(`${API}/raw-materials/bulk-upload`, formData);
-      const { created, skipped, errors, total_errors, total_duplicates, mode } = response.data;
+      const { created, skipped, errors, total_errors, total_duplicates, mode, created_rms } = response.data;
       
       // Check for duplicates (shown as warning, not error - since some items may have been created)
       if (total_duplicates > 0) {
         if (created > 0) {
-          toast.success(`Created ${created} RMs. ${total_duplicates} duplicates skipped.`, { duration: 6000 });
+          toast.success(`Created ${created} RMs. ${total_duplicates} duplicates skipped.`, { duration: 4000 });
+          // Show created RMs dialog
+          setCreatedRMs(created_rms || []);
+          setShowCreatedDialog(true);
         } else {
           const dupList = response.data.duplicates?.slice(0, 5).map(d => d.rm_id).join(", ") || '';
           toast.warning(
@@ -158,7 +163,10 @@ const RawMaterials = () => {
         }
       } else if (created > 0) {
         const modeText = mode === 'import_with_ids' ? ' (with existing codes)' : ' (new codes generated)';
-        toast.success(`Created ${created} raw materials${modeText}`, { duration: 5000 });
+        toast.success(`Created ${created} raw materials${modeText}`, { duration: 4000 });
+        // Show created RMs dialog
+        setCreatedRMs(created_rms || []);
+        setShowCreatedDialog(true);
       } else if (total_errors > 0) {
         // No items created and there were errors
         const errorMsg = errors?.slice(0, 2).join('; ') || 'Check file format';
@@ -560,6 +568,68 @@ const RawMaterials = () => {
                   >
                     <Upload className="w-4 h-4 mr-2" />
                     {migrating ? "Importing..." : "Import Migration File"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          
+          {/* Created RMs Dialog */}
+          <Dialog open={showCreatedDialog} onOpenChange={setShowCreatedDialog}>
+            <DialogContent className="max-w-2xl max-h-[80vh]">
+              <DialogHeader>
+                <DialogTitle className="font-bold uppercase flex items-center gap-2 text-green-600">
+                  <Plus className="w-5 h-5" />
+                  {createdRMs.length} Raw Materials Created
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  The following RM IDs have been successfully created:
+                </p>
+                
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="max-h-[400px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-zinc-100 sticky top-0">
+                        <tr>
+                          <th className="text-left p-3 font-semibold">#</th>
+                          <th className="text-left p-3 font-semibold">RM ID</th>
+                          <th className="text-left p-3 font-semibold">Category</th>
+                          <th className="text-left p-3 font-semibold">Name/Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {createdRMs.map((rm, idx) => (
+                          <tr key={rm.rm_id} className="border-t hover:bg-zinc-50">
+                            <td className="p-3 text-muted-foreground">{idx + 1}</td>
+                            <td className="p-3 font-mono font-medium text-orange-600">{rm.rm_id}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-1 bg-zinc-200 rounded text-xs font-medium">
+                                {rm.category}
+                              </span>
+                            </td>
+                            <td className="p-3 truncate max-w-[200px]">{rm.name}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      const rmIds = createdRMs.map(rm => rm.rm_id).join('\n');
+                      navigator.clipboard.writeText(rmIds);
+                      toast.success('RM IDs copied to clipboard');
+                    }}
+                  >
+                    Copy RM IDs
+                  </Button>
+                  <Button onClick={() => setShowCreatedDialog(false)}>
+                    Close
                   </Button>
                 </div>
               </div>

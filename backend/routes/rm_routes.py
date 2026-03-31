@@ -119,6 +119,7 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
     skipped = 0
     skipped_duplicates = []
     errors = []
+    created_rms = []  # Track created RM details
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
@@ -233,6 +234,13 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
             await db.raw_materials.insert_one(doc)
             created += 1
             
+            # Track created RM for response
+            created_rms.append({
+                "rm_id": rm_id,
+                "category": category,
+                "name": category_data.get("name") or category_data.get("part_name") or category_data.get("type") or "-"
+            })
+            
         except Exception as e:
             errors.append(f"Row {idx}: {str(e)}")
             skipped += 1
@@ -244,7 +252,8 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
         "mode": "import_with_ids" if has_rm_code else "create_new",
         "errors": errors[:20],
         "total_errors": len(errors),
-        "message": f"Created {created} RMs" + (f", skipped {skipped}" if skipped else "")
+        "message": f"Created {created} RMs" + (f", skipped {skipped}" if skipped else ""),
+        "created_rms": created_rms  # Include all created RMs
     }
     
     if skipped_duplicates:
