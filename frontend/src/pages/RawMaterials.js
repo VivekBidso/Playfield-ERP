@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Upload, Plus, Search, Trash2, Download, Filter, X, ChevronDown } from "lucide-react";
+import { Upload, Plus, Search, Trash2, Download, Filter, X, ChevronDown, Database, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -29,8 +29,11 @@ const RawMaterials = () => {
   const [branchInventory, setBranchInventory] = useState({});
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
   const fileInputRef = useRef(null);
+  const migrateFileInputRef = useRef(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -253,6 +256,53 @@ const RawMaterials = () => {
     }
   };
 
+  // Data Migration Functions
+  const handleMigrateExport = async () => {
+    setMigrating(true);
+    try {
+      toast.info("Preparing migration export...");
+      const response = await axios.get(`${API}/raw-materials/migrate/export`, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const filename = response.headers['content-disposition']?.split('filename=')[1] || 'rm_migration_export.json';
+      saveAs(blob, filename);
+      toast.success(`Migration file downloaded with ${totalItems} raw materials`);
+    } catch (error) {
+      console.error("Migration export failed:", error);
+      toast.error("Failed to export migration data");
+    }
+    setMigrating(false);
+  };
+
+  const handleMigrateImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setMigrating(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/raw-materials/migrate/import`, formData);
+      const { results, totals } = response.data;
+      
+      toast.success(
+        `Import complete! RMs: ${results.raw_materials.imported} added, ${results.raw_materials.skipped} skipped. Total: ${totals.raw_materials}`,
+        { duration: 6000 }
+      );
+      
+      fetchMaterials();
+      setShowMigrateDialog(false);
+    } catch (error) {
+      console.error("Migration import failed:", error);
+      toast.error(error.response?.data?.detail || "Failed to import migration data");
+    }
+    setMigrating(false);
+    e.target.value = null;
+  };
+
   const downloadCategoryTemplate = (category) => {
     const fields = ['Category', ...RM_CATEGORIES[category].fields, 'Low Stock Threshold'];
     const ws = XLSX.utils.aoa_to_sheet([fields, [category, ...RM_CATEGORIES[category].fields.map(() => ''), 10]]);
@@ -419,6 +469,68 @@ const RawMaterials = () => {
                     </Button>
                   </>
                 )}
+              </div>
+            </DialogContent>
+          </Dialog>
+          
+          {/* Data Migration Dialog */}
+          <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="uppercase text-xs tracking-wide border-dashed">
+                <Database className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                Migrate
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="font-bold uppercase flex items-center gap-2">
+                  <ArrowUpDown className="w-5 h-5" />
+                  Data Migration
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Transfer Raw Materials data between Preview and Production environments.
+                </p>
+                
+                <div className="border rounded-lg p-4 space-y-3">
+                  <h4 className="font-semibold text-sm">Export from this environment</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Download all {totalItems} raw materials as JSON for import into another environment.
+                  </p>
+                  <Button 
+                    onClick={handleMigrateExport} 
+                    disabled={migrating}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {migrating ? "Preparing..." : "Export Migration File"}
+                  </Button>
+                </div>
+                
+                <div className="border rounded-lg p-4 space-y-3">
+                  <h4 className="font-semibold text-sm">Import to this environment</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Upload a migration JSON file. Existing RMs will be skipped (no duplicates).
+                  </p>
+                  <input 
+                    type="file" 
+                    ref={migrateFileInputRef} 
+                    onChange={handleMigrateImport} 
+                    accept=".json" 
+                    className="hidden" 
+                  />
+                  <Button 
+                    onClick={() => migrateFileInputRef.current.click()} 
+                    disabled={migrating}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    {migrating ? "Importing..." : "Import Migration File"}
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>

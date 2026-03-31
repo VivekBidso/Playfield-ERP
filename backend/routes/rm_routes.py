@@ -803,3 +803,115 @@ async def get_pending_rm_requests_count():
     """Get count of pending RM requests (for notifications)"""
     count = await db.rm_requests.count_documents({"status": "PENDING"})
     return {"pending_count": count}
+
+
+# =============================================================================
+# RM DATA MIGRATION (Export/Import for Preview → Production)
+# =============================================================================
+
+@router.get("/raw-materials/migrate/export")
+async def export_all_rm_data():
+    """
+    Export ALL raw materials as JSON for migration to production.
+    Downloads complete RM database for environment transfer.
+    """
+    import json
+    from fastapi.responses import StreamingResponse
+    
+    # Fetch all RMs
+    rms = await db.raw_materials.find({}, {"_id": 0}).to_list(20000)
+    
+    # Also fetch branch inventory data
+    branch_inventory = await db.branch_rm_inventory.find({}, {"_id": 0}).to_list(50000)
+    
+    export_data = {
+        "export_date": datetime.now(timezone.utc).isoformat(),
+        "raw_materials_count": len(rms),
+        "branch_inventory_count": len(branch_inventory),
+        "raw_materials": rms,
+        "branch_rm_inventory": branch_inventory
+    }
+    
+    # Convert to JSON
+    json_str = json.dumps(export_data, indent=2, default=str)
+    buffer = io.BytesIO(json_str.encode('utf-8'))
+    buffer.seek(0)
+    
+    filename = f"rm_migration_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/raw-materials/migrate/import")
+async def import_rm_data(file: UploadFile = File(...)):
+    """
+    Import raw materials from JSON export file.
+    Use this in production to restore data from preview export.
+    Handles duplicates by skipping existing RM IDs.
+    """
+    import json
+    
+    content = await file.read()
+    try:
+        data = json.loads(content.decode('utf-8'))
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON file")
+    
+    results = {
+        "raw_materials": {"imported": 0, "skipped": 0, "errors": []},
+        "branch_inventory": {"imported": 0, "skipped": 0, "errors": []}
+    }
+    
+    # Import raw materials
+    rms = data.get("raw_materials", [])
+    existing_rm_ids = set()
+    async for doc in db.raw_materials.find({}, {"rm_id": 1}):
+        existing_rm_ids.add(doc["rm_id"])
+    
+    new_rms = []
+    for rm in rms:
+        if rm.get("rm_id") in existing_rm_ids:
+            results["raw_materials"]["skipped"] += 1
+        else:
+            new_rms.append(rm)
+    
+    if new_rms:
+        await db.raw_materials.insert_many(new_rms)
+        results["raw_materials"]["imported"] = len(new_rms)
+    
+    # Import branch inventory
+    branch_inv = data.get("branch_rm_inventory", [])
+    if branch_inv:
+        # Get existing branch inventory keys
+        existing_keys = set()
+        async for doc in db.branch_rm_inventory.find({}, {"rm_id": 1, "branch": 1}):
+            existing_keys.add(f"{doc['rm_id']}_{doc['branch']}")
+        
+        new_inv = []
+        for inv in branch_inv:
+            key = f"{inv.get('rm_id')}_{inv.get('branch')}"
+            if key in existing_keys:
+                results["branch_inventory"]["skipped"] += 1
+            else:
+                new_inv.append(inv)
+        
+        if new_inv:
+            await db.branch_rm_inventory.insert_many(new_inv)
+            results["branch_inventory"]["imported"] = len(new_inv)
+    
+    # Get final counts
+    total_rms = await db.raw_materials.count_documents({})
+    total_inv = await db.branch_rm_inventory.count_documents({})
+    
+    return {
+        "success": True,
+        "results": results,
+        "totals": {
+            "raw_materials": total_rms,
+            "branch_inventory": total_inv
+        }
+    }
