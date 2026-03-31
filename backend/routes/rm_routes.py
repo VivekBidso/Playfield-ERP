@@ -18,6 +18,43 @@ from services.rbac_service import require_permission
 router = APIRouter(tags=["Raw Materials"])
 
 
+@router.get("/raw-materials/filter-options")
+async def get_filter_options():
+    """Get distinct values for filter dropdowns"""
+    # Get all RMs to extract unique values
+    rms = await db.raw_materials.find({"status": {"$ne": "INACTIVE"}}, {"_id": 0, "category": 1, "category_data": 1}).to_list(20000)
+    
+    categories = set()
+    types = set()
+    models = set()
+    colours = set()
+    brands = set()
+    
+    for rm in rms:
+        if rm.get("category"):
+            categories.add(rm["category"])
+        
+        cat_data = rm.get("category_data", {})
+        if cat_data.get("type"):
+            types.add(str(cat_data["type"]))
+        if cat_data.get("model_name"):
+            models.add(str(cat_data["model_name"]))
+        if cat_data.get("model"):
+            models.add(str(cat_data["model"]))
+        if cat_data.get("colour"):
+            colours.add(str(cat_data["colour"]))
+        if cat_data.get("brand"):
+            brands.add(str(cat_data["brand"]))
+    
+    return {
+        "categories": sorted(list(categories)),
+        "types": sorted(list(types)),
+        "models": sorted(list(models)),
+        "colours": sorted(list(colours)),
+        "brands": sorted(list(brands))
+    }
+
+
 @router.get("/rm-categories")
 async def get_rm_categories():
     """Get all RM categories with their field definitions"""
