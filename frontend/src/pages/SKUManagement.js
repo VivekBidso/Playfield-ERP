@@ -88,6 +88,13 @@ const SKUManagement = () => {
   // Data Sync
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+  
+  // Bulk Delete
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [bulkDeletePreview, setBulkDeletePreview] = useState(null);
+  const [bulkDeleteFile, setBulkDeleteFile] = useState(null);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const bulkDeleteFileRef = useRef(null);
   const [exportLoading, setExportLoading] = useState(false);
   const syncFileInputRef = useRef(null);
   
@@ -467,6 +474,62 @@ const SKUManagement = () => {
     }
   };
 
+  // Bulk Delete Handlers
+  const handleBulkDeleteFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setBulkDeleteFile(file);
+    setBulkDeleteLoading(true);
+    setBulkDeletePreview(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/sku-management/buyer-skus/bulk-delete/preview`, formData, {
+        headers: getHeaders()
+      });
+      
+      setBulkDeletePreview(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to preview delete file');
+      setBulkDeleteFile(null);
+    }
+    setBulkDeleteLoading(false);
+    e.target.value = null;
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (!bulkDeleteFile) return;
+    
+    setBulkDeleteLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', bulkDeleteFile);
+      
+      const response = await axios.post(`${API}/sku-management/buyer-skus/bulk-delete/confirm`, formData, {
+        headers: getHeaders()
+      });
+      
+      toast.success(`Deleted ${response.data.deleted} Buyer SKUs`);
+      setShowBulkDeleteDialog(false);
+      setBulkDeletePreview(null);
+      setBulkDeleteFile(null);
+      fetchBuyerSKUs();
+      fetchStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete');
+    }
+    setBulkDeleteLoading(false);
+  };
+
+  const closeBulkDeleteDialog = () => {
+    setShowBulkDeleteDialog(false);
+    setBulkDeletePreview(null);
+    setBulkDeleteFile(null);
+  };
+
   return (
     <div className="p-6 space-y-6" data-testid="sku-management-page">
       {/* Header */}
@@ -750,6 +813,16 @@ const SKUManagement = () => {
                 Search
               </Button>
             </div>
+            
+            <Button 
+              variant="outline" 
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setShowBulkDeleteDialog(true)}
+              data-testid="bulk-delete-btn"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Bulk Delete
+            </Button>
           </div>
 
           {/* Buyer SKUs Table */}
@@ -1329,6 +1402,117 @@ const SKUManagement = () => {
             <Button variant="outline" onClick={() => { setShowBOMUploadDialog(false); setBomUploadResult(null); }}>
               Close
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Dialog */}
+      <Dialog open={showBulkDeleteDialog} onOpenChange={closeBulkDeleteDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              Bulk Delete Buyer SKUs
+            </DialogTitle>
+            <DialogDescription>
+              Upload a file containing Buyer SKU IDs to delete. Supports Excel (.xlsx) with 'buyer_sku_id' column or text file with one ID per line.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* File Upload */}
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <input
+                type="file"
+                ref={bulkDeleteFileRef}
+                onChange={handleBulkDeleteFileSelect}
+                accept=".xlsx,.xls,.csv,.txt"
+                className="hidden"
+              />
+              <Upload className="h-10 w-10 mx-auto text-gray-400 mb-3" />
+              <p className="text-sm text-gray-600 mb-2">
+                {bulkDeleteFile ? bulkDeleteFile.name : 'Upload file with SKU IDs to delete'}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => bulkDeleteFileRef.current?.click()}
+                disabled={bulkDeleteLoading}
+              >
+                {bulkDeleteLoading ? 'Processing...' : 'Select File'}
+              </Button>
+            </div>
+
+            {/* Preview Results */}
+            {bulkDeletePreview && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Preview Summary</p>
+                    <p className="text-sm text-gray-500">{bulkDeletePreview.message}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-red-600">{bulkDeletePreview.found}</p>
+                    <p className="text-xs text-gray-500">SKUs to delete</p>
+                  </div>
+                </div>
+
+                {bulkDeletePreview.found > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="max-h-[250px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-red-50">
+                            <TableHead className="text-red-700">#</TableHead>
+                            <TableHead className="text-red-700">Buyer SKU ID</TableHead>
+                            <TableHead className="text-red-700">Brand</TableHead>
+                            <TableHead className="text-red-700">Name</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bulkDeletePreview.skus_to_delete.map((sku, idx) => (
+                            <TableRow key={sku.buyer_sku_id}>
+                              <TableCell className="text-gray-500">{idx + 1}</TableCell>
+                              <TableCell className="font-mono font-medium">{sku.buyer_sku_id}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{sku.brand_code || '-'}</Badge>
+                              </TableCell>
+                              <TableCell className="truncate max-w-[200px]">{sku.name || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {bulkDeletePreview.not_found > 0 && (
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm font-medium text-yellow-700">
+                      {bulkDeletePreview.not_found} SKU IDs not found or already inactive
+                    </p>
+                    <p className="text-xs text-yellow-600 mt-1">
+                      {bulkDeletePreview.not_found_ids?.slice(0, 5).join(', ')}
+                      {bulkDeletePreview.not_found > 5 && '...'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={closeBulkDeleteDialog}>
+              Cancel
+            </Button>
+            {bulkDeletePreview?.found > 0 && (
+              <Button
+                variant="destructive"
+                onClick={handleConfirmBulkDelete}
+                disabled={bulkDeleteLoading}
+              >
+                {bulkDeleteLoading ? 'Deleting...' : `Delete ${bulkDeletePreview.found} SKUs`}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

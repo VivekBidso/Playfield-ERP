@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
 import io
+import openpyxl
 
 from database import db
 from models.sku_models import (
@@ -561,6 +562,129 @@ async def delete_buyer_sku(buyer_sku_id: str):
         raise HTTPException(status_code=404, detail="Buyer SKU not found")
     
     return {"message": "Buyer SKU deleted"}
+
+
+@router.post("/buyer-skus/bulk-delete/preview")
+async def preview_bulk_delete_buyer_skus(file: UploadFile = File(...)):
+    """
+    Preview bulk delete - shows which Buyer SKUs will be deleted.
+    Accepts Excel/CSV with buyer_sku_id column or plain text with one ID per line.
+    """
+    content = await file.read()
+    skus_to_delete = []
+    
+    # Try to parse as Excel first
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+        headers = [str(cell.value).lower().strip().replace(' ', '_') if cell.value else '' for cell in ws[1]]
+        
+        # Find the buyer_sku_id column
+        id_col_idx = None
+        for idx, h in enumerate(headers):
+            if h in ['buyer_sku_id', 'sku_id', 'sku_code', 'id', 'buyer_sku']:
+                id_col_idx = idx
+                break
+        
+        if id_col_idx is None:
+            # Try first column if no header match
+            id_col_idx = 0
+        
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            val = row[id_col_idx] if id_col_idx < len(row) else None
+            if val:
+                skus_to_delete.append(str(val).strip())
+    except Exception:
+        # Try as plain text (one ID per line)
+        try:
+            text = content.decode('utf-8')
+            for line in text.strip().split('\n'):
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    skus_to_delete.append(line)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not parse file. Use Excel with 'buyer_sku_id' column or text file with one ID per line.")
+    
+    if not skus_to_delete:
+        raise HTTPException(status_code=400, detail="No SKU IDs found in file")
+    
+    # Find matching SKUs in database
+    found_skus = []
+    not_found = []
+    
+    for sku_id in skus_to_delete:
+        doc = await db.buyer_skus.find_one(
+            {"buyer_sku_id": sku_id, "status": {"$ne": "INACTIVE"}},
+            {"_id": 0, "buyer_sku_id": 1, "name": 1, "brand_code": 1, "bidso_sku_id": 1}
+        )
+        if doc:
+            found_skus.append(doc)
+        else:
+            not_found.append(sku_id)
+    
+    return {
+        "total_in_file": len(skus_to_delete),
+        "found": len(found_skus),
+        "not_found": len(not_found),
+        "skus_to_delete": found_skus,
+        "not_found_ids": not_found[:20],  # Limit for display
+        "message": f"Found {len(found_skus)} Buyer SKUs to delete. {len(not_found)} not found or already inactive."
+    }
+
+
+@router.post("/buyer-skus/bulk-delete/confirm")
+async def confirm_bulk_delete_buyer_skus(file: UploadFile = File(...)):
+    """
+    Execute bulk delete - permanently deletes the Buyer SKUs.
+    Same file format as preview endpoint.
+    """
+    content = await file.read()
+    skus_to_delete = []
+    
+    # Parse file (same logic as preview)
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+        headers = [str(cell.value).lower().strip().replace(' ', '_') if cell.value else '' for cell in ws[1]]
+        
+        id_col_idx = None
+        for idx, h in enumerate(headers):
+            if h in ['buyer_sku_id', 'sku_id', 'sku_code', 'id', 'buyer_sku']:
+                id_col_idx = idx
+                break
+        
+        if id_col_idx is None:
+            id_col_idx = 0
+        
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            val = row[id_col_idx] if id_col_idx < len(row) else None
+            if val:
+                skus_to_delete.append(str(val).strip())
+    except Exception:
+        try:
+            text = content.decode('utf-8')
+            for line in text.strip().split('\n'):
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    skus_to_delete.append(line)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not parse file")
+    
+    if not skus_to_delete:
+        raise HTTPException(status_code=400, detail="No SKU IDs found in file")
+    
+    # Delete (hard delete, not soft delete)
+    result = await db.buyer_skus.delete_many({"buyer_sku_id": {"$in": skus_to_delete}})
+    
+    # Get remaining count
+    remaining = await db.buyer_skus.count_documents({"status": {"$ne": "INACTIVE"}})
+    
+    return {
+        "deleted": result.deleted_count,
+        "requested": len(skus_to_delete),
+        "remaining_total": remaining,
+        "message": f"Successfully deleted {result.deleted_count} Buyer SKUs"
+    }
 
 
 # ============ Common BOM Management ============
@@ -1608,8 +1732,6 @@ async def clone_bidso_sku(data: dict, current_user = Depends(get_current_user)):
     # Create new RMs on-the-fly if specified
     new_rm_mapping = {}  # original_rm_id -> new_rm_id
     new_rms_to_create = data.get("new_rms_to_create", [])
-    
-    from services.utils import get_next_rm_sequence, generate_rm_name
     
     for new_rm_data in new_rms_to_create:
         category = new_rm_data.get("category")
