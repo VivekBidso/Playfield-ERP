@@ -62,46 +62,133 @@ async def create_raw_material(input: RawMaterialCreate, current_user: User = Dep
 
 @router.post("/raw-materials/bulk-upload")
 async def bulk_upload_raw_materials(file: UploadFile = File(...)):
-    """Bulk upload raw materials from Excel file"""
+    """
+    Smart bulk upload - auto-detects file format:
+    - If file has 'RM Code' column: imports with existing IDs (category auto-detected from prefix)
+    - If file has 'Category' column: creates new RMs with auto-generated IDs
+    """
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
     
-    headers = [cell.value for cell in ws[1]]
+    # Get headers and normalize to lowercase for case-insensitive matching
+    raw_headers = [cell.value for cell in ws[1]]
+    headers = [str(h).lower().strip().replace(' ', '_') if h else '' for h in raw_headers]
+    
+    # Auto-detect mode: RM Code present means import with IDs
+    has_rm_code = any(h in ['rm_code', 'rm_id', 'raw_material_id', 'code'] for h in headers)
     
     created = 0
+    skipped = 0
+    skipped_duplicates = []
     errors = []
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
+            # Skip empty rows
+            if not any(row):
+                continue
+                
             row_data = dict(zip(headers, row))
             
-            category = row_data.get('category', '').upper()
-            if category not in RM_CATEGORIES:
-                errors.append(f"Row {idx}: Invalid category '{category}'")
-                continue
+            # MODE 1: Import with existing RM Code
+            if has_rm_code:
+                rm_id = (
+                    row_data.get('rm_code') or 
+                    row_data.get('rm_id') or 
+                    row_data.get('raw_material_id') or
+                    row_data.get('code') or
+                    ''
+                )
+                if rm_id:
+                    rm_id = str(rm_id).strip()
+                
+                if not rm_id:
+                    errors.append(f"Row {idx}: No RM Code found")
+                    skipped += 1
+                    continue
+                
+                # Auto-detect category from RM code prefix (e.g., SP_197 -> SP)
+                category = ''
+                if '_' in rm_id:
+                    prefix = rm_id.split('_')[0].upper()
+                    if prefix in RM_CATEGORIES:
+                        category = prefix
+                
+                # Fallback to category column if present
+                if not category:
+                    category = str(row_data.get('category', '')).upper().strip()
+                
+                if not category or category not in RM_CATEGORIES:
+                    errors.append(f"Row {idx}: Cannot detect category for '{rm_id}'. Use prefix like SP_, ACC_, etc.")
+                    skipped += 1
+                    continue
+                
+                # Check for duplicate
+                existing = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1})
+                if existing:
+                    skipped_duplicates.append({"row": idx, "rm_id": rm_id})
+                    skipped += 1
+                    continue
+                    
+            # MODE 2: Create new with auto-generated ID
+            else:
+                category = (
+                    row_data.get('category') or 
+                    row_data.get('cat') or 
+                    ''
+                )
+                if isinstance(category, str):
+                    category = category.upper().strip()
+                else:
+                    category = str(category).upper().strip() if category else ''
+                
+                if not category or category not in RM_CATEGORIES:
+                    errors.append(f"Row {idx}: Invalid category '{category}'. Valid: {list(RM_CATEGORIES.keys())}")
+                    skipped += 1
+                    continue
+                
+                # Generate new RM ID
+                seq = await get_next_rm_sequence(category)
+                rm_id = f"{category}_{seq:05d}"
             
-            # Build category data from row
+            # Build category data from row - match fields case-insensitively
             category_fields = RM_CATEGORIES[category]["fields"]
             category_data = {}
             for field in category_fields:
-                if field in row_data:
-                    category_data[field] = row_data[field]
+                # Try various naming conventions
+                value = (
+                    row_data.get(field) or 
+                    row_data.get(field.lower()) or 
+                    row_data.get(field.replace('_', ' ')) or
+                    row_data.get(field.replace('_', ''))
+                )
+                if value is not None:
+                    category_data[field] = value
             
-            # Generate RM name from category_data based on nomenclature
+            # Generate RM name from category_data
             rm_name = generate_rm_name(category, category_data)
             if rm_name:
                 category_data["name"] = rm_name
             
-            # Create RM
-            seq = await get_next_rm_sequence(category)
-            rm_id = f"{category}_{seq:05d}"
+            # Handle threshold
+            threshold = (
+                row_data.get('low_stock_threshold') or 
+                row_data.get('low stock threshold') or 
+                row_data.get('threshold') or 
+                10.0
+            )
+            try:
+                threshold = float(threshold) if threshold else 10.0
+            except (ValueError, TypeError):
+                threshold = 10.0
             
+            # Create RM
             rm = RawMaterial(
                 rm_id=rm_id,
                 category=category,
                 category_data=category_data,
-                low_stock_threshold=row_data.get('low_stock_threshold', 10.0) or 10.0
+                low_stock_threshold=threshold
             )
             
             doc = rm.model_dump()
@@ -111,22 +198,43 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
             
         except Exception as e:
             errors.append(f"Row {idx}: {str(e)}")
+            skipped += 1
     
-    return {
+    # Build response
+    response = {
         "created": created,
-        "errors": errors,
-        "message": f"Successfully created {created} raw materials"
+        "skipped": skipped,
+        "mode": "import_with_ids" if has_rm_code else "create_new",
+        "errors": errors[:20],
+        "total_errors": len(errors),
+        "message": f"Created {created} RMs" + (f", skipped {skipped}" if skipped else "")
     }
+    
+    if skipped_duplicates:
+        response["duplicates"] = skipped_duplicates[:20]
+        response["total_duplicates"] = len(skipped_duplicates)
+        response["message"] += f". {len(skipped_duplicates)} duplicate RM IDs skipped."
+    
+    if errors and created == 0:
+        response["message"] = f"0 RMs created. {len(errors)} errors: " + "; ".join(errors[:3])
+    
+    return response
 
 
 @router.post("/raw-materials/import-with-ids")
 async def import_raw_materials_with_ids(file: UploadFile = File(...), category: str = ""):
-    """Import raw materials with specific RM IDs from Excel"""
+    """Import raw materials with specific RM IDs from Excel.
+    
+    Supports files with RM Code column (e.g., SP_197, ACC_280).
+    Auto-detects category from RM code prefix if not specified.
+    """
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
     
-    headers = [cell.value for cell in ws[1]]
+    # Get headers and normalize to lowercase
+    raw_headers = [cell.value for cell in ws[1]]
+    headers = [str(h).lower().strip().replace(' ', '_') if h else '' for h in raw_headers]
     
     created = 0
     skipped_duplicates = []
@@ -134,11 +242,37 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
+            # Skip empty rows
+            if not any(row):
+                continue
+                
             row_data = dict(zip(headers, row))
             
-            # Get RM ID from file or generate
-            rm_id = row_data.get('rm_id', '').strip() if row_data.get('rm_id') else None
-            cat = category or row_data.get('category', '').upper()
+            # Get RM ID from various possible column names
+            rm_id = (
+                row_data.get('rm_code') or 
+                row_data.get('rm_id') or 
+                row_data.get('raw_material_id') or
+                row_data.get('code') or
+                ''
+            )
+            if rm_id:
+                rm_id = str(rm_id).strip()
+            
+            if not rm_id:
+                errors.append(f"Row {idx}: No RM Code/ID found")
+                continue
+            
+            # Auto-detect category from RM code prefix (e.g., SP_197 -> SP)
+            cat = category.upper() if category else ''
+            if not cat and '_' in rm_id:
+                prefix = rm_id.split('_')[0].upper()
+                if prefix in RM_CATEGORIES:
+                    cat = prefix
+            
+            # Also check explicit category column
+            if not cat:
+                cat = str(row_data.get('category', '')).upper().strip()
             
             if not cat or cat not in RM_CATEGORIES:
                 errors.append(f"Row {idx}: Invalid or missing category '{cat}'")

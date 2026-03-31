@@ -143,33 +143,35 @@ const RawMaterials = () => {
 
     try {
       const response = await axios.post(`${API}/raw-materials/bulk-upload`, formData);
+      const { created, skipped, errors, total_errors, total_duplicates, mode } = response.data;
       
-      // Check for duplicates
-      if (response.data.duplicates && response.data.duplicates.length > 0) {
-        const dupCount = response.data.duplicates.length;
-        const dupList = response.data.duplicates.slice(0, 5).map(d => d.rm_id || d.code || d.name).join(", ");
-        toast.error(
-          `Upload blocked: ${dupCount} duplicate(s) found. No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
-          { duration: 8000 }
-        );
+      // Check for duplicates (shown as warning, not error - since some items may have been created)
+      if (total_duplicates > 0) {
+        if (created > 0) {
+          toast.success(`Created ${created} RMs. ${total_duplicates} duplicates skipped.`, { duration: 6000 });
+        } else {
+          const dupList = response.data.duplicates?.slice(0, 5).map(d => d.rm_id).join(", ") || '';
+          toast.warning(
+            `All ${total_duplicates} RMs already exist. Duplicates: ${dupList}${total_duplicates > 5 ? '...' : ''}`,
+            { duration: 8000 }
+          );
+        }
+      } else if (created > 0) {
+        const modeText = mode === 'import_with_ids' ? ' (with existing codes)' : ' (new codes generated)';
+        toast.success(`Created ${created} raw materials${modeText}`, { duration: 5000 });
+      } else if (total_errors > 0) {
+        // No items created and there were errors
+        const errorMsg = errors?.slice(0, 2).join('; ') || 'Check file format';
+        toast.error(`0 RMs created. ${total_errors} errors: ${errorMsg}`, { duration: 10000 });
       } else {
-        toast.success(`Uploaded: ${response.data.created} created`);
+        toast.warning('No data found in file. Ensure file has data rows with RM Code or Category column.');
       }
       
       fetchMaterials();
       fetchFilterOptions();
     } catch (error) {
       const errData = error.response?.data;
-      if (errData?.duplicates && errData.duplicates.length > 0) {
-        const dupCount = errData.duplicates.length;
-        const dupList = errData.duplicates.slice(0, 5).map(d => d.rm_id || d.code || d.name).join(", ");
-        toast.error(
-          `Upload blocked: ${dupCount} duplicate(s) found. No overwrites allowed.\nDuplicates: ${dupList}${dupCount > 5 ? '...' : ''}`,
-          { duration: 8000 }
-        );
-      } else {
-        toast.error(errData?.message || "Upload failed");
-      }
+      toast.error(errData?.detail || errData?.message || "Upload failed - check file format", { duration: 8000 });
     }
     
     // Reset file input
