@@ -282,24 +282,53 @@ const RawMaterials = () => {
     const file = e.target.files[0];
     if (!file) return;
     
+    // Validate file type
+    if (!file.name.endsWith('.json')) {
+      toast.error('Please upload a JSON file (exported from migration)');
+      e.target.value = null;
+      return;
+    }
+    
     setMigrating(true);
+    toast.info(`Importing ${file.name}... This may take a moment.`);
+    
     try {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await axios.post(`${API}/raw-materials/migrate/import`, formData);
-      const { results, totals } = response.data;
+      const response = await axios.post(`${API}/raw-materials/migrate/import`, formData, {
+        timeout: 120000 // 2 minute timeout for large files
+      });
       
-      toast.success(
-        `Import complete! RMs: ${results.raw_materials.imported} added, ${results.raw_materials.skipped} skipped. Total: ${totals.raw_materials}`,
-        { duration: 6000 }
-      );
+      const { results, totals, message, success } = response.data;
       
-      fetchMaterials();
-      setShowMigrateDialog(false);
+      if (success === false) {
+        toast.error(message || 'Import failed - check file format');
+      } else if (results.raw_materials.imported > 0) {
+        toast.success(
+          `Import complete! ${results.raw_materials.imported} RMs added, ${results.raw_materials.skipped} duplicates skipped. Total: ${totals.raw_materials}`,
+          { duration: 8000 }
+        );
+        fetchMaterials();
+        setShowMigrateDialog(false);
+      } else if (results.raw_materials.skipped > 0) {
+        toast.warning(
+          `All ${results.raw_materials.skipped} RMs already exist in database. No new items imported.`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.warning(message || 'No items were imported. Check the file format.');
+      }
+      
+      // Show any errors
+      if (results.raw_materials.errors?.length > 0) {
+        console.error('Import errors:', results.raw_materials.errors);
+      }
+      
     } catch (error) {
       console.error("Migration import failed:", error);
-      toast.error(error.response?.data?.detail || "Failed to import migration data");
+      const errMsg = error.response?.data?.detail || error.response?.data?.message || error.message || "Failed to import";
+      toast.error(`Import failed: ${errMsg}`, { duration: 8000 });
     }
     setMigrating(false);
     e.target.value = null;

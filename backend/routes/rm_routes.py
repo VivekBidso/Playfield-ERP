@@ -988,12 +988,28 @@ async def import_rm_data(file: UploadFile = File(...)):
     Handles duplicates by skipping existing RM IDs.
     """
     import json
+    import logging
     
-    content = await file.read()
+    logger = logging.getLogger(__name__)
+    
+    # Read file content
+    try:
+        content = await file.read()
+        logger.info(f"Migration import: Read {len(content)} bytes from {file.filename}")
+    except Exception as e:
+        logger.error(f"Migration import: Failed to read file: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+    
+    # Parse JSON
     try:
         data = json.loads(content.decode('utf-8'))
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON file")
+        logger.info("Migration import: Parsed JSON successfully")
+    except json.JSONDecodeError as e:
+        logger.error(f"Migration import: Invalid JSON: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
+    except UnicodeDecodeError as e:
+        logger.error(f"Migration import: Unicode decode error: {e}")
+        raise HTTPException(status_code=400, detail=f"File encoding error: {str(e)}")
     
     results = {
         "raw_materials": {"imported": 0, "skipped": 0, "errors": []},
@@ -1002,31 +1018,63 @@ async def import_rm_data(file: UploadFile = File(...)):
     
     # Import raw materials
     rms = data.get("raw_materials", [])
+    logger.info(f"Migration import: Found {len(rms)} raw materials in file")
+    
+    if not rms:
+        return {
+            "success": False,
+            "message": "No raw_materials found in the JSON file. Ensure you're uploading a valid migration export.",
+            "results": results,
+            "totals": {"raw_materials": 0, "branch_inventory": 0}
+        }
+    
+    # Get existing RM IDs
     existing_rm_ids = set()
     async for doc in db.raw_materials.find({}, {"rm_id": 1}):
         existing_rm_ids.add(doc["rm_id"])
     
+    logger.info(f"Migration import: {len(existing_rm_ids)} existing RMs in database")
+    
     new_rms = []
     for rm in rms:
-        if rm.get("rm_id") in existing_rm_ids:
+        rm_id = rm.get("rm_id")
+        if not rm_id:
+            results["raw_materials"]["errors"].append("RM missing rm_id field")
+            continue
+        if rm_id in existing_rm_ids:
             results["raw_materials"]["skipped"] += 1
         else:
+            # Clean up any ObjectId or datetime issues
+            if "_id" in rm:
+                del rm["_id"]
             new_rms.append(rm)
     
+    # Insert new RMs in batches to avoid timeout
     if new_rms:
-        await db.raw_materials.insert_many(new_rms)
-        results["raw_materials"]["imported"] = len(new_rms)
+        try:
+            batch_size = 500
+            for i in range(0, len(new_rms), batch_size):
+                batch = new_rms[i:i+batch_size]
+                await db.raw_materials.insert_many(batch)
+                logger.info(f"Migration import: Inserted batch {i//batch_size + 1}")
+            results["raw_materials"]["imported"] = len(new_rms)
+        except Exception as e:
+            logger.error(f"Migration import: Failed to insert RMs: {e}")
+            results["raw_materials"]["errors"].append(f"Insert failed: {str(e)}")
     
     # Import branch inventory
     branch_inv = data.get("branch_rm_inventory", [])
+    logger.info(f"Migration import: Found {len(branch_inv)} branch inventory records")
+    
     if branch_inv:
-        # Get existing branch inventory keys
         existing_keys = set()
         async for doc in db.branch_rm_inventory.find({}, {"rm_id": 1, "branch": 1}):
             existing_keys.add(f"{doc['rm_id']}_{doc['branch']}")
         
         new_inv = []
         for inv in branch_inv:
+            if "_id" in inv:
+                del inv["_id"]
             key = f"{inv.get('rm_id')}_{inv.get('branch')}"
             if key in existing_keys:
                 results["branch_inventory"]["skipped"] += 1
@@ -1034,15 +1082,25 @@ async def import_rm_data(file: UploadFile = File(...)):
                 new_inv.append(inv)
         
         if new_inv:
-            await db.branch_rm_inventory.insert_many(new_inv)
-            results["branch_inventory"]["imported"] = len(new_inv)
+            try:
+                batch_size = 500
+                for i in range(0, len(new_inv), batch_size):
+                    batch = new_inv[i:i+batch_size]
+                    await db.branch_rm_inventory.insert_many(batch)
+                results["branch_inventory"]["imported"] = len(new_inv)
+            except Exception as e:
+                logger.error(f"Migration import: Failed to insert inventory: {e}")
+                results["branch_inventory"]["errors"].append(f"Insert failed: {str(e)}")
     
     # Get final counts
     total_rms = await db.raw_materials.count_documents({})
     total_inv = await db.branch_rm_inventory.count_documents({})
     
+    logger.info(f"Migration import complete: {results['raw_materials']['imported']} RMs imported")
+    
     return {
         "success": True,
+        "message": f"Imported {results['raw_materials']['imported']} RMs, skipped {results['raw_materials']['skipped']} duplicates",
         "results": results,
         "totals": {
             "raw_materials": total_rms,
