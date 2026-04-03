@@ -98,10 +98,6 @@ const RMInward = () => {
 
   // Calculate totals when line items or discount changes
   useEffect(() => {
-    calculateTotals();
-  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs]);
-
-  const calculateTotals = () => {
     let subTotal = 0;
     let taxTotal = 0;
 
@@ -136,13 +132,7 @@ const RMInward = () => {
       tax_total: taxTotal,
       grand_total: grandTotal
     }));
-
-    // Update line item amounts
-    setLineItems(prev => prev.map(item => ({
-      ...item,
-      amount: item.quantity * item.rate
-    })));
-  };
+  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs]);
 
   const fetchBranchInventory = async () => {
     try {
