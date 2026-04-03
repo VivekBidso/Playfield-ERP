@@ -93,26 +93,42 @@ from database import client
 async def startup_event():
     """Application startup"""
     logger.info("Factory OPS API starting up...")
-    # Create default admin if needed
     from services.utils import hash_password
     from database import db
     import uuid
     from datetime import datetime, timezone
     
-    admin_exists = await db.users.find_one({"email": "admin@factory.com"})
-    if not admin_exists:
-        admin_user = {
-            "id": str(uuid.uuid4()),
-            "email": "admin@factory.com",
-            "password_hash": hash_password("admin123"),
-            "name": "Master Admin",
-            "role": "master_admin",
-            "assigned_branches": [],
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.users.insert_one(admin_user)
-        logger.info("Default admin user created")
+    # Define all test users that should exist
+    TEST_USERS = [
+        {"email": "admin@factory.com", "name": "Master Admin", "role": "master_admin", "password": "admin123"},
+        {"email": "masteradmin@bidso.com", "name": "Master Admin", "role": "master_admin", "password": "bidso123"},
+        {"email": "demandplanner@bidso.com", "name": "Test Demand Planner", "role": "demand_planner", "password": "bidso123", "branches": ["Unit 1 Vedica", "Unit 2 Trikes"]},
+        {"email": "techops@bidso.com", "name": "Tech Ops Engineer", "role": "tech_ops_engineer", "password": "bidso123"},
+        {"email": "cpcplanner@bidso.com", "name": "CPC Planner", "role": "cpc_planner", "password": "bidso123"},
+        {"email": "procurement@bidso.com", "name": "Procurement Officer", "role": "procurement_officer", "password": "bidso123"},
+        {"email": "branchops@bidso.com", "name": "Branch Ops User", "role": "branch_ops_user", "password": "bidso123", "branches": ["Unit 1 Vedica"]},
+        {"email": "qcinspector@bidso.com", "name": "Quality Inspector", "role": "quality_inspector", "password": "bidso123"},
+        {"email": "logistics@bidso.com", "name": "Logistics Coordinator", "role": "logistics_coordinator", "password": "bidso123"},
+        {"email": "financeviewer@bidso.com", "name": "Finance Viewer", "role": "finance_viewer", "password": "bidso123"},
+        {"email": "auditor@bidso.com", "name": "Auditor", "role": "auditor_readonly", "password": "bidso123"},
+    ]
+    
+    # Create test users if they don't exist
+    for user_data in TEST_USERS:
+        existing = await db.users.find_one({"email": user_data["email"]})
+        if not existing:
+            new_user = {
+                "id": str(uuid.uuid4()),
+                "email": user_data["email"],
+                "password_hash": hash_password(user_data["password"]),
+                "name": user_data["name"],
+                "role": user_data["role"],
+                "assigned_branches": user_data.get("branches", []),
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.users.insert_one(new_user)
+            logger.info(f"Created test user: {user_data['email']}")
     
     # Seed RBAC roles, permissions, and constraints
     from services.seed_rbac import seed_rbac
