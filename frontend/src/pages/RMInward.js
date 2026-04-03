@@ -2,12 +2,16 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import useBranchStore from "@/store/branchStore";
 import useAuthStore from "@/store/authStore";
-import { Plus, Download, Package } from "lucide-react";
+import { Plus, Download, Package, Trash2, Calculator, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -15,28 +19,130 @@ import { saveAs } from 'file-saver';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+const PAYMENT_TERMS = [
+  { value: "NET_15", label: "Net 15" },
+  { value: "NET_30", label: "Net 30" },
+  { value: "NET_45", label: "Net 45" },
+  { value: "NET_60", label: "Net 60" },
+  { value: "DUE_ON_RECEIPT", label: "Due on Receipt" },
+  { value: "CUSTOM", label: "Custom" }
+];
+
+const TAX_OPTIONS = [
+  { value: "NONE", label: "None", rate: 0 },
+  { value: "GST_5", label: "GST 5%", rate: 5 },
+  { value: "GST_12", label: "GST 12%", rate: 12 },
+  { value: "GST_18", label: "GST 18%", rate: 18 },
+  { value: "GST_28", label: "GST 28%", rate: 28 }
+];
+
+const TDS_TCS_OPTIONS = [
+  { value: "NONE", label: "None", rate: 0 },
+  { value: "TDS_1", label: "TDS 1%", rate: 1 },
+  { value: "TDS_2", label: "TDS 2%", rate: 2 },
+  { value: "TDS_10", label: "TDS 10%", rate: 10 },
+  { value: "TCS_1", label: "TCS 1%", rate: 1 }
+];
+
 const RMInward = () => {
   const { selectedBranch } = useBranchStore();
   const { token } = useAuthStore();
   const [entries, setEntries] = useState([]);
   const [availableRMs, setAvailableRMs] = useState([]);
-  const [branchInventory, setBranchInventory] = useState({}); // {rm_id: current_stock}
+  const [vendors, setVendors] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [branchInventory, setBranchInventory] = useState({});
   const [filteredRMs, setFilteredRMs] = useState([]);
   const [rmSearch, setRmSearch] = useState("");
   const [showDialog, setShowDialog] = useState(false);
 
-  const [formData, setFormData] = useState({
-    rm_id: "",
-    quantity: 0,
-    date: new Date().toISOString().split('T')[0],
+  // Bill/Invoice Form State
+  const [billData, setBillData] = useState({
+    vendor_id: "",
+    vendor_name: "",
+    branch_id: "",
+    bill_number: "",
+    order_number: "",
+    bill_date: new Date().toISOString().split('T')[0],
+    due_date: "",
+    payment_terms: "NET_30",
+    accounts_payable: "Trade Payables",
+    reverse_charge: false,
     notes: ""
+  });
+
+  // Line Items State
+  const [lineItems, setLineItems] = useState([
+    { rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }
+  ]);
+
+  // Totals State
+  const [totals, setTotals] = useState({
+    sub_total: 0,
+    discount_type: "percentage", // "percentage" or "amount"
+    discount_value: 0,
+    discount_amount: 0,
+    tds_tcs: "NONE",
+    tds_tcs_amount: 0,
+    tax_total: 0,
+    grand_total: 0
   });
 
   useEffect(() => {
     fetchEntries();
     fetchAvailableRMs();
     fetchBranchInventory();
+    fetchVendors();
+    fetchBranches();
   }, [selectedBranch]);
+
+  // Calculate totals when line items or discount changes
+  useEffect(() => {
+    calculateTotals();
+  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs]);
+
+  const calculateTotals = () => {
+    let subTotal = 0;
+    let taxTotal = 0;
+
+    lineItems.forEach(item => {
+      const lineAmount = item.quantity * item.rate;
+      const taxRate = TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0;
+      const lineTax = lineAmount * (taxRate / 100);
+      subTotal += lineAmount;
+      taxTotal += lineTax;
+    });
+
+    // Calculate discount
+    let discountAmount = 0;
+    if (totals.discount_type === "percentage") {
+      discountAmount = subTotal * (totals.discount_value / 100);
+    } else {
+      discountAmount = totals.discount_value;
+    }
+
+    // Calculate TDS/TCS
+    const tdsTcsRate = TDS_TCS_OPTIONS.find(t => t.value === totals.tds_tcs)?.rate || 0;
+    const tdsTcsAmount = (subTotal - discountAmount) * (tdsTcsRate / 100);
+
+    // Grand total
+    const grandTotal = subTotal - discountAmount + taxTotal - tdsTcsAmount;
+
+    setTotals(prev => ({
+      ...prev,
+      sub_total: subTotal,
+      discount_amount: discountAmount,
+      tds_tcs_amount: tdsTcsAmount,
+      tax_total: taxTotal,
+      grand_total: grandTotal
+    }));
+
+    // Update line item amounts
+    setLineItems(prev => prev.map(item => ({
+      ...item,
+      amount: item.quantity * item.rate
+    })));
+  };
 
   const fetchBranchInventory = async () => {
     try {
@@ -44,7 +150,6 @@ const RMInward = () => {
         `${API}/raw-materials?branch=${encodeURIComponent(selectedBranch)}`,
         { headers: { Authorization: `Bearer ${token}` }}
       );
-      // Build a map of rm_id -> current_stock
       const inventoryMap = {};
       response.data.forEach(rm => {
         inventoryMap[rm.rm_id] = rm.current_stock || 0;
@@ -69,67 +174,164 @@ const RMInward = () => {
 
   const fetchAvailableRMs = async () => {
     try {
-      // Fetch ALL global RMs (not just branch-specific) for inward entry
       const response = await axios.get(
         `${API}/raw-materials`,
         { headers: { Authorization: `Bearer ${token}` }}
       );
       setAvailableRMs(response.data);
-      setFilteredRMs(response.data.slice(0, 100)); // Show first 100 by default
+      setFilteredRMs(response.data.slice(0, 100));
     } catch (error) {
       toast.error("Failed to fetch available RMs");
     }
   };
 
-  // Filter RMs based on search
-  useEffect(() => {
-    if (rmSearch.length >= 2) {
-      const filtered = availableRMs.filter(rm => 
-        rm.rm_id.toLowerCase().includes(rmSearch.toLowerCase()) ||
-        rm.category.toLowerCase().includes(rmSearch.toLowerCase()) ||
-        JSON.stringify(rm.category_data).toLowerCase().includes(rmSearch.toLowerCase())
-      );
-      setFilteredRMs(filtered.slice(0, 100));
-    } else if (rmSearch.length === 0) {
-      setFilteredRMs(availableRMs.slice(0, 100));
+  const fetchVendors = async () => {
+    try {
+      const response = await axios.get(`${API}/vendors`, { headers: { Authorization: `Bearer ${token}` }});
+      setVendors(response.data.vendors || response.data || []);
+    } catch (error) {
+      console.error("Failed to fetch vendors");
     }
-  }, [rmSearch, availableRMs]);
+  };
+
+  const fetchBranches = async () => {
+    try {
+      const response = await axios.get(`${API}/branches/reference`, { headers: { Authorization: `Bearer ${token}` }});
+      setBranches(response.data.branches || []);
+    } catch (error) {
+      console.error("Failed to fetch branches");
+    }
+  };
+
+  const filterRMsForLine = (search) => {
+    if (search.length >= 2) {
+      return availableRMs.filter(rm => 
+        rm.rm_id.toLowerCase().includes(search.toLowerCase()) ||
+        rm.category.toLowerCase().includes(search.toLowerCase())
+      ).slice(0, 50);
+    }
+    return availableRMs.slice(0, 50);
+  };
+
+  const handleAddLineItem = () => {
+    setLineItems([...lineItems, { rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+  };
+
+  const handleRemoveLineItem = (index) => {
+    if (lineItems.length > 1) {
+      setLineItems(lineItems.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleLineItemChange = (index, field, value) => {
+    const updated = [...lineItems];
+    updated[index][field] = value;
+    
+    // Auto-calculate amount when quantity or rate changes
+    if (field === "quantity" || field === "rate") {
+      updated[index].amount = updated[index].quantity * updated[index].rate;
+    }
+    
+    setLineItems(updated);
+  };
 
   const handleSubmit = async () => {
-    if (!formData.rm_id || formData.quantity <= 0) {
-      toast.error("Please select RM and enter valid quantity");
+    // Validation
+    if (!billData.vendor_id) {
+      toast.error("Please select a vendor");
+      return;
+    }
+    if (!billData.bill_number) {
+      toast.error("Please enter bill number");
+      return;
+    }
+    if (!billData.bill_date) {
+      toast.error("Please enter bill date");
+      return;
+    }
+    
+    const validItems = lineItems.filter(item => item.rm_id && item.quantity > 0);
+    if (validItems.length === 0) {
+      toast.error("Please add at least one valid line item");
       return;
     }
 
     try {
       const payload = {
-        rm_id: formData.rm_id,
-        branch: selectedBranch,
-        quantity: parseFloat(formData.quantity),
-        date: new Date(formData.date).toISOString(),
-        notes: formData.notes
+        ...billData,
+        branch: billData.branch_id ? branches.find(b => b.branch_id === billData.branch_id)?.name : selectedBranch,
+        branch_id: billData.branch_id || null,
+        line_items: validItems.map(item => ({
+          rm_id: item.rm_id,
+          quantity: parseFloat(item.quantity),
+          rate: parseFloat(item.rate),
+          tax: item.tax,
+          tax_amount: item.amount * (TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0) / 100,
+          amount: item.amount
+        })),
+        totals: {
+          sub_total: totals.sub_total,
+          discount_type: totals.discount_type,
+          discount_value: totals.discount_value,
+          discount_amount: totals.discount_amount,
+          tds_tcs: totals.tds_tcs,
+          tds_tcs_amount: totals.tds_tcs_amount,
+          tax_total: totals.tax_total,
+          grand_total: totals.grand_total
+        },
+        date: new Date(billData.bill_date).toISOString()
       };
 
-      await axios.post(`${API}/purchase-entries`, payload, {
+      await axios.post(`${API}/rm-inward/bills`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      toast.success(`Added ${formData.quantity} units of ${formData.rm_id} to ${selectedBranch} inventory`);
+      toast.success(`Bill ${billData.bill_number} recorded successfully`);
       setShowDialog(false);
-      setFormData({ rm_id: "", quantity: 0, date: new Date().toISOString().split('T')[0], notes: "" });
-      setRmSearch("");
+      resetForm();
       fetchEntries();
       fetchBranchInventory();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to add inward entry");
+      toast.error(error.response?.data?.detail || "Failed to record bill");
     }
+  };
+
+  const resetForm = () => {
+    setBillData({
+      vendor_id: "",
+      vendor_name: "",
+      branch_id: "",
+      bill_number: "",
+      order_number: "",
+      bill_date: new Date().toISOString().split('T')[0],
+      due_date: "",
+      payment_terms: "NET_30",
+      accounts_payable: "Trade Payables",
+      reverse_charge: false,
+      notes: ""
+    });
+    setLineItems([{ rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+    setTotals({
+      sub_total: 0,
+      discount_type: "percentage",
+      discount_value: 0,
+      discount_amount: 0,
+      tds_tcs: "NONE",
+      tds_tcs_amount: 0,
+      tax_total: 0,
+      grand_total: 0
+    });
   };
 
   const handleExport = () => {
     const ws = XLSX.utils.json_to_sheet(entries.map(e => ({
       'Date': new Date(e.date).toLocaleDateString(),
+      'Bill #': e.bill_number || '-',
+      'Vendor': e.vendor_name || '-',
       'RM ID': e.rm_id,
       'Quantity': e.quantity,
+      'Rate': e.rate || 0,
+      'Amount': e.amount || 0,
       'Branch': e.branch,
       'Notes': e.notes || ''
     })));
@@ -140,11 +342,6 @@ const RMInward = () => {
     toast.success("Exported to Excel");
   };
 
-  const getRMDetails = (rm_id) => {
-    const rm = availableRMs.find(r => r.rm_id === rm_id);
-    return rm ? `${rm.rm_id} (${rm.category})` : rm_id;
-  };
-
   const getCurrentStock = (rm_id) => {
     return branchInventory[rm_id] || 0;
   };
@@ -153,9 +350,9 @@ const RMInward = () => {
     <div className="p-6 md:p-8" data-testid="rm-inward-page">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-black tracking-tight uppercase">RM Inward Entry</h1>
+          <h1 className="text-4xl font-black tracking-tight uppercase">RM Inward / Purchase Bill</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            Record incoming raw materials for {selectedBranch}
+            Record incoming raw materials and vendor bills for {selectedBranch}
           </p>
         </div>
         <div className="flex gap-3">
@@ -168,102 +365,356 @@ const RMInward = () => {
             <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Export
           </Button>
-          <Dialog open={showDialog} onOpenChange={setShowDialog}>
+          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button data-testid="add-inward-btn" className="uppercase text-xs tracking-wide">
                 <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Add Inward Entry
+                New Bill / Inward
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle className="font-bold uppercase">RM Inward Entry</DialogTitle>
-                <p className="text-xs text-muted-foreground font-mono">
-                  Branch: {selectedBranch}
-                </p>
+                <DialogTitle className="font-bold uppercase flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  New Purchase Bill
+                </DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>Search Raw Material</Label>
-                  <Input
-                    type="text"
-                    value={rmSearch}
-                    onChange={(e) => setRmSearch(e.target.value)}
-                    placeholder="Type to search RM ID, category..."
-                    className="font-mono mb-2"
-                    data-testid="rm-search-input"
-                  />
-                  <Label>Select Raw Material *</Label>
-                  <select 
-                    className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
-                    value={formData.rm_id}
-                    onChange={(e) => setFormData({...formData, rm_id: e.target.value})}
-                    data-testid="inward-rm-select"
-                  >
-                    <option value="">Select RM ({filteredRMs.length} shown)</option>
-                    {filteredRMs.map(rm => (
-                      <option key={rm.rm_id} value={rm.rm_id}>
-                        {rm.rm_id} - {rm.category}
-                      </option>
-                    ))}
-                  </select>
-                  {rmSearch.length > 0 && rmSearch.length < 2 && (
-                    <p className="text-xs text-yellow-600 mt-1">Type at least 2 characters to search</p>
-                  )}
-                  {formData.rm_id && (
-                    <p className="text-xs text-muted-foreground mt-2 font-mono">
-                      Selected: {formData.rm_id} | Current Stock in {selectedBranch}: {getCurrentStock(formData.rm_id)} units
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <Label>Quantity Received *</Label>
-                  <Input 
-                    type="number" 
-                    step="0.01"
-                    value={formData.quantity} 
-                    onChange={(e) => setFormData({...formData, quantity: parseFloat(e.target.value)})}
-                    data-testid="inward-quantity-input"
-                    className="font-mono"
-                    placeholder="Enter quantity"
-                  />
-                </div>
-                <div>
-                  <Label>Inward Date *</Label>
-                  <Input 
-                    type="date" 
-                    value={formData.date} 
-                    onChange={(e) => setFormData({...formData, date: e.target.value})}
-                    data-testid="inward-date-input"
-                  />
-                </div>
-                <div>
-                  <Label>Notes (Optional)</Label>
-                  <Textarea 
-                    value={formData.notes} 
-                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                    data-testid="inward-notes-input"
-                    placeholder="Supplier, PO number, truck details, etc."
-                    rows={3}
-                  />
-                </div>
-                <div className="bg-zinc-50 border border-zinc-200 rounded-sm p-3">
-                  <div className="text-xs text-zinc-600 font-mono">
-                    <strong>Summary:</strong><br/>
-                    {formData.rm_id && formData.quantity > 0 && (
-                      <>
-                        Adding <strong>{formData.quantity}</strong> units of <strong>{formData.rm_id}</strong><br/>
-                        New Stock: {getCurrentStock(formData.rm_id) + formData.quantity} units
-                      </>
-                    )}
+              
+              {/* Bill Header Section */}
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Vendor Name *</Label>
+                    <Select 
+                      value={billData.vendor_id} 
+                      onValueChange={(v) => {
+                        const vendor = vendors.find(ve => ve.id === v);
+                        setBillData({...billData, vendor_id: v, vendor_name: vendor?.name || ""});
+                      }}
+                    >
+                      <SelectTrigger data-testid="vendor-select">
+                        <SelectValue placeholder="Select vendor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {vendors.map(v => (
+                          <SelectItem key={v.id} value={v.id}>{v.name} ({v.vendor_code})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Branch</Label>
+                    <Select 
+                      value={billData.branch_id} 
+                      onValueChange={(v) => setBillData({...billData, branch_id: v})}
+                    >
+                      <SelectTrigger data-testid="branch-select">
+                        <SelectValue placeholder={selectedBranch} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {branches.map(b => (
+                          <SelectItem key={b.branch_id} value={b.branch_id}>{b.name} ({b.branch_id})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-                <Button 
-                  onClick={handleSubmit} 
-                  data-testid="submit-inward-btn" 
-                  className="w-full uppercase text-xs tracking-wide"
-                >
-                  Confirm Inward Entry
+
+                {/* Middle Column */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Bill # *</Label>
+                    <Input 
+                      value={billData.bill_number}
+                      onChange={(e) => setBillData({...billData, bill_number: e.target.value})}
+                      placeholder="e.g., INV-2026-001"
+                      data-testid="bill-number-input"
+                      className="font-mono"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Order Number</Label>
+                    <Input 
+                      value={billData.order_number}
+                      onChange={(e) => setBillData({...billData, order_number: e.target.value})}
+                      placeholder="PO reference"
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Bill Date *</Label>
+                    <Input 
+                      type="date"
+                      value={billData.bill_date}
+                      onChange={(e) => setBillData({...billData, bill_date: e.target.value})}
+                      data-testid="bill-date-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-bold uppercase">Due Date</Label>
+                    <Input 
+                      type="date"
+                      value={billData.due_date}
+                      onChange={(e) => setBillData({...billData, due_date: e.target.value})}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Second Row - Payment Terms, Accounts Payable, Reverse Charge */}
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                <div>
+                  <Label className="text-xs font-bold uppercase">Payment Terms</Label>
+                  <Select 
+                    value={billData.payment_terms} 
+                    onValueChange={(v) => setBillData({...billData, payment_terms: v})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_TERMS.map(pt => (
+                        <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs font-bold uppercase">Accounts Payable</Label>
+                  <Select 
+                    value={billData.accounts_payable} 
+                    onValueChange={(v) => setBillData({...billData, accounts_payable: v})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Trade Payables">Trade Payables</SelectItem>
+                      <SelectItem value="Sundry Creditors">Sundry Creditors</SelectItem>
+                      <SelectItem value="Other Payables">Other Payables</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center space-x-2 mt-6">
+                  <Checkbox 
+                    id="reverse-charge"
+                    checked={billData.reverse_charge}
+                    onCheckedChange={(checked) => setBillData({...billData, reverse_charge: checked})}
+                  />
+                  <Label htmlFor="reverse-charge" className="text-sm">
+                    This transaction is applicable for reverse charge
+                  </Label>
+                </div>
+              </div>
+
+              <Separator className="my-4" />
+
+              {/* Line Items Table */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <Label className="text-xs font-bold uppercase">Item Details</Label>
+                  <Button size="sm" variant="outline" onClick={handleAddLineItem}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Line
+                  </Button>
+                </div>
+                
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50">
+                        <TableHead className="w-[250px]">Item (RM ID)</TableHead>
+                        <TableHead className="w-[100px] text-right">Quantity</TableHead>
+                        <TableHead className="w-[120px] text-right">Rate</TableHead>
+                        <TableHead className="w-[120px]">Tax</TableHead>
+                        <TableHead className="w-[120px] text-right">Amount</TableHead>
+                        <TableHead className="w-[50px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lineItems.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <Input
+                              value={item.rm_search || item.rm_id}
+                              onChange={(e) => handleLineItemChange(idx, "rm_search", e.target.value)}
+                              placeholder="Search RM ID..."
+                              className="font-mono text-sm mb-1"
+                              list={`rm-list-${idx}`}
+                            />
+                            <datalist id={`rm-list-${idx}`}>
+                              {filterRMsForLine(item.rm_search || "").map(rm => (
+                                <option key={rm.rm_id} value={rm.rm_id}>
+                                  {rm.rm_id} - {rm.category}
+                                </option>
+                              ))}
+                            </datalist>
+                            <select
+                              className="w-full text-xs border rounded px-2 py-1 bg-gray-50"
+                              value={item.rm_id}
+                              onChange={(e) => {
+                                handleLineItemChange(idx, "rm_id", e.target.value);
+                                handleLineItemChange(idx, "rm_search", e.target.value);
+                              }}
+                            >
+                              <option value="">Select RM</option>
+                              {filterRMsForLine(item.rm_search || "").map(rm => (
+                                <option key={rm.rm_id} value={rm.rm_id}>
+                                  {rm.rm_id} - {rm.category}
+                                </option>
+                              ))}
+                            </select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.quantity}
+                              onChange={(e) => handleLineItemChange(idx, "quantity", parseFloat(e.target.value) || 0)}
+                              className="text-right font-mono"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.rate}
+                              onChange={(e) => handleLineItemChange(idx, "rate", parseFloat(e.target.value) || 0)}
+                              className="text-right font-mono"
+                              placeholder="0.00"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Select 
+                              value={item.tax} 
+                              onValueChange={(v) => handleLineItemChange(idx, "tax", v)}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {TAX_OPTIONS.map(t => (
+                                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-medium">
+                            ₹{item.amount.toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleRemoveLineItem(idx)}
+                              disabled={lineItems.length === 1}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <Separator className="my-4" />
+
+              {/* Totals Section */}
+              <div className="grid grid-cols-2 gap-8">
+                {/* Notes */}
+                <div>
+                  <Label className="text-xs font-bold uppercase">Notes / Remarks</Label>
+                  <Textarea 
+                    value={billData.notes}
+                    onChange={(e) => setBillData({...billData, notes: e.target.value})}
+                    placeholder="Additional notes, truck details, GRN reference..."
+                    rows={4}
+                  />
+                </div>
+
+                {/* Calculations */}
+                <div className="space-y-3 bg-gray-50 p-4 rounded-lg">
+                  <div className="flex justify-between text-sm">
+                    <span>Sub Total</span>
+                    <span className="font-mono font-medium">₹{totals.sub_total.toFixed(2)}</span>
+                  </div>
+                  
+                  {/* Discount */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm w-20">Discount</span>
+                    <Select 
+                      value={totals.discount_type} 
+                      onValueChange={(v) => setTotals({...totals, discount_type: v})}
+                    >
+                      <SelectTrigger className="w-20 h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percentage">%</SelectItem>
+                        <SelectItem value="amount">₹</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={totals.discount_value}
+                      onChange={(e) => setTotals({...totals, discount_value: parseFloat(e.target.value) || 0})}
+                      className="w-24 h-8 text-right font-mono"
+                    />
+                    <span className="font-mono text-sm ml-auto">-₹{totals.discount_amount.toFixed(2)}</span>
+                  </div>
+
+                  {/* TDS/TCS */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm w-20">TDS/TCS</span>
+                    <Select 
+                      value={totals.tds_tcs} 
+                      onValueChange={(v) => setTotals({...totals, tds_tcs: v})}
+                    >
+                      <SelectTrigger className="w-32 h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TDS_TCS_OPTIONS.map(t => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="font-mono text-sm ml-auto">-₹{totals.tds_tcs_amount.toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex justify-between text-sm">
+                    <span>Tax Total</span>
+                    <span className="font-mono">+₹{totals.tax_total.toFixed(2)}</span>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex justify-between text-lg font-bold">
+                    <span>Grand Total</span>
+                    <span className="font-mono text-primary">₹{totals.grand_total.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="flex justify-end mt-6 gap-3">
+                <Button variant="outline" onClick={() => setShowDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSubmit} data-testid="submit-bill-btn" className="uppercase">
+                  <Calculator className="w-4 h-4 mr-2" />
+                  Save Bill & Update Inventory
                 </Button>
               </div>
             </DialogContent>
@@ -272,10 +723,10 @@ const RMInward = () => {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border border border-border mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-border border border-border mb-8">
         <div className="bg-white p-6">
           <div className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-2">
-            Total Entries (This Month)
+            Bills This Month
           </div>
           <div className="text-3xl font-black font-mono text-zinc-700">
             {entries.filter(e => new Date(e.date).getMonth() === new Date().getMonth()).length}
@@ -291,7 +742,7 @@ const RMInward = () => {
         </div>
         <div className="bg-white p-6">
           <div className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-2">
-            Total Quantity (This Month)
+            Total Qty (This Month)
           </div>
           <div className="text-3xl font-black font-mono text-zinc-700">
             {entries
@@ -300,24 +751,37 @@ const RMInward = () => {
               .toFixed(0)}
           </div>
         </div>
+        <div className="bg-white p-6">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-2">
+            Total Value (This Month)
+          </div>
+          <div className="text-3xl font-black font-mono text-green-600">
+            ₹{entries
+              .filter(e => new Date(e.date).getMonth() === new Date().getMonth())
+              .reduce((sum, e) => sum + (e.amount || 0), 0)
+              .toLocaleString()}
+          </div>
+        </div>
       </div>
 
       {/* Inward Entries Table */}
       <div className="border border-border bg-white rounded-sm overflow-hidden">
         <div className="p-6 border-b border-border flex items-center gap-3">
           <Package className="w-5 h-5 text-primary" strokeWidth={1.5} />
-          <h2 className="text-lg font-bold uppercase tracking-tight">Recent Inward Entries</h2>
+          <h2 className="text-lg font-bold uppercase tracking-tight">Recent Inward Entries / Bills</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full" data-testid="inward-table">
             <thead className="bg-zinc-50 border-b border-zinc-200">
               <tr>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Date</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Bill #</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Vendor</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">RM ID</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Category</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Quantity</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Notes</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Qty</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Rate</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Amount</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Stock</th>
               </tr>
             </thead>
             <tbody>
@@ -326,19 +790,23 @@ const RMInward = () => {
                   <td className="p-4 align-middle font-mono text-zinc-700">
                     {new Date(entry.date).toLocaleDateString()}
                   </td>
+                  <td className="p-4 align-middle font-mono text-sm text-primary">
+                    {entry.bill_number || '-'}
+                  </td>
+                  <td className="p-4 align-middle text-sm">
+                    {entry.vendor_name || '-'}
+                  </td>
                   <td className="p-4 align-middle font-mono text-sm font-bold text-zinc-700">
                     {entry.rm_id}
-                  </td>
-                  <td className="p-4 align-middle">
-                    <span className="text-xs font-mono text-primary px-2 py-1 bg-zinc-50 border border-zinc-200 rounded">
-                      {availableRMs.find(rm => rm.rm_id === entry.rm_id)?.category || '-'}
-                    </span>
                   </td>
                   <td className="p-4 align-middle font-mono text-primary font-bold">
                     +{entry.quantity}
                   </td>
-                  <td className="p-4 align-middle text-sm text-zinc-600 max-w-xs truncate">
-                    {entry.notes || '-'}
+                  <td className="p-4 align-middle font-mono text-sm">
+                    ₹{(entry.rate || 0).toFixed(2)}
+                  </td>
+                  <td className="p-4 align-middle font-mono text-sm font-medium">
+                    ₹{(entry.amount || 0).toFixed(2)}
                   </td>
                   <td className="p-4 align-middle font-mono text-zinc-700">
                     {getCurrentStock(entry.rm_id)}

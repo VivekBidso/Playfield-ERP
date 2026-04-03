@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from datetime import datetime, timezone
+from pydantic import BaseModel
 import uuid
 
 from database import db
@@ -226,3 +227,157 @@ async def create_purchase_entry(
     })
     
     return {"message": "Purchase entry created", "entry": doc}
+
+
+# ============ RM Inward Bills ============
+
+class BillLineItem(BaseModel):
+    rm_id: str
+    quantity: float
+    rate: float = 0
+    tax: str = "NONE"
+    tax_amount: float = 0
+    amount: float = 0
+
+class BillTotals(BaseModel):
+    sub_total: float = 0
+    discount_type: str = "percentage"
+    discount_value: float = 0
+    discount_amount: float = 0
+    tds_tcs: str = "NONE"
+    tds_tcs_amount: float = 0
+    tax_total: float = 0
+    grand_total: float = 0
+
+class RMInwardBillCreate(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    branch: str
+    branch_id: Optional[str] = None
+    bill_number: str
+    order_number: Optional[str] = None
+    bill_date: Optional[str] = None
+    due_date: Optional[str] = None
+    payment_terms: str = "NET_30"
+    accounts_payable: str = "Trade Payables"
+    reverse_charge: bool = False
+    notes: Optional[str] = None
+    line_items: List[dict]
+    totals: dict
+    date: Optional[str] = None
+
+
+@router.post("/rm-inward/bills")
+@require_permission("RMStockMovement", "CREATE")
+async def create_rm_inward_bill(
+    input: RMInwardBillCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a full RM Inward bill with multiple line items"""
+    
+    # Generate bill ID
+    bill_count = await db.rm_inward_bills.count_documents({})
+    bill_id = f"BILL_{datetime.now(timezone.utc).strftime('%Y%m')}_{bill_count + 1:05d}"
+    
+    # Validate all RMs exist
+    for item in input.line_items:
+        rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "rm_id": 1})
+        if not rm:
+            raise HTTPException(status_code=404, detail=f"RM {item['rm_id']} not found")
+    
+    # Create bill document
+    bill = {
+        "id": str(uuid.uuid4()),
+        "bill_id": bill_id,
+        "vendor_id": input.vendor_id,
+        "vendor_name": input.vendor_name,
+        "branch": input.branch,
+        "branch_id": input.branch_id,
+        "bill_number": input.bill_number,
+        "order_number": input.order_number,
+        "bill_date": input.bill_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "due_date": input.due_date,
+        "payment_terms": input.payment_terms,
+        "accounts_payable": input.accounts_payable,
+        "reverse_charge": input.reverse_charge,
+        "notes": input.notes,
+        "line_items": input.line_items,
+        "totals": input.totals,
+        "status": "POSTED",
+        "created_by": current_user.id,
+        "created_by_name": current_user.name,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.rm_inward_bills.insert_one(bill)
+    
+    # Create individual purchase entries and update inventory for each line item
+    entries_created = []
+    for item in input.line_items:
+        entry_id = str(uuid.uuid4())
+        entry = {
+            "id": entry_id,
+            "bill_id": bill_id,
+            "bill_number": input.bill_number,
+            "vendor_id": input.vendor_id,
+            "vendor_name": input.vendor_name,
+            "branch": input.branch,
+            "rm_id": item["rm_id"],
+            "quantity": item["quantity"],
+            "rate": item.get("rate", 0),
+            "tax": item.get("tax", "NONE"),
+            "tax_amount": item.get("tax_amount", 0),
+            "amount": item.get("amount", 0),
+            "date": input.date or datetime.now(timezone.utc).isoformat(),
+            "notes": input.notes,
+            "created_by": current_user.id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.purchase_entries.insert_one(entry)
+        entries_created.append(entry)
+        
+        # Update branch inventory
+        current_stock = await get_branch_rm_stock(input.branch, item["rm_id"])
+        await update_branch_rm_inventory(input.branch, item["rm_id"], item["quantity"])
+        
+        # Record stock movement
+        movement_code = await generate_movement_code()
+        await db.rm_stock_movements.insert_one({
+            "id": str(uuid.uuid4()),
+            "movement_code": movement_code,
+            "rm_id": item["rm_id"],
+            "branch": input.branch,
+            "movement_type": "PURCHASE",
+            "quantity": item["quantity"],
+            "reference_type": "RM_INWARD_BILL",
+            "reference_id": bill_id,
+            "balance_after": current_stock + item["quantity"],
+            "notes": f"Bill: {input.bill_number}, Vendor: {input.vendor_name}",
+            "created_by": current_user.id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {
+        "message": f"Bill {input.bill_number} recorded successfully",
+        "bill_id": bill_id,
+        "entries_count": len(entries_created),
+        "grand_total": input.totals.get("grand_total", 0)
+    }
+
+
+@router.get("/rm-inward/bills")
+async def get_rm_inward_bills(
+    branch: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Get RM Inward bills"""
+    query = {}
+    if branch:
+        query["branch"] = branch
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    
+    bills = await db.rm_inward_bills.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"bills": bills, "total": len(bills)}
