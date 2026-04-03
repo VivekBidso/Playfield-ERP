@@ -10,6 +10,7 @@ BOM Management:
 - Brand-specific BOM: Per-brand additions (labels, packaging)
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
+from pydantic import BaseModel
 from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
@@ -1533,6 +1534,560 @@ async def get_full_bom(buyer_sku_id: str):
         raise HTTPException(status_code=404, detail="Buyer SKU not found")
     
     return full_bom
+
+
+# ============ Brand-Specific BOM Edit with Approval Workflow ============
+
+class BOMItemEdit(BaseModel):
+    rm_id: str
+    new_rm_id: Optional[str] = None  # If changing the RM
+    quantity: float
+    unit: str
+
+class BOMChangeRequest(BaseModel):
+    buyer_sku_id: str
+    original_item: dict
+    new_item: dict
+    change_type: str  # "MODIFY", "ADD", "REMOVE"
+    reason: Optional[str] = None
+
+
+async def check_production_schedule_next_10_days(buyer_sku_id: str) -> dict:
+    """Check if buyer SKU is scheduled for production in the next 10 days"""
+    from datetime import timedelta
+    
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    ten_days_later = today + timedelta(days=10)
+    
+    # Get the buyer SKU to find the bidso_sku_id
+    buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+    if not buyer_sku:
+        return {"is_scheduled": False, "schedules": [], "branches": []}
+    
+    # Check production_schedules for this SKU
+    schedules = await db.production_schedules.find({
+        "$or": [
+            {"buyer_sku_id": buyer_sku_id},
+            {"bidso_sku_id": buyer_sku.get("bidso_sku_id")},
+            {"sku_id": buyer_sku_id}
+        ],
+        "target_date": {"$gte": today, "$lte": ten_days_later},
+        "status": {"$nin": ["COMPLETED", "CANCELLED"]}
+    }, {"_id": 0, "id": 1, "branch_id": 1, "branch_name": 1, "target_date": 1, "quantity": 1}).to_list(100)
+    
+    # Also check dispatch_lots
+    dispatch_lots = await db.dispatch_lots.find({
+        "buyer_sku_id": buyer_sku_id,
+        "scheduled_date": {"$gte": today, "$lte": ten_days_later},
+        "status": {"$nin": ["DISPATCHED", "CANCELLED"]}
+    }, {"_id": 0, "id": 1, "branch_id": 1, "branch_name": 1, "scheduled_date": 1}).to_list(100)
+    
+    all_schedules = schedules + dispatch_lots
+    branches = list(set([s.get("branch_name") or s.get("branch_id") for s in all_schedules if s.get("branch_name") or s.get("branch_id")]))
+    
+    return {
+        "is_scheduled": len(all_schedules) > 0,
+        "schedules": all_schedules,
+        "branches": branches,
+        "schedule_count": len(all_schedules)
+    }
+
+
+async def create_bom_change_notification(
+    change_request_id: str,
+    buyer_sku_id: str,
+    change_type: str,
+    original_item: dict,
+    new_item: dict,
+    branches: list,
+    requires_approval: bool
+):
+    """Create notifications for BOM change"""
+    notification_base = {
+        "id": str(uuid.uuid4()),
+        "change_request_id": change_request_id,
+        "buyer_sku_id": buyer_sku_id,
+        "change_type": change_type,
+        "original_rm_id": original_item.get("rm_id"),
+        "new_rm_id": new_item.get("rm_id") if new_item else None,
+        "message": f"BOM change for {buyer_sku_id}: {change_type} - RM {original_item.get('rm_id')}",
+        "requires_approval": requires_approval,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    notifications = []
+    
+    # Notify Master Admin
+    notifications.append({
+        **notification_base,
+        "id": str(uuid.uuid4()),
+        "recipient_role": "master_admin",
+        "notification_type": "BOM_CHANGE_APPROVAL" if requires_approval else "BOM_CHANGE_INFO"
+    })
+    
+    # Notify CPC Planner
+    notifications.append({
+        **notification_base,
+        "id": str(uuid.uuid4()),
+        "recipient_role": "cpc_planner",
+        "notification_type": "BOM_CHANGE_INFO"
+    })
+    
+    # Notify relevant Branch Ops
+    for branch in branches:
+        notifications.append({
+            **notification_base,
+            "id": str(uuid.uuid4()),
+            "recipient_role": "branch_ops_user",
+            "recipient_branch": branch,
+            "notification_type": "BOM_CHANGE_INFO"
+        })
+    
+    if notifications:
+        await db.notifications.insert_many(notifications)
+    
+    return notifications
+
+
+@router.get("/bom/buyer-sku/{buyer_sku_id}/check-schedule")
+async def check_sku_production_schedule(buyer_sku_id: str):
+    """Check if buyer SKU is scheduled for production in the next 10 days"""
+    result = await check_production_schedule_next_10_days(buyer_sku_id)
+    return result
+
+
+@router.put("/bom/buyer-sku/{buyer_sku_id}/item")
+async def edit_brand_specific_bom_item(
+    buyer_sku_id: str,
+    edit_data: BOMItemEdit,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Edit a brand-specific BOM item.
+    If SKU is scheduled for production in next 10 days, requires Master Admin approval.
+    """
+    # Get buyer SKU
+    buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+    if not buyer_sku:
+        raise HTTPException(status_code=404, detail="Buyer SKU not found")
+    
+    bidso_sku_id = buyer_sku["bidso_sku_id"]
+    brand_id = buyer_sku["brand_id"]
+    
+    # Get brand-specific BOM
+    brand_bom = await db.brand_specific_bom.find_one(
+        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+        {"_id": 0}
+    )
+    if not brand_bom:
+        raise HTTPException(status_code=404, detail="Brand-specific BOM not found")
+    
+    # Find the item to edit
+    items = brand_bom.get("items", [])
+    item_index = next((i for i, item in enumerate(items) if item.get("rm_id") == edit_data.rm_id), None)
+    if item_index is None:
+        raise HTTPException(status_code=404, detail=f"RM {edit_data.rm_id} not found in brand-specific BOM")
+    
+    original_item = items[item_index].copy()
+    
+    # Check production schedule
+    schedule_check = await check_production_schedule_next_10_days(buyer_sku_id)
+    requires_approval = schedule_check["is_scheduled"]
+    
+    # Validate new RM if changing
+    new_rm_id = edit_data.new_rm_id or edit_data.rm_id
+    rm = await db.raw_materials.find_one({"rm_id": new_rm_id}, {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1})
+    if not rm:
+        # Try case-insensitive
+        escaped_rm_id = re.escape(new_rm_id)
+        rm = await db.raw_materials.find_one(
+            {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+            {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1}
+        )
+    if not rm:
+        raise HTTPException(status_code=404, detail=f"RM {new_rm_id} not found in RM Repository")
+    
+    # Prepare new item
+    new_item = {
+        "rm_id": rm["rm_id"],
+        "rm_name": generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
+        "quantity": edit_data.quantity,
+        "unit": edit_data.unit
+    }
+    
+    if requires_approval:
+        # Create change request for approval
+        change_request = {
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": buyer_sku_id,
+            "bidso_sku_id": bidso_sku_id,
+            "brand_id": brand_id,
+            "change_type": "MODIFY",
+            "original_item": original_item,
+            "new_item": new_item,
+            "item_index": item_index,
+            "status": "PENDING",
+            "requested_by": current_user.get("id"),
+            "requested_by_name": current_user.get("name"),
+            "scheduled_branches": schedule_check["branches"],
+            "schedule_count": schedule_check["schedule_count"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "approved_by": None,
+            "approved_at": None
+        }
+        await db.bom_change_requests.insert_one(change_request)
+        
+        # Create notifications
+        await create_bom_change_notification(
+            change_request["id"],
+            buyer_sku_id,
+            "MODIFY",
+            original_item,
+            new_item,
+            schedule_check["branches"],
+            requires_approval=True
+        )
+        
+        return {
+            "status": "PENDING_APPROVAL",
+            "message": f"BOM change requires Master Admin approval. SKU is scheduled for production at {schedule_check['schedule_count']} location(s) in the next 10 days.",
+            "change_request_id": change_request["id"],
+            "scheduled_branches": schedule_check["branches"],
+            "notifications_sent": True
+        }
+    else:
+        # Apply change immediately
+        items[item_index] = new_item
+        await db.brand_specific_bom.update_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"$set": {"items": items, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        return {
+            "status": "APPLIED",
+            "message": "BOM change applied successfully.",
+            "original_item": original_item,
+            "new_item": new_item
+        }
+
+
+@router.post("/bom/buyer-sku/{buyer_sku_id}/item")
+async def add_brand_specific_bom_item(
+    buyer_sku_id: str,
+    edit_data: BOMItemEdit,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a new item to brand-specific BOM"""
+    # Get buyer SKU
+    buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+    if not buyer_sku:
+        raise HTTPException(status_code=404, detail="Buyer SKU not found")
+    
+    bidso_sku_id = buyer_sku["bidso_sku_id"]
+    brand_id = buyer_sku["brand_id"]
+    
+    # Validate RM
+    rm = await db.raw_materials.find_one({"rm_id": edit_data.rm_id}, {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1})
+    if not rm:
+        escaped_rm_id = re.escape(edit_data.rm_id)
+        rm = await db.raw_materials.find_one(
+            {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+            {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1}
+        )
+    if not rm:
+        raise HTTPException(status_code=404, detail=f"RM {edit_data.rm_id} not found in RM Repository")
+    
+    new_item = {
+        "rm_id": rm["rm_id"],
+        "rm_name": generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
+        "quantity": edit_data.quantity,
+        "unit": edit_data.unit
+    }
+    
+    # Check production schedule
+    schedule_check = await check_production_schedule_next_10_days(buyer_sku_id)
+    requires_approval = schedule_check["is_scheduled"]
+    
+    if requires_approval:
+        change_request = {
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": buyer_sku_id,
+            "bidso_sku_id": bidso_sku_id,
+            "brand_id": brand_id,
+            "change_type": "ADD",
+            "original_item": None,
+            "new_item": new_item,
+            "item_index": None,
+            "status": "PENDING",
+            "requested_by": current_user.get("id"),
+            "requested_by_name": current_user.get("name"),
+            "scheduled_branches": schedule_check["branches"],
+            "schedule_count": schedule_check["schedule_count"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.bom_change_requests.insert_one(change_request)
+        
+        await create_bom_change_notification(
+            change_request["id"],
+            buyer_sku_id,
+            "ADD",
+            {},
+            new_item,
+            schedule_check["branches"],
+            requires_approval=True
+        )
+        
+        return {
+            "status": "PENDING_APPROVAL",
+            "message": f"BOM change requires Master Admin approval.",
+            "change_request_id": change_request["id"]
+        }
+    else:
+        # Add immediately
+        await db.brand_specific_bom.update_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"$push": {"items": new_item}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True
+        )
+        return {"status": "APPLIED", "message": "Item added to BOM", "new_item": new_item}
+
+
+@router.delete("/bom/buyer-sku/{buyer_sku_id}/item/{rm_id}")
+async def remove_brand_specific_bom_item(
+    buyer_sku_id: str,
+    rm_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove an item from brand-specific BOM"""
+    buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+    if not buyer_sku:
+        raise HTTPException(status_code=404, detail="Buyer SKU not found")
+    
+    bidso_sku_id = buyer_sku["bidso_sku_id"]
+    brand_id = buyer_sku["brand_id"]
+    
+    brand_bom = await db.brand_specific_bom.find_one(
+        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+        {"_id": 0}
+    )
+    if not brand_bom:
+        raise HTTPException(status_code=404, detail="Brand-specific BOM not found")
+    
+    items = brand_bom.get("items", [])
+    item_to_remove = next((item for item in items if item.get("rm_id") == rm_id), None)
+    if not item_to_remove:
+        raise HTTPException(status_code=404, detail=f"RM {rm_id} not found in brand-specific BOM")
+    
+    schedule_check = await check_production_schedule_next_10_days(buyer_sku_id)
+    requires_approval = schedule_check["is_scheduled"]
+    
+    if requires_approval:
+        change_request = {
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": buyer_sku_id,
+            "bidso_sku_id": bidso_sku_id,
+            "brand_id": brand_id,
+            "change_type": "REMOVE",
+            "original_item": item_to_remove,
+            "new_item": None,
+            "status": "PENDING",
+            "requested_by": current_user.get("id"),
+            "requested_by_name": current_user.get("name"),
+            "scheduled_branches": schedule_check["branches"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.bom_change_requests.insert_one(change_request)
+        
+        await create_bom_change_notification(
+            change_request["id"],
+            buyer_sku_id,
+            "REMOVE",
+            item_to_remove,
+            {},
+            schedule_check["branches"],
+            requires_approval=True
+        )
+        
+        return {"status": "PENDING_APPROVAL", "change_request_id": change_request["id"]}
+    else:
+        new_items = [item for item in items if item.get("rm_id") != rm_id]
+        await db.brand_specific_bom.update_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"$set": {"items": new_items, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        return {"status": "APPLIED", "message": "Item removed from BOM"}
+
+
+@router.get("/bom/change-requests")
+async def list_bom_change_requests(
+    status: Optional[str] = Query(None, description="Filter by status: PENDING, APPROVED, REJECTED"),
+    current_user: dict = Depends(get_current_user)
+):
+    """List BOM change requests (for Master Admin approval)"""
+    query = {}
+    if status:
+        query["status"] = status
+    
+    requests = await db.bom_change_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"requests": requests, "total": len(requests)}
+
+
+@router.put("/bom/change-request/{request_id}/approve")
+async def approve_bom_change_request(
+    request_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Approve a pending BOM change request (Master Admin only)"""
+    if current_user.get("role") != "master_admin":
+        raise HTTPException(status_code=403, detail="Only Master Admin can approve BOM changes")
+    
+    change_request = await db.bom_change_requests.find_one({"id": request_id}, {"_id": 0})
+    if not change_request:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    
+    if change_request["status"] != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Change request is already {change_request['status']}")
+    
+    bidso_sku_id = change_request["bidso_sku_id"]
+    brand_id = change_request["brand_id"]
+    change_type = change_request["change_type"]
+    
+    # Apply the change
+    brand_bom = await db.brand_specific_bom.find_one(
+        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+        {"_id": 0}
+    )
+    items = brand_bom.get("items", []) if brand_bom else []
+    
+    if change_type == "MODIFY":
+        item_index = change_request.get("item_index")
+        if item_index is not None and item_index < len(items):
+            items[item_index] = change_request["new_item"]
+    elif change_type == "ADD":
+        items.append(change_request["new_item"])
+    elif change_type == "REMOVE":
+        rm_id_to_remove = change_request["original_item"].get("rm_id")
+        items = [item for item in items if item.get("rm_id") != rm_id_to_remove]
+    
+    # Update BOM
+    if brand_bom:
+        await db.brand_specific_bom.update_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"$set": {"items": items, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    else:
+        await db.brand_specific_bom.insert_one({
+            "id": str(uuid.uuid4()),
+            "bidso_sku_id": bidso_sku_id,
+            "brand_id": brand_id,
+            "items": items,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    # Update change request status
+    await db.bom_change_requests.update_one(
+        {"id": request_id},
+        {"$set": {
+            "status": "APPROVED",
+            "approved_by": current_user.get("id"),
+            "approved_by_name": current_user.get("name"),
+            "approved_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify requester
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "change_request_id": request_id,
+        "recipient_id": change_request.get("requested_by"),
+        "notification_type": "BOM_CHANGE_APPROVED",
+        "message": f"Your BOM change request for {change_request['buyer_sku_id']} has been approved",
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"status": "APPROVED", "message": "BOM change applied successfully"}
+
+
+@router.put("/bom/change-request/{request_id}/reject")
+async def reject_bom_change_request(
+    request_id: str,
+    reason: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """Reject a pending BOM change request (Master Admin only)"""
+    if current_user.get("role") != "master_admin":
+        raise HTTPException(status_code=403, detail="Only Master Admin can reject BOM changes")
+    
+    change_request = await db.bom_change_requests.find_one({"id": request_id}, {"_id": 0})
+    if not change_request:
+        raise HTTPException(status_code=404, detail="Change request not found")
+    
+    if change_request["status"] != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Change request is already {change_request['status']}")
+    
+    await db.bom_change_requests.update_one(
+        {"id": request_id},
+        {"$set": {
+            "status": "REJECTED",
+            "rejected_by": current_user.get("id"),
+            "rejected_by_name": current_user.get("name"),
+            "rejection_reason": reason,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify requester
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "change_request_id": request_id,
+        "recipient_id": change_request.get("requested_by"),
+        "notification_type": "BOM_CHANGE_REJECTED",
+        "message": f"Your BOM change request for {change_request['buyer_sku_id']} has been rejected. Reason: {reason or 'Not specified'}",
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"status": "REJECTED", "message": "BOM change request rejected"}
+
+
+@router.get("/notifications")
+async def get_user_notifications(
+    current_user: dict = Depends(get_current_user),
+    unread_only: bool = Query(False)
+):
+    """Get notifications for the current user based on role"""
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    user_branches = current_user.get("assigned_branches", [])
+    
+    query = {"$or": [
+        {"recipient_id": user_id},
+        {"recipient_role": user_role}
+    ]}
+    
+    # For branch ops, also filter by branch
+    if user_role == "branch_ops_user" and user_branches:
+        query["$or"].append({"recipient_branch": {"$in": user_branches}})
+    
+    if unread_only:
+        query["is_read"] = False
+    
+    notifications = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
+    unread_count = await db.notifications.count_documents({**query, "is_read": False})
+    
+    return {"notifications": notifications, "unread_count": unread_count}
+
+
+@router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str):
+    """Mark a notification as read"""
+    await db.notifications.update_one(
+        {"id": notification_id},
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"status": "ok"}
 
 
 # ============ Migration from Old SKU Structure ============

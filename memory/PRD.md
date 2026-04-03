@@ -1859,9 +1859,41 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 - **Backend**: Uses existing `GET /api/sku-management/bom/full/{buyer_sku_id}` endpoint
 - **Frontend**: `/app/frontend/src/pages/SKUManagement.js` - Added `handleViewBuyerBOM()` and dialog component
 
+**Feature: Category-Specific RM Descriptions**
+- Descriptions now follow naming conventions per RM category:
+  - Labels (LB): `{Type}_{Buyer SKU}`
+  - Packaging (PM): `{Model}_{Type}_{Specs}_{Brand}`
+  - Brand Assets (BS): `{Position}_{Type}_{Brand}_{Buyer SKU}`
+  - In House Plastic (INP): `{Mould Code}_{Model Name}_{Part Name}_{Colour}_{Masterbatch}`
+  - Accessories (ACC): `{Type}_{Model Name}_{Specs}_{Colour}`
+  - In House Metal (INM): `{Model Name}_{Part Name}_{Colour}_{Masterbatch}`
+  - Spares (SP): `{Type}_{Specs}`
+  - Electronic Components (ELC): `{Model}_{Type}_{Specs}`
+
+**Feature: Brand-Specific BOM Line-Level Editing with Approval Workflow**
+- **Inline Edit/Delete**: Each brand-specific BOM item shows edit (pencil) and delete (trash) icons on hover
+- **Edit Dialog**: Allows changing RM ID, Quantity, and Unit
+- **Production Schedule Check**: If SKU is scheduled for production in next 10 days:
+  - Edit requires **Master Admin approval**
+  - **Notifications sent to**: CPC Planner, Master Admin, relevant Branch Ops
+- **If NOT scheduled**: Changes apply immediately
+- **New Endpoints**:
+  - `GET /api/sku-management/bom/buyer-sku/{id}/check-schedule` - Check production schedule
+  - `PUT /api/sku-management/bom/buyer-sku/{id}/item` - Edit BOM item
+  - `POST /api/sku-management/bom/buyer-sku/{id}/item` - Add BOM item
+  - `DELETE /api/sku-management/bom/buyer-sku/{id}/item/{rm_id}` - Remove BOM item
+  - `GET /api/sku-management/bom/change-requests` - List pending approvals
+  - `PUT /api/sku-management/bom/change-request/{id}/approve` - Master Admin approves
+  - `PUT /api/sku-management/bom/change-request/{id}/reject` - Master Admin rejects
+  - `GET /api/sku-management/notifications` - Get user notifications by role
+- **New Collections**: `bom_change_requests`, `notifications`
+
+**Other Changes**:
+- Added new branch: **Unit 7 BHDG** (PRODUCTION type)
+
 **Testing**:
-- Screenshot verification: BOM dialog displays correctly with all sections
-- API tested: Returns correct common + brand-specific items
+- Screenshot verification: BOM dialog displays with edit buttons, edit dialog works
+- API tested: Edit successfully changed BS_034 quantity from 1 to 2
 
 ---
 

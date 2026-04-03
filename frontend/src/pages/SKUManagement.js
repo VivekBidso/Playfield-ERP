@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { 
   Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
-  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag, AlertTriangle, Check, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import useAuthStore from "../store/authStore";
@@ -83,6 +84,13 @@ const SKUManagement = () => {
   const [selectedBuyerSKU, setSelectedBuyerSKU] = useState(null);
   const [buyerFullBOM, setBuyerFullBOM] = useState(null);
   const [buyerBOMLoading, setBuyerBOMLoading] = useState(false);
+  
+  // BOM Item Edit
+  const [editingBOMItem, setEditingBOMItem] = useState(null);
+  const [showBOMEditDialog, setShowBOMEditDialog] = useState(false);
+  const [bomEditForm, setBomEditForm] = useState({ rm_id: "", new_rm_id: "", quantity: 1, unit: "PCS" });
+  const [bomEditLoading, setBomEditLoading] = useState(false);
+  const [scheduleWarning, setScheduleWarning] = useState(null);
   
   // Stats
   const [stats, setStats] = useState({
@@ -336,6 +344,92 @@ const SKUManagement = () => {
       setBuyerFullBOM(null);
     } finally {
       setBuyerBOMLoading(false);
+    }
+  };
+
+  const handleEditBOMItem = async (item) => {
+    if (!selectedBuyerSKU) return;
+    setEditingBOMItem(item);
+    setBomEditForm({
+      rm_id: item.rm_id,
+      new_rm_id: item.rm_id,
+      quantity: item.quantity,
+      unit: item.unit || "PCS"
+    });
+    setScheduleWarning(null);
+    
+    // Check if scheduled for production in next 10 days
+    try {
+      const res = await axios.get(
+        `${API}/sku-management/bom/buyer-sku/${selectedBuyerSKU.buyer_sku_id}/check-schedule`,
+        { headers: getHeaders() }
+      );
+      if (res.data.is_scheduled) {
+        setScheduleWarning({
+          count: res.data.schedule_count,
+          branches: res.data.branches
+        });
+      }
+    } catch (error) {
+      console.error("Failed to check schedule:", error);
+    }
+    
+    setShowBOMEditDialog(true);
+  };
+
+  const handleSaveBOMEdit = async () => {
+    if (!selectedBuyerSKU || !editingBOMItem) return;
+    setBomEditLoading(true);
+    
+    try {
+      const res = await axios.put(
+        `${API}/sku-management/bom/buyer-sku/${selectedBuyerSKU.buyer_sku_id}/item`,
+        {
+          rm_id: editingBOMItem.rm_id,
+          new_rm_id: bomEditForm.new_rm_id !== editingBOMItem.rm_id ? bomEditForm.new_rm_id : null,
+          quantity: parseFloat(bomEditForm.quantity),
+          unit: bomEditForm.unit
+        },
+        { headers: getHeaders() }
+      );
+      
+      if (res.data.status === "PENDING_APPROVAL") {
+        toast.info(res.data.message);
+      } else {
+        toast.success("BOM item updated successfully");
+        // Refresh BOM data
+        const bomRes = await axios.get(`${API}/sku-management/bom/full/${selectedBuyerSKU.buyer_sku_id}`, { headers: getHeaders() });
+        setBuyerFullBOM(bomRes.data);
+      }
+      
+      setShowBOMEditDialog(false);
+      setEditingBOMItem(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update BOM item");
+    } finally {
+      setBomEditLoading(false);
+    }
+  };
+
+  const handleDeleteBOMItem = async (item) => {
+    if (!selectedBuyerSKU) return;
+    if (!confirm(`Are you sure you want to remove ${item.rm_id} from the BOM?`)) return;
+    
+    try {
+      const res = await axios.delete(
+        `${API}/sku-management/bom/buyer-sku/${selectedBuyerSKU.buyer_sku_id}/item/${item.rm_id}`,
+        { headers: getHeaders() }
+      );
+      
+      if (res.data.status === "PENDING_APPROVAL") {
+        toast.info("Removal requires Master Admin approval. Request submitted.");
+      } else {
+        toast.success("BOM item removed successfully");
+        const bomRes = await axios.get(`${API}/sku-management/bom/full/${selectedBuyerSKU.buyer_sku_id}`, { headers: getHeaders() });
+        setBuyerFullBOM(bomRes.data);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to remove BOM item");
     }
   };
 
@@ -1325,6 +1419,7 @@ const SKUManagement = () => {
                 <h4 className="font-medium text-green-700 mb-2 flex items-center gap-2">
                   <Tag className="h-4 w-4" />
                   Brand-Specific BOM ({buyerFullBOM.brand_code})
+                  <Badge variant="outline" className="ml-2 text-xs">Editable</Badge>
                 </h4>
                 {buyerFullBOM.brand_specific_items?.length > 0 ? (
                   <div className="border border-green-200 rounded-lg overflow-hidden">
@@ -1335,15 +1430,40 @@ const SKUManagement = () => {
                           <TableHead>Description</TableHead>
                           <TableHead className="w-[80px] text-right">Qty</TableHead>
                           <TableHead className="w-[60px]">Unit</TableHead>
+                          <TableHead className="w-[80px] text-center">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {buyerFullBOM.brand_specific_items.map((item, idx) => (
-                          <TableRow key={`brand-${idx}`} className="bg-green-50/30">
+                          <TableRow key={`brand-${idx}`} className="bg-green-50/30 group">
                             <TableCell className="font-mono text-sm text-green-700">{item.rm_id}</TableCell>
                             <TableCell className="text-sm text-gray-600">{item.rm_name || "-"}</TableCell>
                             <TableCell className="text-right font-medium">{item.quantity}</TableCell>
                             <TableCell className="text-sm text-gray-500">{item.unit}</TableCell>
+                            <TableCell className="text-center">
+                              <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => handleEditBOMItem(item)}
+                                  title="Edit item"
+                                  data-testid={`edit-bom-item-${item.rm_id}`}
+                                >
+                                  <Edit className="h-3.5 w-3.5 text-blue-600" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => handleDeleteBOMItem(item)}
+                                  title="Remove item"
+                                  data-testid={`delete-bom-item-${item.rm_id}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1360,6 +1480,87 @@ const SKUManagement = () => {
               <p>Failed to load BOM data.</p>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* BOM Item Edit Dialog */}
+      <Dialog open={showBOMEditDialog} onOpenChange={setShowBOMEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5" />
+              Edit BOM Item
+            </DialogTitle>
+            <DialogDescription>
+              Modify the brand-specific BOM item for {selectedBuyerSKU?.buyer_sku_id}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {scheduleWarning && (
+            <Alert className="bg-amber-50 border-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-amber-800">
+                <strong>Production Scheduled!</strong> This SKU is scheduled for production at {scheduleWarning.count} location(s) 
+                in the next 10 days ({scheduleWarning.branches.join(", ")}). 
+                <br />
+                <span className="text-sm">This change will require <strong>Master Admin approval</strong> and notify CPC & Branch Ops.</span>
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Current RM ID</Label>
+              <Input value={editingBOMItem?.rm_id || ""} disabled className="bg-gray-50 font-mono" />
+            </div>
+            
+            <div>
+              <Label>New RM ID (leave same if not changing)</Label>
+              <Input 
+                value={bomEditForm.new_rm_id} 
+                onChange={(e) => setBomEditForm({...bomEditForm, new_rm_id: e.target.value.toUpperCase()})}
+                placeholder="e.g., LB_001"
+                className="font-mono"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Quantity *</Label>
+                <Input 
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={bomEditForm.quantity} 
+                  onChange={(e) => setBomEditForm({...bomEditForm, quantity: e.target.value})}
+                />
+              </div>
+              <div>
+                <Label>Unit *</Label>
+                <Select value={bomEditForm.unit} onValueChange={(v) => setBomEditForm({...bomEditForm, unit: v})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PCS">PCS</SelectItem>
+                    <SelectItem value="nos">nos</SelectItem>
+                    <SelectItem value="KG">KG</SelectItem>
+                    <SelectItem value="MTR">MTR</SelectItem>
+                    <SelectItem value="SET">SET</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBOMEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveBOMEdit} disabled={bomEditLoading}>
+              {bomEditLoading ? "Saving..." : scheduleWarning ? "Submit for Approval" : "Save Changes"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
