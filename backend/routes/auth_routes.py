@@ -184,6 +184,18 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
+    # Protected system users that cannot be deleted
+    PROTECTED_EMAILS = [
+        "admin@factory.com", "masteradmin@bidso.com", "demandplanner@bidso.com",
+        "techops@bidso.com", "cpcplanner@bidso.com", "procurement@bidso.com",
+        "branchops@bidso.com", "qcinspector@bidso.com", "logistics@bidso.com",
+        "financeviewer@bidso.com", "auditor@bidso.com"
+    ]
+    
+    user_to_delete = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1})
+    if user_to_delete and user_to_delete.get("email") in PROTECTED_EMAILS:
+        raise HTTPException(status_code=403, detail="Cannot delete system/test user accounts")
+    
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
