@@ -362,12 +362,15 @@ const RMInward = () => {
                 New Bill / Inward
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" aria-describedby="purchase-bill-description">
               <DialogHeader>
                 <DialogTitle className="font-bold uppercase flex items-center gap-2">
                   <FileText className="h-5 w-5" />
                   New Purchase Bill
                 </DialogTitle>
+                <p id="purchase-bill-description" className="sr-only">
+                  Create a new purchase bill to record incoming raw materials and update inventory
+                </p>
               </DialogHeader>
               
               {/* Bill Header Section */}
@@ -539,9 +542,7 @@ const RMInward = () => {
                             />
                             <datalist id={`rm-list-${idx}`}>
                               {filterRMsForLine(item.rm_search || "").map(rm => (
-                                <option key={rm.rm_id} value={rm.rm_id}>
-                                  {rm.rm_id} - {rm.category}
-                                </option>
+                                <option key={rm.rm_id} value={`${rm.rm_id} - ${rm.category}`} />
                               ))}
                             </datalist>
                             <select

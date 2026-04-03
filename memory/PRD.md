@@ -1898,3 +1898,111 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 ---
 
 *Last Updated: April 3, 2026*
+
+## 26. RM INWARD / PURCHASE BILL FEATURE (April 3, 2026)
+
+### COMPLETE ✅
+
+**Purpose**: Comprehensive bill/invoice entry dialog for Finance team to record incoming raw materials with full invoice details.
+
+### Features Implemented
+
+#### Backend (`/app/backend/routes/vendor_routes.py`):
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/rm-inward/bills` | POST | Create full RM inward bill with multiple line items |
+| `/api/rm-inward/bills` | GET | List bills with optional branch/vendor filters |
+
+#### Bill Data Structure:
+```json
+{
+  "vendor_id": "uuid",
+  "vendor_name": "string",
+  "branch": "string",
+  "branch_id": "BR_001",
+  "bill_number": "INV-2026-001",
+  "order_number": "PO-001",
+  "bill_date": "2026-04-03",
+  "due_date": "2026-05-03",
+  "payment_terms": "NET_30",
+  "accounts_payable": "Trade Payables",
+  "reverse_charge": false,
+  "notes": "string",
+  "line_items": [
+    {"rm_id": "INP_654", "quantity": 100, "rate": 25.50, "tax": "GST_18", "tax_amount": 459, "amount": 2550}
+  ],
+  "totals": {
+    "sub_total": 2550,
+    "discount_type": "percentage",
+    "discount_value": 5,
+    "discount_amount": 127.50,
+    "tds_tcs": "TDS_2",
+    "tds_tcs_amount": 48.45,
+    "tax_total": 459,
+    "grand_total": 2833.05
+  }
+}
+```
+
+#### Frontend (`/app/frontend/src/pages/RMInward.js`):
+- **Page Header**: Title, stats cards (Bills This Month, Active RMs, Total Qty, Total Value)
+- **New Bill Dialog**:
+  - Vendor selection dropdown (504 vendors)
+  - Branch selection dropdown (8 branches)
+  - Bill number, order number inputs
+  - Bill date (defaults to today), due date
+  - Payment terms (NET_15/30/45/60, Due on Receipt, Custom)
+  - Accounts payable (Trade Payables, Sundry Creditors, Other Payables)
+  - Reverse charge checkbox
+  - Line items table with RM search, quantity, rate, tax selection (GST 5/12/18/28%)
+  - Add Line / Remove Line functionality
+  - Notes/Remarks textarea
+  - Totals section: Sub Total, Discount (% or amount), TDS/TCS, Tax Total, Grand Total
+- **Bills Table**: Shows all inward entries with bill number, vendor, RM ID, qty, rate, amount, stock
+- **Export Button**: Download bills as Excel
+
+#### Automatic Processing:
+1. Creates individual `purchase_entries` for each line item
+2. Updates `branch_rm_inventory` for each RM
+3. Records `rm_stock_movements` with PURCHASE type
+
+#### Tax Options:
+| Code | Label | Rate |
+|------|-------|------|
+| NONE | None | 0% |
+| GST_5 | GST 5% | 5% |
+| GST_12 | GST 12% | 12% |
+| GST_18 | GST 18% | 18% |
+| GST_28 | GST 28% | 28% |
+
+#### TDS/TCS Options:
+| Code | Label | Rate |
+|------|-------|------|
+| NONE | None | 0% |
+| TDS_1 | TDS 1% | 1% |
+| TDS_2 | TDS 2% | 2% |
+| TDS_10 | TDS 10% | 10% |
+| TCS_1 | TCS 1% | 1% |
+
+### Access Control:
+- **FINANCE_VIEWER**: Added access to RM Inward page and RMStockMovement CREATE permission
+- **BRANCH_OPS_USER**: Existing access
+- **PROCUREMENT_OFFICER**: Existing access
+- **MASTER_ADMIN**: Full access
+
+### Testing:
+- Backend: 19/19 API tests passed (100%)
+- Frontend: All UI elements verified
+- Test Report: `/app/test_reports/iteration_21.json`
+
+### Bugs Fixed During Implementation:
+1. Missing `BaseModel` import in `vendor_routes.py` crashed backend
+2. Infinite loop in `useEffect` caused "Maximum update depth exceeded" error
+3. Invalid HTML in datalist options (span inside option)
+4. Missing aria-describedby for accessibility
+
+---
+
+*Completed: April 3, 2026*
+
+
