@@ -1810,4 +1810,35 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 
 ---
 
-*Last Updated: March 30, 2026*
+### April 3, 2026 - Custom Reports Module
+
+**Feature**: 4 new analytical reports for operations tracking
+
+**Reports Implemented**:
+1. **Dispatch by Manufacturing Origin** - Track where dispatched goods were originally manufactured
+2. **Production Output by Unit** - What each branch/unit manufactured over time
+3. **Forecast vs Actual** - Compare demand forecasts against actual dispatches
+4. **Buyer/Customer Dispatch History** - Dispatch history grouped by buyer/customer
+
+**Backend Endpoints** (`/app/backend/routes/report_routes.py`):
+- `GET /api/dispatch-by-origin` - Returns summary by manufacturing unit + detailed records
+- `GET /api/production-by-unit` - Returns production summary by branch + schedule details
+- `GET /api/forecast-vs-actual` - Returns variance analysis with accuracy metrics
+- `GET /api/buyer-dispatch-history` - Returns buyer aggregation with top SKUs
+
+**Frontend** (`/app/frontend/src/pages/Reports.js`):
+- 4-tab layout with tab-specific views
+- Filters: Start Date, End Date, Branch, Buyer
+- Summary cards with key metrics
+- Detailed data tables
+- Export to Excel functionality per tab
+- Refresh button to reload data
+
+**Testing**:
+- Backend: 17/17 tests passed (100%)
+- Frontend: All UI elements verified
+- Test report: `/app/test_reports/iteration_20.json`
+
+---
+
+*Last Updated: April 3, 2026*
