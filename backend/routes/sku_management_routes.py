@@ -647,6 +647,10 @@ async def update_buyer_sku(buyer_sku_id: str, data: BuyerSKUUpdate):
         update_data["selling_price"] = data.selling_price
     if data.status is not None:
         update_data["status"] = data.status
+    if data.hsn_code is not None:
+        update_data["hsn_code"] = data.hsn_code
+    if data.gst_rate is not None:
+        update_data["gst_rate"] = data.gst_rate
     
     if update_data:
         update_data["updated_at"] = datetime.now(timezone.utc)

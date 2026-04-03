@@ -98,6 +98,10 @@ class BuyerSKU(BaseModel):
     name: str = ""
     description: str = ""
     
+    # HSN/GST (maintained by Finance)
+    hsn_code: Optional[str] = None  # 8-digit HSN code
+    gst_rate: Optional[float] = None  # GST percentage (5, 12, 18, 28)
+    
     # Pricing (optional)
     mrp: Optional[float] = None
     selling_price: Optional[float] = None
@@ -131,6 +135,8 @@ class BuyerSKUUpdate(BaseModel):
     mrp: Optional[float] = None
     selling_price: Optional[float] = None
     status: Optional[str] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
 
 
 # ============ BOM Models ============
