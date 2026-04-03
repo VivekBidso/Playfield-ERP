@@ -32,6 +32,111 @@ router = APIRouter(prefix="/sku-management", tags=["SKU Management"])
 
 # ============ Helper Functions ============
 
+def generate_rm_description(category: str, cat_data: dict, fallback_name: str = "") -> str:
+    """
+    Generate RM description based on category-specific naming conventions.
+    
+    Labels (LB): {Type}_{Buyer SKU}
+    Packaging (PM): {Model}_{Type}_{Specs}_{Brand}
+    Brand Assets (BS): {Position}_{Type}_{Brand}_{Buyer SKU}
+    In House Plastic (INP): {Mould Code}_{Model Name}_{Part Name}_{Colour}_{Masterbatch}
+    Accessories (ACC): {Type}_{Model Name}_{Specs}_{Colour}
+    In House Metal (INM): {Model Name}_{Part Name}_{Colour}_{Masterbatch}
+    Spares (SP): {Type}_{Specs}
+    Electronic Components (ELC): {Model}_{Type}_{Specs}
+    """
+    parts = []
+    
+    if category == "LB":
+        # Labels: {Type}_{Buyer SKU}
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("buyer_sku"):
+            parts.append(cat_data["buyer_sku"])
+            
+    elif category == "PM":
+        # Packaging: {Model}_{Type}_{Specs}_{Brand}
+        if cat_data.get("model"):
+            parts.append(cat_data["model"])
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("specs"):
+            parts.append(cat_data["specs"])
+        if cat_data.get("brand"):
+            parts.append(cat_data["brand"])
+            
+    elif category == "BS":
+        # Brand Assets: {Position}_{Type}_{Brand}_{Buyer SKU}
+        if cat_data.get("position"):
+            parts.append(cat_data["position"])
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("brand"):
+            parts.append(cat_data["brand"])
+        if cat_data.get("buyer_sku"):
+            parts.append(cat_data["buyer_sku"])
+            
+    elif category == "INP":
+        # In House Plastic: {Mould Code}_{Model Name}_{Part Name}_{Colour}_{Masterbatch}
+        if cat_data.get("mould_code"):
+            parts.append(cat_data["mould_code"])
+        if cat_data.get("model_name"):
+            parts.append(cat_data["model_name"])
+        if cat_data.get("part_name"):
+            parts.append(cat_data["part_name"])
+        if cat_data.get("colour"):
+            parts.append(cat_data["colour"])
+        if cat_data.get("mb"):
+            parts.append(cat_data["mb"])
+            
+    elif category == "ACC":
+        # Accessories: {Type}_{Model Name}_{Specs}_{Colour}
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("model_name"):
+            parts.append(cat_data["model_name"])
+        if cat_data.get("specs"):
+            parts.append(cat_data["specs"])
+        if cat_data.get("colour"):
+            parts.append(cat_data["colour"])
+            
+    elif category == "INM":
+        # In House Metal: {Model Name}_{Part Name}_{Colour}_{Masterbatch}
+        if cat_data.get("model_name"):
+            parts.append(cat_data["model_name"])
+        if cat_data.get("part_name"):
+            parts.append(cat_data["part_name"])
+        if cat_data.get("colour") or cat_data.get("color"):
+            parts.append(cat_data.get("colour") or cat_data.get("color"))
+        if cat_data.get("mb"):
+            parts.append(cat_data["mb"])
+            
+    elif category == "SP":
+        # Spares: {Type}_{Specs}
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("specs"):
+            parts.append(cat_data["specs"])
+            
+    elif category == "ELC":
+        # Electronic Components: {Model}_{Type}_{Specs}
+        if cat_data.get("model"):
+            parts.append(cat_data["model"])
+        if cat_data.get("type"):
+            parts.append(cat_data["type"])
+        if cat_data.get("specs"):
+            parts.append(cat_data["specs"])
+    
+    # Join parts with underscore, filter out empty strings and convert to string
+    description = "_".join(str(p) for p in parts if p is not None and str(p).strip())
+    
+    # If no description generated, use fallback
+    if not description and fallback_name:
+        description = fallback_name
+    
+    return description
+
+
 async def get_next_numeric_code(vertical_code: str, model_code: str) -> str:
     """Generate next available numeric code for a Bidso SKU"""
     prefix = f"{vertical_code}_{model_code}_"
@@ -1373,25 +1478,15 @@ async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
     if all_rm_ids:
         rm_cursor = db.raw_materials.find(
             {"rm_id": {"$in": list(all_rm_ids)}},
-            {"_id": 0, "rm_id": 1, "name": 1, "category_data": 1}
+            {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1}
         )
         async for rm in rm_cursor:
             rm_id = rm.get("rm_id")
-            name = rm.get("name", "")
+            category = rm.get("category", "")
             cat_data = rm.get("category_data", {}) or {}
             
-            # Determine best description
-            # Priority: 1) name (if not same as rm_id), 2) category_data.model_name, 3) category_data.description, 4) name
-            description = ""
-            if name and name != rm_id:
-                description = name
-            elif cat_data.get("model_name"):
-                description = cat_data.get("model_name")
-            elif cat_data.get("description"):
-                description = cat_data.get("description")
-            elif name:
-                description = name
-            
+            # Generate description based on category-specific format
+            description = generate_rm_description(category, cat_data, rm.get("name", ""))
             rm_details[rm_id] = description
     
     # Enrich common items with descriptions
