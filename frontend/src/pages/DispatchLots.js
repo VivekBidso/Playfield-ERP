@@ -1275,6 +1275,7 @@ const DispatchLots = () => {
                         <th className="px-3 py-3 text-left font-mono text-xs uppercase">SKU</th>
                         <th className="px-3 py-3 text-right font-mono text-xs uppercase">Required</th>
                         <th className="px-3 py-3 text-right font-mono text-xs uppercase">FIFO Alloc</th>
+                        <th className="px-3 py-3 text-left font-mono text-xs uppercase">Made At</th>
                         <th className="px-3 py-3 text-right font-mono text-xs uppercase">Total Avail</th>
                         <th className="px-3 py-3 text-center font-mono text-xs uppercase">Scheduled</th>
                         <th className="px-3 py-3 text-center font-mono text-xs uppercase">Actual</th>
@@ -1296,6 +1297,23 @@ const DispatchLots = () => {
                             </span>
                             {line.allocated_inventory >= line.quantity && (
                               <CheckCircle2 className="inline w-3 h-3 text-green-500 ml-1" />
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-left">
+                            {line.origin_display ? (
+                              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-medium">
+                                {line.origin_display}
+                              </span>
+                            ) : line.origin_breakdown?.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {line.origin_breakdown.map((o, i) => (
+                                  <span key={i} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                                    {o.manufacturing_unit} ({o.quantity})
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-zinc-400 text-xs">-</span>
                             )}
                           </td>
                           <td className="px-3 py-3 font-mono text-right text-zinc-500">

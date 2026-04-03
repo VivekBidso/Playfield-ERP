@@ -8,6 +8,7 @@ import uuid
 import io
 
 from database import db, BRANCHES
+from services.stock_origin_service import create_origin_entry
 
 router = APIRouter(tags=["CPC - Central Production Control"])
 
@@ -787,14 +788,30 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     if schedule.get("status") == "CANCELLED":
         raise HTTPException(status_code=400, detail="Cannot complete a cancelled schedule")
     
+    completion_time = datetime.now(timezone.utc)
+    
     await db.production_schedules.update_one(
         {"id": schedule_id},
         {"$set": {
             "status": "COMPLETED",
             "completed_quantity": completed_quantity,
-            "completed_at": datetime.now(timezone.utc)
+            "completed_at": completion_time
         }}
     )
+    
+    # Create stock origin entry for manufacturing origin tracking
+    sku_id = schedule.get("sku_id") or schedule.get("bidso_sku_id")
+    branch = schedule.get("branch")
+    
+    if sku_id and branch and completed_quantity > 0:
+        await create_origin_entry(
+            sku_id=sku_id,
+            branch=branch,
+            quantity=completed_quantity,
+            manufacturing_unit=branch,  # Manufacturing origin = branch where produced
+            production_date=completion_time,
+            production_schedule_id=schedule_id
+        )
     
     # Update dispatch lot if linked
     if schedule.get("dispatch_lot_id"):
@@ -805,7 +822,8 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     
     return {
         "message": f"Production schedule {schedule.get('schedule_code')} completed with {completed_quantity} units",
-        "schedule_id": schedule_id
+        "schedule_id": schedule_id,
+        "manufacturing_origin": branch
     }
 
 @router.put("/production-schedules/{schedule_id}/cancel")

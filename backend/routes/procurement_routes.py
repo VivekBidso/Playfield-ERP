@@ -6,6 +6,7 @@ from typing import Optional
 import uuid
 
 from database import db
+from services.stock_origin_service import transfer_stock_with_origin
 
 router = APIRouter(tags=["Procurement"])
 
@@ -358,6 +359,8 @@ async def receive_ibt_transfer(transfer_id: str):
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
     
+    origin_breakdown = []
+    
     # Add to destination
     if transfer["transfer_type"] == "RM":
         existing = await db.branch_rm_inventory.find_one({
@@ -378,7 +381,7 @@ async def receive_ibt_transfer(transfer_id: str):
                 "is_active": True,
                 "activated_at": datetime.now(timezone.utc)
             })
-    else:  # FG
+    else:  # FG (Finished Goods / SKU)
         existing = await db.branch_sku_inventory.find_one({
             "sku_id": transfer["item_id"], 
             "branch": transfer["destination_branch"]
@@ -397,9 +400,30 @@ async def receive_ibt_transfer(transfer_id: str):
                 "is_active": True,
                 "activated_at": datetime.now(timezone.utc)
             })
+        
+        # Transfer stock origin ledger entries (preserves manufacturing origin)
+        origin_breakdown = await transfer_stock_with_origin(
+            sku_id=transfer["item_id"],
+            source_branch=transfer["source_branch"],
+            destination_branch=transfer["destination_branch"],
+            quantity=transfer["quantity"],
+            ibt_id=transfer_id
+        )
+    
+    # Update transfer status with origin info
+    update_data = {
+        "status": "COMPLETED", 
+        "received_at": datetime.now(timezone.utc)
+    }
+    if origin_breakdown:
+        update_data["origin_breakdown"] = origin_breakdown
     
     await db.ibt_transfers.update_one(
         {"id": transfer_id},
-        {"$set": {"status": "COMPLETED", "received_at": datetime.now(timezone.utc)}}
+        {"$set": update_data}
     )
-    return {"message": "Transfer received and completed"}
+    
+    return {
+        "message": "Transfer received and completed",
+        "origin_breakdown": origin_breakdown
+    }

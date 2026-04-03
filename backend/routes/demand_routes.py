@@ -7,6 +7,7 @@ import uuid
 import io
 
 from database import db
+from services.stock_origin_service import allocate_stock_fifo, format_origin_breakdown
 
 router = APIRouter(tags=["Demand"])
 
@@ -511,13 +512,71 @@ async def update_dispatch_lot_status(lot_id: str, status: str):
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {valid_statuses}")
     
-    result = await db.dispatch_lots.update_one(
-        {"id": lot_id},
-        {"$set": {"status": status}}
-    )
-    if result.matched_count == 0:
+    lot = await db.dispatch_lots.find_one({"id": lot_id})
+    if not lot:
         raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    update_data = {"status": status}
+    
+    # When marking as DISPATCHED, allocate stock with FIFO and record origin breakdown
+    if status == "DISPATCHED":
+        dispatch_branch = lot.get("branch") or lot.get("dispatch_from")
+        line_items = lot.get("line_items", [])
+        
+        # Allocate each line item and get origin breakdown
+        for i, item in enumerate(line_items):
+            sku_id = item.get("sku_id") or item.get("bidso_sku_id") or item.get("buyer_sku_id")
+            qty = item.get("quantity", 0)
+            
+            if sku_id and qty > 0 and dispatch_branch:
+                origin_allocations = await allocate_stock_fifo(
+                    sku_id=sku_id,
+                    branch=dispatch_branch,
+                    quantity=qty,
+                    purpose="DISPATCH"
+                )
+                
+                # Store origin breakdown in line item
+                line_items[i]["origin_breakdown"] = origin_allocations
+                line_items[i]["origin_display"] = await format_origin_breakdown(origin_allocations)
+        
+        update_data["line_items"] = line_items
+        update_data["dispatched_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.dispatch_lots.update_one(
+        {"id": lot_id},
+        {"$set": update_data}
+    )
+    
     return {"message": f"Status updated to {status}"}
+
+
+@router.get("/dispatch-lots/{lot_id}/origin-breakdown")
+async def get_dispatch_lot_origin_breakdown(lot_id: str):
+    """Get manufacturing origin breakdown for a dispatch lot."""
+    lot = await db.dispatch_lots.find_one({"id": lot_id}, {"_id": 0})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    line_items = lot.get("line_items", [])
+    origin_summary = []
+    
+    for item in line_items:
+        sku_id = item.get("sku_id") or item.get("bidso_sku_id") or item.get("buyer_sku_id")
+        origin_data = {
+            "sku_id": sku_id,
+            "quantity": item.get("quantity", 0),
+            "origin_breakdown": item.get("origin_breakdown", []),
+            "origin_display": item.get("origin_display", "-")
+        }
+        origin_summary.append(origin_data)
+    
+    return {
+        "lot_id": lot_id,
+        "dispatch_from": lot.get("branch") or lot.get("dispatch_from"),
+        "status": lot.get("status"),
+        "line_items": origin_summary
+    }
 
 
 # --- Dispatch Lot Cascade Filter Endpoints ---
