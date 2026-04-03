@@ -141,6 +141,7 @@ async def get_branch_capacities():
         
         result.append({
             "branch_id": b.get("id"),
+            "branch_code": b.get("branch_id"),  # The new BR_XXX format
             "branch": branch_name,
             "capacity_units_per_day": effective_capacity,
             "base_capacity": base_capacity,
@@ -150,6 +151,30 @@ async def get_branch_capacities():
             "utilization_percent": round((allocated_today / effective_capacity * 100), 1) if effective_capacity > 0 else 0
         })
     return result
+
+
+@router.get("/branches/reference")
+async def get_branches_reference():
+    """Get all branches with their IDs for lookup"""
+    branches = await db.branches.find(
+        {"is_active": True},
+        {"_id": 0, "branch_id": 1, "name": 1, "code": 1, "capacity_units_per_day": 1, "branch_type": 1}
+    ).to_list(100)
+    
+    return {
+        "branches": [
+            {
+                "branch_id": b.get("branch_id", ""),
+                "name": b.get("name", ""),
+                "code": b.get("code", ""),
+                "type": b.get("branch_type", ""),
+                "capacity": b.get("capacity_units_per_day", 0)
+            }
+            for b in branches
+        ],
+        "total": len(branches)
+    }
+
 
 @router.put("/branches/{branch_name}/capacity")
 async def update_branch_capacity(branch_name: str, data: BranchCapacityUpdate):
@@ -346,7 +371,7 @@ async def download_daily_capacity_template():
     ws.title = "Daily Capacity"
     
     # Headers
-    headers = ["Branch", "Date (YYYY-MM-DD)", "Capacity"]
+    headers = ["Branch ID", "Date (YYYY-MM-DD)", "Capacity"]
     header_fill = PatternFill(start_color="FF6B35", end_color="FF6B35", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -358,7 +383,7 @@ async def download_daily_capacity_template():
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
     
     # Get branches for reference
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
     
     # Add sample rows for each branch for next 7 days
     row = 2
@@ -366,22 +391,26 @@ async def download_daily_capacity_template():
     for b in branches[:3]:  # First 3 branches as samples
         for i in range(7):  # Next 7 days
             date_str = (today + timedelta(days=i)).strftime("%Y-%m-%d")
-            ws.cell(row=row, column=1, value=b["name"])
+            ws.cell(row=row, column=1, value=b.get("branch_id", ""))
             ws.cell(row=row, column=2, value=date_str)
             ws.cell(row=row, column=3, value=b.get("capacity_units_per_day", 100))
             row += 1
     
     # Branches reference sheet
     ws_ref = wb.create_sheet("Branches Reference")
-    ws_ref.cell(row=1, column=1, value="Branch Name")
-    ws_ref.cell(row=1, column=2, value="Base Capacity")
+    ws_ref.cell(row=1, column=1, value="Branch ID")
+    ws_ref.cell(row=1, column=2, value="Branch Name")
+    ws_ref.cell(row=1, column=3, value="Base Capacity")
     ws_ref["A1"].font = Font(bold=True)
     ws_ref["B1"].font = Font(bold=True)
+    ws_ref["C1"].font = Font(bold=True)
     for i, b in enumerate(branches, 2):
-        ws_ref.cell(row=i, column=1, value=b["name"])
-        ws_ref.cell(row=i, column=2, value=b.get("capacity_units_per_day", 0))
-    ws_ref.column_dimensions["A"].width = 25
-    ws_ref.column_dimensions["B"].width = 15
+        ws_ref.cell(row=i, column=1, value=b.get("branch_id", ""))
+        ws_ref.cell(row=i, column=2, value=b["name"])
+        ws_ref.cell(row=i, column=3, value=b.get("capacity_units_per_day", 0))
+    ws_ref.column_dimensions["A"].width = 12
+    ws_ref.column_dimensions["B"].width = 25
+    ws_ref.column_dimensions["C"].width = 15
     
     # Save to buffer
     output = io.BytesIO()
@@ -415,7 +444,7 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
     
     # Map columns
     col_map = {}
-    branch_opts = ["branch", "branch_name", "unit", "unit_name"]
+    branch_opts = ["branch_id", "branch", "branch_name", "unit", "unit_name"]
     date_opts = ["date", "date_yyyy_mm_dd", "yyyy_mm_dd"]
     capacity_opts = ["capacity", "capacity_qty", "qty", "units"]
     
@@ -435,9 +464,10 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
     if len(col_map) < 3:
         raise HTTPException(status_code=400, detail=f"Missing required columns. Found: {list(df.columns)}")
     
-    # Validate branches
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
-    valid_branches = {b["name"] for b in branches}
+    # Validate branches - support both branch_id and branch_name
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
+    branch_id_to_name = {b.get("branch_id", ""): b["name"] for b in branches if b.get("branch_id")}
+    branch_name_to_name = {b["name"]: b["name"] for b in branches}
     
     inserted = 0
     updated = 0
@@ -445,9 +475,12 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
     
     for idx, row in df.iterrows():
         try:
-            branch = str(row[col_map["branch"]]).strip()
+            branch_value = str(row[col_map["branch"]]).strip()
             date_val = row[col_map["date"]]
             capacity = int(row[col_map["capacity"]])
+            
+            # Resolve branch ID to name
+            branch_name = branch_id_to_name.get(branch_value) or branch_name_to_name.get(branch_value)
             
             # Parse date
             if isinstance(date_val, str):
@@ -464,8 +497,8 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
                 date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
             
             # Validate branch
-            if branch not in valid_branches:
-                errors.append(f"Row {idx+2}: Invalid branch '{branch}'")
+            if not branch_name:
+                errors.append(f"Row {idx+2}: Invalid branch '{branch_value}'. Use Branch ID (e.g., BR_001)")
                 continue
             
             # Validate capacity
@@ -475,10 +508,10 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
             
             # Upsert
             result = await db.branch_daily_capacity.update_one(
-                {"branch": branch, "date": date_str},
+                {"branch": branch_name, "date": date_str},
                 {
                     "$set": {
-                        "branch": branch,
+                        "branch": branch_name,
                         "date": date_str,
                         "capacity": capacity,
                         "updated_at": datetime.now(timezone.utc)
@@ -1726,7 +1759,7 @@ async def download_production_plan_template():
     ws.title = "Production Plan"
     
     # Headers
-    headers = ["Forecast Code", "Branch", "Target Date (YYYY-MM-DD)", "Quantity", "Priority"]
+    headers = ["Forecast Code", "Branch ID", "Target Date (YYYY-MM-DD)", "Quantity", "Priority"]
     header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -1743,14 +1776,14 @@ async def download_production_plan_template():
         {"_id": 0, "forecast_code": 1, "sku_id": 1, "quantity": 1}
     ).to_list(20)
     
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "branch_id": 1}).to_list(100)
     
     # Add sample rows
     row = 2
     sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     for f in forecasts[:5]:
         ws.cell(row=row, column=1, value=f.get("forecast_code", ""))
-        ws.cell(row=row, column=2, value=branches[0]["name"] if branches else "")
+        ws.cell(row=row, column=2, value=branches[0].get("branch_id", "") if branches else "")
         ws.cell(row=row, column=3, value=sample_date)
         ws.cell(row=row, column=4, value=min(100, f.get("quantity", 100)))
         ws.cell(row=row, column=5, value="MEDIUM")
@@ -1785,18 +1818,22 @@ async def download_production_plan_template():
     
     # Branches reference sheet
     ws_branches = wb.create_sheet("Branches Reference")
-    ws_branches.cell(row=1, column=1, value="Branch Name")
-    ws_branches.cell(row=1, column=2, value="Capacity/Day")
+    ws_branches.cell(row=1, column=1, value="Branch ID")
+    ws_branches.cell(row=1, column=2, value="Branch Name")
+    ws_branches.cell(row=1, column=3, value="Capacity/Day")
     ws_branches["A1"].font = Font(bold=True)
     ws_branches["B1"].font = Font(bold=True)
+    ws_branches["C1"].font = Font(bold=True)
     
-    all_branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    all_branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
     for i, b in enumerate(all_branches, 2):
-        ws_branches.cell(row=i, column=1, value=b.get("name", ""))
-        ws_branches.cell(row=i, column=2, value=b.get("capacity_units_per_day", 0))
+        ws_branches.cell(row=i, column=1, value=b.get("branch_id", ""))
+        ws_branches.cell(row=i, column=2, value=b.get("name", ""))
+        ws_branches.cell(row=i, column=3, value=b.get("capacity_units_per_day", 0))
     
-    ws_branches.column_dimensions["A"].width = 25
-    ws_branches.column_dimensions["B"].width = 15
+    ws_branches.column_dimensions["A"].width = 12
+    ws_branches.column_dimensions["B"].width = 25
+    ws_branches.column_dimensions["C"].width = 15
     
     # Save to buffer
     output = io.BytesIO()
@@ -1835,7 +1872,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     # Map columns
     col_map = {}
     forecast_opts = ["forecast_code", "forecast", "forecast_id"]
-    branch_opts = ["branch", "branch_name", "unit"]
+    branch_opts = ["branch_id", "branch", "branch_name", "unit"]
     date_opts = ["target_date", "date", "target_date_yyyy_mm_dd"]
     qty_opts = ["quantity", "qty", "plan_qty"]
     priority_opts = ["priority"]
@@ -1873,7 +1910,10 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     ).to_list(5000)
     forecast_map = {f["forecast_code"]: f for f in forecasts}
     
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    # Map by both branch_id and name for backwards compatibility
+    branch_id_to_name = {b.get("branch_id", ""): b["name"] for b in branches if b.get("branch_id")}
+    branch_name_to_name = {b["name"]: b["name"] for b in branches}
     valid_branches = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
     
     # Get existing schedules to calculate remaining qty
@@ -1929,9 +1969,13 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             forecast_qty = forecast.get("quantity", 0)
             sku_id = forecast.get("sku_id")
             
+            # Resolve branch ID to name (supports both branch_id and branch_name)
+            branch_value = str(row[col_map["branch"]]).strip()
+            branch_name = branch_id_to_name.get(branch_value) or branch_name_to_name.get(branch_value)
+            
             # Validate branch
-            if branch not in valid_branches:
-                results["errors"].append(f"Row {idx+2}: Branch '{branch}' not found")
+            if not branch_name or branch_name not in valid_branches:
+                results["errors"].append(f"Row {idx+2}: Branch '{branch_value}' not found. Use Branch ID (e.g., BR_001) or exact Branch Name")
                 continue
             
             # Validate qty > 0
@@ -1951,13 +1995,13 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 priority = "MEDIUM"
             
             # Check branch capacity (considering other rows in this upload)
-            usage_key = f"{date_str}|{branch}"
+            usage_key = f"{date_str}|{branch_name}"
             current_usage = date_branch_usage.get(usage_key, 0)
-            branch_capacity = valid_branches[branch]
+            branch_capacity = valid_branches[branch_name]
             
             # Get daily override if exists
             daily_cap = await db.branch_daily_capacity.find_one(
-                {"branch": branch, "date": date_str},
+                {"branch": branch_name, "date": date_str},
                 {"_id": 0, "capacity": 1}
             )
             if daily_cap:
@@ -1968,7 +2012,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             day_end = day_start + timedelta(days=1)
             existing_on_date = await db.production_schedules.find(
                 {
-                    "branch": branch,
+                    "branch": branch_name,
                     "target_date": {"$gte": day_start, "$lt": day_end},
                     "status": {"$ne": "CANCELLED"}
                 },
@@ -1978,7 +2022,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             
             available = branch_capacity - existing_allocated - current_usage
             if qty > available:
-                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds available capacity {available} for {branch} on {date_str}")
+                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds available capacity {available} for {branch_name} on {date_str}")
                 continue
             
             # Create schedule
@@ -1992,7 +2036,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 "schedule_code": schedule_code,
                 "forecast_id": forecast_id,
                 "dispatch_lot_id": None,
-                "branch": branch,
+                "branch": branch_name,
                 "sku_id": sku_id,
                 "sku_description": sku.get("description", ""),
                 "target_quantity": qty,
