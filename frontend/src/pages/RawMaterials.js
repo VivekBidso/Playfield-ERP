@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import useBranchStore from "@/store/branchStore";
+import useAuthStore from "@/store/authStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -25,6 +26,10 @@ const RM_CATEGORIES = {
 
 const RawMaterials = () => {
   const { selectedBranch } = useBranchStore();
+  const { hasRole, isMasterAdmin } = useAuthStore();
+  const isAdmin = isMasterAdmin();
+  const canManageRMs = isAdmin || hasRole('TECH_OPS_ENGINEER'); // Only admin/tech ops can add/edit RMs
+  
   const [materials, setMaterials] = useState([]);
   const [branchInventory, setBranchInventory] = useState({});
   const [loading, setLoading] = useState(false);
@@ -415,9 +420,9 @@ const RawMaterials = () => {
     <div className="p-6 md:p-8" data-testid="raw-materials-page">
       <div className="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-black tracking-tight uppercase">Raw Materials</h1>
+          <h1 className="text-4xl font-black tracking-tight uppercase">RM Stock View</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            Global RM management with auto-generated IDs • {totalItems} total
+            Branch inventory levels • {selectedBranch} • {totalItems} items
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -425,216 +430,6 @@ const RawMaterials = () => {
             <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Export
           </Button>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="secondary" className="uppercase text-xs tracking-wide">
-                Templates
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle className="font-bold uppercase">Download Category Templates</DialogTitle>
-              </DialogHeader>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Object.entries(RM_CATEGORIES).map(([code, info]) => (
-                  <Button
-                    key={code}
-                    variant="outline"
-                    onClick={() => downloadCategoryTemplate(code)}
-                    className="justify-start text-left h-auto py-3"
-                  >
-                    <div>
-                      <div className="font-mono text-sm font-bold text-primary">{code}</div>
-                      <div className="text-xs text-muted-foreground">{info.name}</div>
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </DialogContent>
-          </Dialog>
-          <input type="file" ref={fileInputRef} onChange={handleBulkUpload} accept=".xlsx,.xls" className="hidden" />
-          <Button variant="secondary" onClick={() => fileInputRef.current.click()} className="uppercase text-xs tracking-wide">
-            <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
-            Bulk Upload
-          </Button>
-          <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) resetForm(); }}>
-            <DialogTrigger asChild>
-              <Button className="uppercase text-xs tracking-wide">
-                <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Add RM
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="font-bold uppercase">Add Raw Material</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>Category *</Label>
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
-                  >
-                    <option value="">Select Category</option>
-                    {Object.entries(RM_CATEGORIES).map(([code, info]) => (
-                      <option key={code} value={code}>{code} - {info.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {selectedCategory && (
-                  <>
-                    <div className="border-t border-border pt-4">
-                      <Label className="text-base mb-3 block">Category Details</Label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {RM_CATEGORIES[selectedCategory].fields.map((field) => (
-                          <div key={field}>
-                            <Label className="text-xs">{formatFieldName(field)}</Label>
-                            <Input
-                              value={categoryData[field] || ""}
-                              onChange={(e) => updateCategoryField(field, e.target.value)}
-                              className="font-mono"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Low Stock Threshold</Label>
-                      <Input type="number" value={lowStockThreshold} onChange={(e) => setLowStockThreshold(parseFloat(e.target.value))} />
-                    </div>
-                    <Button onClick={handleAddRM} className="w-full uppercase text-xs tracking-wide">
-                      Add Raw Material
-                    </Button>
-                  </>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
-          
-          {/* Data Migration Dialog */}
-          <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="uppercase text-xs tracking-wide border-dashed">
-                <Database className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Migrate
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle className="font-bold uppercase flex items-center gap-2">
-                  <ArrowUpDown className="w-5 h-5" />
-                  Data Migration
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Transfer Raw Materials data between Preview and Production environments.
-                </p>
-                
-                <div className="border rounded-lg p-4 space-y-3">
-                  <h4 className="font-semibold text-sm">Export from this environment</h4>
-                  <p className="text-xs text-muted-foreground">
-                    Download all {totalItems} raw materials as JSON for import into another environment.
-                  </p>
-                  <Button 
-                    onClick={handleMigrateExport} 
-                    disabled={migrating}
-                    className="w-full"
-                    variant="secondary"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    {migrating ? "Preparing..." : "Export Migration File"}
-                  </Button>
-                </div>
-                
-                <div className="border rounded-lg p-4 space-y-3">
-                  <h4 className="font-semibold text-sm">Import to this environment</h4>
-                  <p className="text-xs text-muted-foreground">
-                    Upload a migration JSON file. Existing RMs will be skipped (no duplicates).
-                  </p>
-                  <input 
-                    type="file" 
-                    ref={migrateFileInputRef} 
-                    onChange={handleMigrateImport} 
-                    accept=".json" 
-                    className="hidden" 
-                  />
-                  <Button 
-                    onClick={() => migrateFileInputRef.current.click()} 
-                    disabled={migrating}
-                    className="w-full"
-                    variant="outline"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    {migrating ? "Importing..." : "Import Migration File"}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-          
-          {/* Created RMs Dialog */}
-          <Dialog open={showCreatedDialog} onOpenChange={setShowCreatedDialog}>
-            <DialogContent className="max-w-2xl max-h-[80vh]">
-              <DialogHeader>
-                <DialogTitle className="font-bold uppercase flex items-center gap-2 text-green-600">
-                  <Plus className="w-5 h-5" />
-                  {createdRMs.length} Raw Materials Created
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  The following RM IDs have been successfully created:
-                </p>
-                
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="max-h-[400px] overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-zinc-100 sticky top-0">
-                        <tr>
-                          <th className="text-left p-3 font-semibold">#</th>
-                          <th className="text-left p-3 font-semibold">RM ID</th>
-                          <th className="text-left p-3 font-semibold">Category</th>
-                          <th className="text-left p-3 font-semibold">Name/Description</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {createdRMs.map((rm, idx) => (
-                          <tr key={rm.rm_id} className="border-t hover:bg-zinc-50">
-                            <td className="p-3 text-muted-foreground">{idx + 1}</td>
-                            <td className="p-3 font-mono font-medium text-orange-600">{rm.rm_id}</td>
-                            <td className="p-3">
-                              <span className="px-2 py-1 bg-zinc-200 rounded text-xs font-medium">
-                                {rm.category}
-                              </span>
-                            </td>
-                            <td className="p-3 truncate max-w-[200px]">{rm.name}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                
-                <div className="flex justify-end gap-2">
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const rmIds = createdRMs.map(rm => rm.rm_id).join('\n');
-                      navigator.clipboard.writeText(rmIds);
-                      toast.success('RM IDs copied to clipboard');
-                    }}
-                  >
-                    Copy RM IDs
-                  </Button>
-                  <Button onClick={() => setShowCreatedDialog(false)}>
-                    Close
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 

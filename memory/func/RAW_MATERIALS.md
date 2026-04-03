@@ -1,35 +1,51 @@
-# Raw Materials (Branch View)
+# RM Stock View (formerly Raw Materials)
 
 **Route**: `/raw-materials`  
-**Access**: MASTER_ADMIN, BRANCH_OPS_USER, PROCUREMENT_OFFICER, TECH_OPS_ENGINEER  
-**Note**: NOT visible to DEMAND_PLANNER or CPC_PLANNER  
+**Access**: MASTER_ADMIN, BRANCH_OPS_USER, PROCUREMENT_OFFICER, CPC_PLANNER, FINANCE_VIEWER  
 **Frontend**: `/app/frontend/src/pages/RawMaterials.js`
 
 ---
 
 ## Overview
 
-Branch-level view of raw material inventory. Shows stock levels, movements, and allows stock adjustments.
+**Read-only** branch-level RM inventory view. Shows stock levels per branch. For RM master data management, use **RM Repository** instead.
 
 ---
 
 ## Key Features
 
-### Inventory View
-- Filter by branch
-- Filter by RM category
+### Branch Stock View
+- Shows RM stock levels **for the selected branch**
+- Displays: RM ID, Category, Description, **Current Stock**
+- Filter by category, type, model, colour, brand
 - Search by RM ID
-- Current stock levels
 
-### Stock Movements
-- View inward/outward movements
-- Movement types: PURCHASE, PRODUCTION, ADJUSTMENT, TRANSFER
-- Date range filtering
+### Export
+- Export filtered RM list with stock levels to Excel
 
-### Stock Adjustment
-- Manual stock corrections
-- Requires reason/notes
-- Creates audit trail
+---
+
+## Access Control Update (April 3, 2026)
+
+| Role | Access |
+|------|--------|
+| MASTER_ADMIN | ✅ |
+| BRANCH_OPS_USER | ✅ |
+| PROCUREMENT_OFFICER | ✅ |
+| CPC_PLANNER | ✅ (NEW) |
+| FINANCE_VIEWER | ✅ (NEW) |
+| TECH_OPS_ENGINEER | ❌ (REMOVED - use RM Repository) |
+| DEMAND_PLANNER | ❌ |
+
+---
+
+## Features Removed
+
+The following features were moved to **RM Repository** (`/rm-repository`):
+- Add RM
+- Bulk Upload
+- Templates
+- Data Migration
 
 ---
 
@@ -37,18 +53,15 @@ Branch-level view of raw material inventory. Shows stock levels, movements, and 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/branch-rm-inventory/{branch}` | Branch stock |
-| GET | `/api/rm-stock-movements` | Movement history |
-| POST | `/api/rm-stock-adjustment` | Adjust stock |
 | GET | `/api/raw-materials` | RM master list |
+| GET | `/api/branch-rm-inventory/{branch}` | Branch stock levels |
 
 ---
 
 ## Database Collections
 
-- `branch_rm_inventory`
-- `rm_stock_movements`
-- `raw_materials`
+- `raw_materials` - RM master (read-only here)
+- `branch_rm_inventory` - Stock levels per branch
 
 ---
 

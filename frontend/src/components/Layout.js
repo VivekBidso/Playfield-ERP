@@ -74,7 +74,7 @@ const Layout = () => {
     { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/sku-subscription", label: "SKU Subscription", icon: PackageCheck, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('BRANCH_OPS_USER') },
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
-    { path: "/raw-materials", label: "Raw Materials", icon: Package, show: (isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('TECH_OPS_ENGINEER')) && !hasRole('DEMAND_PLANNER') && !isCPCPlanner },
+    { path: "/raw-materials", label: "RM Stock View", icon: Package, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('CPC_PLANNER') || hasRole('FINANCE_VIEWER') },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('FINANCE_VIEWER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     { path: "/skus", label: "SKUs (Legacy)", icon: Box, show: !isCPCPlanner && isAdmin },
