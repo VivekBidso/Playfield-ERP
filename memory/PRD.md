@@ -2005,4 +2005,69 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 
 *Completed: April 3, 2026*
 
+## 27. RM INWARD ENHANCEMENTS (April 3, 2026)
+
+### COMPLETE ✅
+
+**Purpose**: Enhanced the RM Inward bill entry with vendor search filtering, auto-populated RM fields (Description, HSN, GST), and fixed form submission issues.
+
+### Features Implemented
+
+#### 1. Vendor Search Filtering
+- Added search input above vendor dropdown
+- Typing filters vendors in real-time (e.g., typing "IN" shows all vendors with "IN" in name)
+- Shows count of matching vendors
+
+#### 2. RM Auto-Population
+When an RM ID is selected or typed, the following fields are now auto-populated:
+| Field | Source |
+|-------|--------|
+| Description | Category-specific (e.g., part_name for INP/INM) |
+| HSN Code | Default by category: INP=3926, LB=4821, PM=4819, etc. |
+| GST Rate | Default by category: INP=18%, LB=12%, BS=5%, etc. |
+
+#### 3. Line Items Table Columns
+| Column | Description |
+|--------|-------------|
+| RM ID | Searchable input with datalist suggestions |
+| Description | Auto-filled from RM data, editable |
+| HSN | Auto-filled (default by category), editable |
+| Qty | Quantity input |
+| Rate | Unit rate input |
+| Tax | GST dropdown (auto-selected based on category) |
+| Amount | Auto-calculated (Qty × Rate) |
+
+#### 4. HSN Default Mapping by Category:
+```
+INP -> 3926 (Plastic parts)
+INM -> 7326 (Metal parts)
+ACC -> 8714 (Vehicle accessories)
+ELC -> 8544 (Electrical components)
+LB  -> 4821 (Labels)
+PM  -> 4819 (Packaging materials)
+BS  -> 4911 (Brand assets/stickers)
+SP  -> 8714 (Spare parts)
+```
+
+#### 5. GST Default Mapping by Category:
+```
+INP, INM, ACC, ELC, SP -> 18%
+LB, PM                  -> 12%
+BS                      -> 5%
+```
+
+### Bugs Fixed:
+1. **Vendor search not filtering**: Added real-time filter on vendor name
+2. **"Please add at least one valid line item" error**: Fixed RM ID extraction from search input using regex pattern `/^([A-Z]+_\d+)/`
+3. **Description/HSN/GST not pre-filling**: Added auto-populate functions `getRMDescription()`, `getHSNCode()`, `getDefaultGST()`
+4. **Backend not storing description/hsn**: Updated `vendor_routes.py` to include description and hsn in purchase entries
+
+### Files Modified:
+- `/app/frontend/src/pages/RMInward.js`
+- `/app/backend/routes/vendor_routes.py`
+
+---
+
+*Completed: April 3, 2026*
+
 

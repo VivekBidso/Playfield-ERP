@@ -55,6 +55,7 @@ const RMInward = () => {
   const [filteredRMs, setFilteredRMs] = useState([]);
   const [rmSearch, setRmSearch] = useState("");
   const [showDialog, setShowDialog] = useState(false);
+  const [vendorSearch, setVendorSearch] = useState("");
 
   // Bill/Invoice Form State
   const [billData, setBillData] = useState({
@@ -71,9 +72,9 @@ const RMInward = () => {
     notes: ""
   });
 
-  // Line Items State
+  // Line Items State - now includes description, hsn, gst
   const [lineItems, setLineItems] = useState([
-    { rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }
+    { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }
   ]);
 
   // Totals State
@@ -197,14 +198,82 @@ const RMInward = () => {
     if (search.length >= 2) {
       return availableRMs.filter(rm => 
         rm.rm_id.toLowerCase().includes(search.toLowerCase()) ||
-        rm.category.toLowerCase().includes(search.toLowerCase())
+        rm.category.toLowerCase().includes(search.toLowerCase()) ||
+        (rm.category_data?.part_name || "").toLowerCase().includes(search.toLowerCase())
       ).slice(0, 50);
     }
     return availableRMs.slice(0, 50);
   };
 
+  // Filter vendors based on search
+  const filteredVendors = vendorSearch.length >= 1
+    ? vendors.filter(v => 
+        v.name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
+        (v.vendor_code || "").toLowerCase().includes(vendorSearch.toLowerCase())
+      )
+    : vendors;
+
+  // Get RM description from category_data
+  const getRMDescription = (rm) => {
+    if (!rm) return "";
+    const cat = rm.category_data || {};
+    if (rm.category === "INP" || rm.category === "INM") {
+      return cat.part_name || cat.type || rm.category;
+    }
+    return cat.part_name || cat.type || cat.name || rm.category;
+  };
+
+  // Get default GST for RM based on category
+  const getDefaultGST = (rm) => {
+    if (!rm) return "GST_18";
+    // Default GST mapping by category
+    const gstMapping = {
+      "INP": "GST_18",
+      "INM": "GST_18", 
+      "ACC": "GST_18",
+      "ELC": "GST_18",
+      "LB": "GST_12",
+      "PM": "GST_12",
+      "BS": "GST_5",
+      "SP": "GST_18"
+    };
+    return rm.hsn_gst || gstMapping[rm.category] || "GST_18";
+  };
+
+  // Get HSN code for RM
+  const getHSNCode = (rm) => {
+    if (!rm) return "";
+    // Default HSN mapping by category
+    const hsnMapping = {
+      "INP": "3926",
+      "INM": "7326",
+      "ACC": "8714",
+      "ELC": "8544",
+      "LB": "4821",
+      "PM": "4819",
+      "BS": "4911",
+      "SP": "8714"
+    };
+    return rm.hsn_code || hsnMapping[rm.category] || "";
+  };
+
+  // Handle RM selection - auto-populate description, HSN, GST
+  const handleRMSelect = (index, rmId) => {
+    const rm = availableRMs.find(r => r.rm_id === rmId);
+    const updated = [...lineItems];
+    updated[index] = {
+      ...updated[index],
+      rm_id: rmId,
+      rm_search: rmId,
+      description: getRMDescription(rm),
+      hsn: getHSNCode(rm),
+      tax: getDefaultGST(rm)
+    };
+    setLineItems(updated);
+  };
+
   const handleAddLineItem = () => {
-    setLineItems([...lineItems, { rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+    setLineItems([...lineItems, { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
   };
 
   const handleRemoveLineItem = (index) => {
@@ -220,6 +289,22 @@ const RMInward = () => {
     // Auto-calculate amount when quantity or rate changes
     if (field === "quantity" || field === "rate") {
       updated[index].amount = updated[index].quantity * updated[index].rate;
+    }
+    
+    // When user types in rm_search, try to auto-select the RM
+    if (field === "rm_search" && value) {
+      // Extract RM ID if the value contains " - " (from datalist selection)
+      const rmIdMatch = value.match(/^([A-Z]+_\d+)/);
+      if (rmIdMatch) {
+        const rmId = rmIdMatch[1];
+        const rm = availableRMs.find(r => r.rm_id === rmId);
+        if (rm) {
+          updated[index].rm_id = rmId;
+          updated[index].description = getRMDescription(rm);
+          updated[index].hsn = getHSNCode(rm);
+          updated[index].tax = getDefaultGST(rm);
+        }
+      }
     }
     
     setLineItems(updated);
@@ -242,7 +327,7 @@ const RMInward = () => {
     
     const validItems = lineItems.filter(item => item.rm_id && item.quantity > 0);
     if (validItems.length === 0) {
-      toast.error("Please add at least one valid line item");
+      toast.error("Please add at least one valid line item (select RM ID from dropdown)");
       return;
     }
 
@@ -253,6 +338,8 @@ const RMInward = () => {
         branch_id: billData.branch_id || null,
         line_items: validItems.map(item => ({
           rm_id: item.rm_id,
+          description: item.description,
+          hsn: item.hsn,
           quantity: parseFloat(item.quantity),
           rate: parseFloat(item.rate),
           tax: item.tax,
@@ -300,7 +387,8 @@ const RMInward = () => {
       reverse_charge: false,
       notes: ""
     });
-    setLineItems([{ rm_id: "", rm_search: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+    setLineItems([{ rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+    setVendorSearch("");
     setTotals({
       sub_total: 0,
       discount_type: "percentage",
@@ -379,22 +467,30 @@ const RMInward = () => {
                 <div className="space-y-4">
                   <div>
                     <Label className="text-xs font-bold uppercase">Vendor Name *</Label>
-                    <Select 
-                      value={billData.vendor_id} 
-                      onValueChange={(v) => {
-                        const vendor = vendors.find(ve => ve.id === v);
-                        setBillData({...billData, vendor_id: v, vendor_name: vendor?.name || ""});
-                      }}
-                    >
-                      <SelectTrigger data-testid="vendor-select">
-                        <SelectValue placeholder="Select vendor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vendors.map(v => (
-                          <SelectItem key={v.id} value={v.id}>{v.name} ({v.vendor_code})</SelectItem>
+                    <div className="space-y-1">
+                      <Input
+                        value={vendorSearch}
+                        onChange={(e) => setVendorSearch(e.target.value)}
+                        placeholder="Type to search vendors..."
+                        className="font-mono text-sm"
+                        data-testid="vendor-search"
+                      />
+                      <select
+                        className="w-full border rounded px-3 py-2 text-sm bg-white"
+                        value={billData.vendor_id}
+                        onChange={(e) => {
+                          const vendor = vendors.find(ve => ve.id === e.target.value);
+                          setBillData({...billData, vendor_id: e.target.value, vendor_name: vendor?.name || ""});
+                          setVendorSearch(vendor?.name || "");
+                        }}
+                        data-testid="vendor-select"
+                      >
+                        <option value="">Select vendor ({filteredVendors.length} found)</option>
+                        {filteredVendors.slice(0, 100).map(v => (
+                          <option key={v.id} value={v.id}>{v.name} ({v.vendor_code || v.vendor_id})</option>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </select>
+                    </div>
                   </div>
                   
                   <div>
@@ -517,77 +613,98 @@ const RMInward = () => {
                   </Button>
                 </div>
                 
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-hidden overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-gray-50">
-                        <TableHead className="w-[250px]">Item (RM ID)</TableHead>
-                        <TableHead className="w-[100px] text-right">Quantity</TableHead>
-                        <TableHead className="w-[120px] text-right">Rate</TableHead>
-                        <TableHead className="w-[120px]">Tax</TableHead>
-                        <TableHead className="w-[120px] text-right">Amount</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                        <TableHead className="w-[160px]">RM ID</TableHead>
+                        <TableHead className="w-[180px]">Description</TableHead>
+                        <TableHead className="w-[80px]">HSN</TableHead>
+                        <TableHead className="w-[80px] text-right">Qty</TableHead>
+                        <TableHead className="w-[90px] text-right">Rate</TableHead>
+                        <TableHead className="w-[100px]">Tax</TableHead>
+                        <TableHead className="w-[100px] text-right">Amount</TableHead>
+                        <TableHead className="w-[40px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {lineItems.map((item, idx) => (
                         <TableRow key={idx}>
-                          <TableCell>
+                          <TableCell className="p-2">
                             <Input
                               value={item.rm_search || item.rm_id}
                               onChange={(e) => handleLineItemChange(idx, "rm_search", e.target.value)}
-                              placeholder="Search RM ID..."
-                              className="font-mono text-sm mb-1"
+                              placeholder="Type RM ID..."
+                              className="font-mono text-xs h-8"
                               list={`rm-list-${idx}`}
                             />
                             <datalist id={`rm-list-${idx}`}>
                               {filterRMsForLine(item.rm_search || "").map(rm => (
-                                <option key={rm.rm_id} value={`${rm.rm_id} - ${rm.category}`} />
+                                <option key={rm.rm_id} value={rm.rm_id}>{getRMDescription(rm)}</option>
                               ))}
                             </datalist>
-                            <select
-                              className="w-full text-xs border rounded px-2 py-1 bg-gray-50"
-                              value={item.rm_id}
-                              onChange={(e) => {
-                                handleLineItemChange(idx, "rm_id", e.target.value);
-                                handleLineItemChange(idx, "rm_search", e.target.value);
-                              }}
-                            >
-                              <option value="">Select RM</option>
-                              {filterRMsForLine(item.rm_search || "").map(rm => (
-                                <option key={rm.rm_id} value={rm.rm_id}>
-                                  {rm.rm_id} - {rm.category}
-                                </option>
-                              ))}
-                            </select>
+                            {item.rm_search && !item.rm_id && (
+                              <select
+                                className="w-full text-xs border rounded px-1 py-1 bg-gray-50 mt-1"
+                                value={item.rm_id}
+                                onChange={(e) => handleRMSelect(idx, e.target.value)}
+                              >
+                                <option value="">Select from matches</option>
+                                {filterRMsForLine(item.rm_search || "").map(rm => (
+                                  <option key={rm.rm_id} value={rm.rm_id}>
+                                    {rm.rm_id} - {getRMDescription(rm)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {item.rm_id && (
+                              <div className="text-xs text-green-600 mt-1">✓ {item.rm_id}</div>
+                            )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="p-2">
+                            <Input
+                              value={item.description}
+                              onChange={(e) => handleLineItemChange(idx, "description", e.target.value)}
+                              placeholder="Auto-filled"
+                              className="text-xs h-8"
+                              readOnly={!!item.rm_id}
+                            />
+                          </TableCell>
+                          <TableCell className="p-2">
+                            <Input
+                              value={item.hsn}
+                              onChange={(e) => handleLineItemChange(idx, "hsn", e.target.value)}
+                              placeholder="HSN"
+                              className="text-xs h-8 font-mono"
+                            />
+                          </TableCell>
+                          <TableCell className="p-2">
                             <Input
                               type="number"
                               min="0"
                               step="0.01"
                               value={item.quantity}
                               onChange={(e) => handleLineItemChange(idx, "quantity", parseFloat(e.target.value) || 0)}
-                              className="text-right font-mono"
+                              className="text-right font-mono text-xs h-8"
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="p-2">
                             <Input
                               type="number"
                               min="0"
                               step="0.01"
                               value={item.rate}
                               onChange={(e) => handleLineItemChange(idx, "rate", parseFloat(e.target.value) || 0)}
-                              className="text-right font-mono"
+                              className="text-right font-mono text-xs h-8"
                               placeholder="0.00"
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="p-2">
                             <Select 
                               value={item.tax} 
                               onValueChange={(v) => handleLineItemChange(idx, "tax", v)}
                             >
-                              <SelectTrigger className="h-9">
+                              <SelectTrigger className="h-8 text-xs">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -597,15 +714,16 @@ const RMInward = () => {
                               </SelectContent>
                             </Select>
                           </TableCell>
-                          <TableCell className="text-right font-mono font-medium">
+                          <TableCell className="p-2 text-right font-mono text-sm font-medium">
                             ₹{item.amount.toFixed(2)}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="p-2">
                             <Button 
                               variant="ghost" 
                               size="sm" 
                               onClick={() => handleRemoveLineItem(idx)}
                               disabled={lineItems.length === 1}
+                              className="h-8 w-8 p-0"
                             >
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>

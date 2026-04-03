@@ -323,6 +323,8 @@ async def create_rm_inward_bill(
             "vendor_name": input.vendor_name,
             "branch": input.branch,
             "rm_id": item["rm_id"],
+            "description": item.get("description", ""),
+            "hsn": item.get("hsn", ""),
             "quantity": item["quantity"],
             "rate": item.get("rate", 0),
             "tax": item.get("tax", "NONE"),
