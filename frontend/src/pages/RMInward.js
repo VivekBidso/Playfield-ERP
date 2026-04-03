@@ -20,12 +20,12 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const PAYMENT_TERMS = [
-  { value: "NET_15", label: "Net 15" },
-  { value: "NET_30", label: "Net 30" },
-  { value: "NET_45", label: "Net 45" },
-  { value: "NET_60", label: "Net 60" },
-  { value: "DUE_ON_RECEIPT", label: "Due on Receipt" },
-  { value: "CUSTOM", label: "Custom" }
+  { value: "NET_15", label: "Net 15", days: 15 },
+  { value: "NET_30", label: "Net 30", days: 30 },
+  { value: "NET_45", label: "Net 45", days: 45 },
+  { value: "NET_60", label: "Net 60", days: 60 },
+  { value: "DUE_ON_RECEIPT", label: "Due on Receipt", days: 0 },
+  { value: "CUSTOM", label: "Custom", days: null }
 ];
 
 const TAX_OPTIONS = [
@@ -134,6 +134,22 @@ const RMInward = () => {
       grand_total: grandTotal
     }));
   }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs]);
+
+  // Auto-calculate due date when payment terms or bill date changes
+  useEffect(() => {
+    if (billData.payment_terms === "CUSTOM") return; // Don't auto-calculate for custom
+    
+    const paymentTerm = PAYMENT_TERMS.find(t => t.value === billData.payment_terms);
+    if (paymentTerm && paymentTerm.days !== null && billData.bill_date) {
+      const billDate = new Date(billData.bill_date);
+      const dueDate = new Date(billDate);
+      dueDate.setDate(dueDate.getDate() + paymentTerm.days);
+      setBillData(prev => ({
+        ...prev,
+        due_date: dueDate.toISOString().split('T')[0]
+      }));
+    }
+  }, [billData.payment_terms, billData.bill_date]);
 
   const fetchBranchInventory = async () => {
     try {
@@ -467,30 +483,35 @@ const RMInward = () => {
                 <div className="space-y-4">
                   <div>
                     <Label className="text-xs font-bold uppercase">Vendor Name *</Label>
-                    <div className="space-y-1">
-                      <Input
-                        value={vendorSearch}
-                        onChange={(e) => setVendorSearch(e.target.value)}
-                        placeholder="Type to search vendors..."
-                        className="font-mono text-sm"
-                        data-testid="vendor-search"
-                      />
-                      <select
-                        className="w-full border rounded px-3 py-2 text-sm bg-white"
-                        value={billData.vendor_id}
-                        onChange={(e) => {
-                          const vendor = vendors.find(ve => ve.id === e.target.value);
-                          setBillData({...billData, vendor_id: e.target.value, vendor_name: vendor?.name || ""});
-                          setVendorSearch(vendor?.name || "");
-                        }}
-                        data-testid="vendor-select"
-                      >
-                        <option value="">Select vendor ({filteredVendors.length} found)</option>
-                        {filteredVendors.slice(0, 100).map(v => (
-                          <option key={v.id} value={v.id}>{v.name} ({v.vendor_code || v.vendor_id})</option>
-                        ))}
-                      </select>
-                    </div>
+                    <Input
+                      value={vendorSearch}
+                      onChange={(e) => {
+                        setVendorSearch(e.target.value);
+                        // Auto-select vendor if exact match found
+                        const exactMatch = vendors.find(v => 
+                          v.name.toLowerCase() === e.target.value.toLowerCase() ||
+                          `${v.name} (${v.vendor_code || v.vendor_id})`.toLowerCase() === e.target.value.toLowerCase()
+                        );
+                        if (exactMatch) {
+                          setBillData({...billData, vendor_id: exactMatch.id, vendor_name: exactMatch.name});
+                        }
+                      }}
+                      placeholder="Type vendor name..."
+                      className="font-mono text-sm"
+                      list="vendor-datalist"
+                      data-testid="vendor-search"
+                    />
+                    <datalist id="vendor-datalist">
+                      {filteredVendors.slice(0, 100).map(v => (
+                        <option key={v.id} value={v.name}>{v.vendor_code || v.vendor_id}</option>
+                      ))}
+                    </datalist>
+                    {billData.vendor_id && (
+                      <div className="text-xs text-green-600 mt-1">✓ {billData.vendor_name}</div>
+                    )}
+                    {vendorSearch && !billData.vendor_id && filteredVendors.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">{filteredVendors.length} vendors match</div>
+                    )}
                   </div>
                   
                   <div>
