@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
 import io
+import re
 import openpyxl
 
 from database import db
@@ -1027,15 +1028,22 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
             brand_id = buyer_sku["brand_id"]
             brand_code = buyer_sku.get("brand_code", "")
             
-            # Validate RMs and prepare data
+            # Validate RMs and prepare data (case-insensitive lookup)
             common_items = []
             for item in bom_data["common"]:
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                # Try exact match first, then case-insensitive
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                if not rm:
+                    escaped_rm_id = re.escape(item["rm_id"])
+                    rm = await db.raw_materials.find_one(
+                        {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                        {"_id": 0, "name": 1, "rm_id": 1}
+                    )
                 if not rm:
                     results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
                     continue
                 common_items.append({
-                    "rm_id": item["rm_id"],
+                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
                     "rm_name": rm["name"],
                     "quantity": item["quantity"],
                     "unit": item["unit"]
@@ -1043,12 +1051,19 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
             
             brand_items = []
             for item in bom_data["brand_specific"]:
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                # Try exact match first, then case-insensitive
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                if not rm:
+                    escaped_rm_id = re.escape(item["rm_id"])
+                    rm = await db.raw_materials.find_one(
+                        {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                        {"_id": 0, "name": 1, "rm_id": 1}
+                    )
                 if not rm:
                     results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
                     continue
                 brand_items.append({
-                    "rm_id": item["rm_id"],
+                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
                     "rm_name": rm["name"],
                     "quantity": item["quantity"],
                     "unit": item["unit"]
@@ -1167,15 +1182,21 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                 results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped")
                 continue
             
-            # Validate RMs
+            # Validate RMs (case-insensitive lookup)
             valid_items = []
             for item in items:
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1})
+                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                if not rm:
+                    escaped_rm_id = re.escape(item["rm_id"])
+                    rm = await db.raw_materials.find_one(
+                        {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                        {"_id": 0, "name": 1, "rm_id": 1}
+                    )
                 if not rm:
                     results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
                     continue
                 valid_items.append({
-                    "rm_id": item["rm_id"],
+                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
                     "rm_name": rm["name"],
                     "quantity": item["quantity"],
                     "unit": item["unit"]
