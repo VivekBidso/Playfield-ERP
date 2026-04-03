@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Download, FileText } from "lucide-react";
+import { Download, FileText, Factory, TrendingUp, Users, Package, Filter, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import useBranchStore from "@/store/branchStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -15,329 +18,566 @@ const API = `${BACKEND_URL}/api`;
 
 const Reports = () => {
   const { selectedBranch } = useBranchStore();
-  const [inventoryReport, setInventoryReport] = useState(null);
-  const [lowStockReport, setLowStockReport] = useState(null);
-  const [productionSummary, setProductionSummary] = useState(null);
+  const [activeTab, setActiveTab] = useState("dispatch-origin");
   const [loading, setLoading] = useState(false);
+  
+  // Report data states
+  const [dispatchOriginData, setDispatchOriginData] = useState(null);
+  const [productionByUnitData, setProductionByUnitData] = useState(null);
+  const [forecastVsActualData, setForecastVsActualData] = useState(null);
+  const [buyerHistoryData, setBuyerHistoryData] = useState(null);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    startDate: "",
+    endDate: "",
+    branch: "",
+    buyerName: ""
+  });
 
-  useEffect(() => {
-    fetchReports();
-  }, [selectedBranch]);
-
-  const fetchReports = async () => {
+  const fetchDispatchOriginReport = async () => {
     setLoading(true);
     try {
-      const [inventoryRes, lowStockRes, productionRes] = await Promise.all([
-        axios.get(`${API}/reports/inventory?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/reports/low-stock?branch=${encodeURIComponent(selectedBranch)}`),
-        axios.get(`${API}/reports/production-summary?days=7&branch=${encodeURIComponent(selectedBranch)}`)
-      ]);
-      setInventoryReport(inventoryRes.data);
-      setLowStockReport(lowStockRes.data);
-      setProductionSummary(productionRes.data);
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append("start_date", filters.startDate);
+      if (filters.endDate) params.append("end_date", filters.endDate);
+      if (filters.branch) params.append("dispatch_branch", filters.branch);
+      
+      const response = await axios.get(`${API}/dispatch-by-origin?${params}`);
+      setDispatchOriginData(response.data);
     } catch (error) {
-      console.error("Failed to fetch reports", error);
-      toast.error("Failed to fetch reports");
-    } finally {
-      setLoading(false);
+      console.error("Failed to fetch dispatch origin report", error);
+      toast.error("Failed to fetch report");
     }
+    setLoading(false);
   };
 
-  const exportInventoryToExcel = () => {
-    if (!inventoryReport) return;
-    
-    const rmSheet = XLSX.utils.json_to_sheet(inventoryReport.raw_materials.map(rm => ({
-      'RM ID': rm.rm_id,
-      'Name': rm.name,
-      'Unit': rm.unit,
-      'Current Stock': rm.current_stock,
-      'Low Stock Threshold': rm.low_stock_threshold,
-      'Status': rm.current_stock < rm.low_stock_threshold ? 'Low Stock' : 'OK'
-    })));
+  const fetchProductionByUnitReport = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append("start_date", filters.startDate);
+      if (filters.endDate) params.append("end_date", filters.endDate);
+      if (filters.branch) params.append("branch", filters.branch);
+      
+      const response = await axios.get(`${API}/production-by-unit?${params}`);
+      setProductionByUnitData(response.data);
+    } catch (error) {
+      console.error("Failed to fetch production report", error);
+      toast.error("Failed to fetch report");
+    }
+    setLoading(false);
+  };
 
-    const skuSheet = XLSX.utils.json_to_sheet(inventoryReport.skus.map(sku => ({
-      'SKU ID': sku.sku_id,
-      'Name': sku.name,
-      'Current Stock': sku.current_stock,
-      'Low Stock Threshold': sku.low_stock_threshold,
-      'Status': sku.current_stock < sku.low_stock_threshold ? 'Low Stock' : 'OK'
-    })));
+  const fetchForecastVsActualReport = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append("start_date", filters.startDate);
+      if (filters.endDate) params.append("end_date", filters.endDate);
+      
+      const response = await axios.get(`${API}/forecast-vs-actual?${params}`);
+      setForecastVsActualData(response.data);
+    } catch (error) {
+      console.error("Failed to fetch forecast report", error);
+      toast.error("Failed to fetch report");
+    }
+    setLoading(false);
+  };
 
+  const fetchBuyerHistoryReport = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append("start_date", filters.startDate);
+      if (filters.endDate) params.append("end_date", filters.endDate);
+      if (filters.buyerName) params.append("buyer_name", filters.buyerName);
+      
+      const response = await axios.get(`${API}/buyer-dispatch-history?${params}`);
+      setBuyerHistoryData(response.data);
+    } catch (error) {
+      console.error("Failed to fetch buyer history", error);
+      toast.error("Failed to fetch report");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === "dispatch-origin") fetchDispatchOriginReport();
+    else if (activeTab === "production-unit") fetchProductionByUnitReport();
+    else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
+    else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
+  }, [activeTab]);
+
+  const handleRefresh = () => {
+    if (activeTab === "dispatch-origin") fetchDispatchOriginReport();
+    else if (activeTab === "production-unit") fetchProductionByUnitReport();
+    else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
+    else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
+  };
+
+  const exportToExcel = (data, filename) => {
+    if (!data) return;
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, rmSheet, 'Raw Materials');
-    XLSX.utils.book_append_sheet(wb, skuSheet, 'SKUs');
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'inventory_report.xlsx');
-    toast.success("Inventory report exported");
-  };
-
-  const exportLowStockToPDF = () => {
-    if (!lowStockReport) return;
-
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text('Low Stock Alert Report', 14, 22);
-    doc.setFontSize(10);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 30);
-
-    // Raw Materials
-    if (lowStockReport.raw_materials.length > 0) {
-      doc.setFontSize(14);
-      doc.text('Raw Materials - Low Stock', 14, 45);
-      doc.autoTable({
-        startY: 50,
-        head: [['RM ID', 'Name', 'Current Stock', 'Threshold']],
-        body: lowStockReport.raw_materials.map(rm => [
-          rm.rm_id,
-          rm.name,
-          rm.current_stock,
-          rm.low_stock_threshold
-        ]),
-        theme: 'grid',
-        headStyles: { fillColor: [249, 115, 22] }
-      });
-    }
-
-    // SKUs
-    if (lowStockReport.skus.length > 0) {
-      const startY = lowStockReport.raw_materials.length > 0 ? doc.lastAutoTable.finalY + 15 : 50;
-      doc.setFontSize(14);
-      doc.text('SKUs - Low Stock', 14, startY);
-      doc.autoTable({
-        startY: startY + 5,
-        head: [['SKU ID', 'Name', 'Current Stock', 'Threshold']],
-        body: lowStockReport.skus.map(sku => [
-          sku.sku_id,
-          sku.name,
-          sku.current_stock,
-          sku.low_stock_threshold
-        ]),
-        theme: 'grid',
-        headStyles: { fillColor: [249, 115, 22] }
-      });
-    }
-
-    doc.save('low_stock_report.pdf');
-    toast.success("Low stock report exported");
-  };
-
-  const exportProductionToExcel = () => {
-    if (!productionSummary) return;
-
-    const ws = XLSX.utils.json_to_sheet(productionSummary.entries.map(e => ({
-      'Date': new Date(e.date).toLocaleDateString(),
-      'SKU ID': e.sku_id,
-      'Quantity': e.quantity,
-      'Notes': e.notes || ''
-    })));
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Production');
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'production_summary.xlsx');
-    toast.success("Production summary exported");
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), `${filename}.xlsx`);
+    toast.success("Exported to Excel");
   };
 
   return (
-    <div className="p-6 md:p-8" data-testid="reports-page">
-      <div className="mb-8">
-        <h1 className="text-4xl font-black tracking-tight uppercase">Reports</h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono">Analytics & insights for {selectedBranch}</p>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
+          <p className="text-muted-foreground">Analytics and insights across operations</p>
+        </div>
+        <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      {loading ? (
-        <div className="p-12 text-center text-muted-foreground font-mono text-sm">
-          Loading reports...
-        </div>
-      ) : (
-      <Tabs defaultValue="inventory" className="w-full">
-        <TabsList className="mb-6">
-          <TabsTrigger value="inventory" data-testid="inventory-tab">Inventory</TabsTrigger>
-          <TabsTrigger value="lowstock" data-testid="lowstock-tab">Low Stock Alerts</TabsTrigger>
-          <TabsTrigger value="production" data-testid="production-tab">Production Summary</TabsTrigger>
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Filter className="h-4 w-4" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <div>
+              <label className="text-xs text-muted-foreground">Start Date</label>
+              <Input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => setFilters({...filters, startDate: e.target.value})}
+                className="w-40"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">End Date</label>
+              <Input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => setFilters({...filters, endDate: e.target.value})}
+                className="w-40"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Branch</label>
+              <Input
+                placeholder="Branch name..."
+                value={filters.branch}
+                onChange={(e) => setFilters({...filters, branch: e.target.value})}
+                className="w-40"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Buyer</label>
+              <Input
+                placeholder="Buyer name..."
+                value={filters.buyerName}
+                onChange={(e) => setFilters({...filters, buyerName: e.target.value})}
+                className="w-40"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={handleRefresh} size="sm">Apply</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+          <TabsTrigger value="dispatch-origin" className="text-xs">
+            <Package className="h-3 w-3 mr-1" />
+            Dispatch Origin
+          </TabsTrigger>
+          <TabsTrigger value="production-unit" className="text-xs">
+            <Factory className="h-3 w-3 mr-1" />
+            Production by Unit
+          </TabsTrigger>
+          <TabsTrigger value="forecast-actual" className="text-xs">
+            <TrendingUp className="h-3 w-3 mr-1" />
+            Forecast vs Actual
+          </TabsTrigger>
+          <TabsTrigger value="buyer-history" className="text-xs">
+            <Users className="h-3 w-3 mr-1" />
+            Buyer History
+          </TabsTrigger>
         </TabsList>
 
-        {/* Inventory Report */}
-        <TabsContent value="inventory">
-          <div className="border border-border bg-white rounded-sm">
-            <div className="p-6 border-b border-border flex items-center justify-between">
-              <h2 className="text-lg font-bold uppercase tracking-tight">Current Inventory Levels</h2>
-              <Button 
-                variant="secondary" 
-                onClick={exportInventoryToExcel}
-                data-testid="export-inventory-btn"
-                className="uppercase text-xs tracking-wide"
-              >
-                <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Export Excel
-              </Button>
-            </div>
-            <div className="p-6">
-              {inventoryReport && (
-                <div className="space-y-8">
-                  {/* SKUs - Only show items with stock > 0 */}
-                  <div>
-                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
-                      SKUs ({inventoryReport.skus.filter(sku => sku.current_stock > 0).length} items with stock)
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-zinc-50 border-b border-zinc-200">
-                          <tr>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Vertical</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Brand</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Current Stock</th>
-                            <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {inventoryReport.skus.filter(sku => sku.current_stock > 0).map((sku) => (
-                            <tr key={sku.sku_id} className="border-b border-zinc-100">
-                              <td className="p-4 align-middle font-mono text-zinc-700">{sku.sku_id}</td>
-                              <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.vertical || '-'}</td>
-                              <td className="p-4 align-middle font-mono text-xs text-zinc-600">{sku.brand || '-'}</td>
-                              <td className="p-4 align-middle font-mono text-zinc-700">{sku.current_stock}</td>
-                              <td className="p-4 align-middle">
-                                {sku.current_stock < sku.low_stock_threshold ? (
-                                  <span className="text-xs font-mono text-red-600 border border-red-600 px-2 py-1 uppercase tracking-wider">
-                                    Low Stock
-                                  </span>
-                                ) : (
-                                  <span className="text-xs font-mono text-green-600 border border-green-600 px-2 py-1 uppercase tracking-wider">
-                                    OK
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {inventoryReport.skus.filter(sku => sku.current_stock > 0).length === 0 && (
-                        <div className="p-8 text-center text-muted-foreground font-mono text-sm">
-                          No SKUs with stock in this branch.
-                        </div>
-                      )}
-                    </div>
+        {/* Dispatch by Manufacturing Origin */}
+        <TabsContent value="dispatch-origin" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Dispatch by Manufacturing Origin</CardTitle>
+                  <CardDescription>Track where dispatched goods were originally manufactured</CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => exportToExcel(dispatchOriginData?.detailed_records, "dispatch_origin_report")}
+                  disabled={!dispatchOriginData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              ) : dispatchOriginData ? (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {dispatchOriginData.summary?.map((item, idx) => (
+                      <Card key={idx} className="bg-purple-50 border-purple-200">
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-purple-700">{item.total_quantity.toLocaleString()}</div>
+                          <div className="text-sm font-medium">{item.manufacturing_unit}</div>
+                          <div className="text-xs text-muted-foreground">{item.sku_count} SKUs</div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  
+                  {/* Detailed Table */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Lot ID</TableHead>
+                          <TableHead>Dispatched</TableHead>
+                          <TableHead>From</TableHead>
+                          <TableHead>Buyer</TableHead>
+                          <TableHead>SKU</TableHead>
+                          <TableHead className="text-right">Qty</TableHead>
+                          <TableHead>Made At</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dispatchOriginData.detailed_records?.slice(0, 50).map((record, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-mono text-xs">{record.lot_id}</TableCell>
+                            <TableCell className="text-xs">{record.dispatched_at?.split('T')[0] || '-'}</TableCell>
+                            <TableCell>{record.dispatch_from}</TableCell>
+                            <TableCell>{record.buyer}</TableCell>
+                            <TableCell className="font-mono text-xs">{record.sku_id}</TableCell>
+                            <TableCell className="text-right font-medium">{record.quantity}</TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className="bg-purple-100 text-purple-700">
+                                {record.manufacturing_unit}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Showing {Math.min(50, dispatchOriginData.detailed_records?.length || 0)} of {dispatchOriginData.total_records} records
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">No data available</div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        {/* Low Stock Report */}
-        <TabsContent value="lowstock">
-          <div className="border border-border bg-white rounded-sm">
-            <div className="p-6 border-b border-border flex items-center justify-between">
-              <h2 className="text-lg font-bold uppercase tracking-tight">Low Stock Alerts</h2>
-              <Button 
-                variant="secondary" 
-                onClick={exportLowStockToPDF}
-                data-testid="export-lowstock-btn"
-                className="uppercase text-xs tracking-wide"
-              >
-                <FileText className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Export PDF
-              </Button>
-            </div>
-            <div className="p-6">
-              {lowStockReport && (
-                <div className="space-y-8">
-                  {/* Low Stock SKU - Table Format */}
-                  <div>
-                    <h3 className="text-xs uppercase tracking-widest text-muted-foreground font-bold mb-4">
-                      SKUs ({lowStockReport.skus.length} items)
-                    </h3>
-                    {lowStockReport.skus.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead className="bg-red-50 border-b border-red-200">
-                            <tr>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">SKU ID</th>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Vertical</th>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Brand</th>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Current Stock</th>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Min Threshold</th>
-                              <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-red-600 uppercase tracking-wider">Shortage</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {lowStockReport.skus.map((sku) => (
-                              <tr key={sku.sku_id} className="border-b border-red-100 bg-red-50/50" data-testid={`low-stock-sku-${sku.sku_id}`}>
-                                <td className="p-4 align-middle font-mono text-sm font-bold text-red-900">{sku.sku_id}</td>
-                                <td className="p-4 align-middle font-mono text-xs text-red-700">{sku.vertical || '-'}</td>
-                                <td className="p-4 align-middle font-mono text-xs text-red-700">{sku.brand || '-'}</td>
-                                <td className="p-4 align-middle font-mono text-red-700">{sku.current_stock}</td>
-                                <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold}</td>
-                                <td className="p-4 align-middle font-mono text-red-700">{sku.low_stock_threshold - sku.current_stock}</td>
-                              </tr>
+        {/* Production by Unit */}
+        <TabsContent value="production-unit" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Production Output by Unit</CardTitle>
+                  <CardDescription>What each branch/unit manufactured</CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => exportToExcel(productionByUnitData?.detailed_records, "production_by_unit")}
+                  disabled={!productionByUnitData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              ) : productionByUnitData ? (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {productionByUnitData.summary?.map((item, idx) => (
+                      <Card key={idx} className="bg-green-50 border-green-200">
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-green-700">{item.total_produced.toLocaleString()}</div>
+                          <div className="text-sm font-medium">{item.branch}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.schedule_count} schedules • {item.unique_skus} SKUs
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  
+                  {/* Top SKUs per Branch */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {productionByUnitData.summary?.slice(0, 4).map((branch, idx) => (
+                      <Card key={idx}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">{branch.branch} - Top SKUs</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-1">
+                            {branch.top_skus?.slice(0, 5).map((sku, i) => (
+                              <div key={i} className="flex justify-between text-sm">
+                                <span className="font-mono text-xs">{sku.sku_id}</span>
+                                <span className="font-medium">{sku.quantity.toLocaleString()}</span>
+                              </div>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground font-mono">All SKUs are adequately stocked</div>
-                    )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  
+                  <div className="text-xs text-muted-foreground">
+                    Total: {productionByUnitData.total_schedules} completed schedules
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">No data available</div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        {/* Production Summary */}
-        <TabsContent value="production">
-          <div className="border border-border bg-white rounded-sm">
-            <div className="p-6 border-b border-border flex items-center justify-between">
-              <h2 className="text-lg font-bold uppercase tracking-tight">Production Summary (Last 7 Days)</h2>
-              <Button 
-                variant="secondary" 
-                onClick={exportProductionToExcel}
-                data-testid="export-production-summary-btn"
-                className="uppercase text-xs tracking-wide"
-              >
-                <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Export Excel
-              </Button>
-            </div>
-            <div className="p-6">
-              {productionSummary && (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-zinc-50 border-b border-zinc-200">
-                      <tr>
-                        <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Date</th>
-                        <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">SKU ID</th>
-                        <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Quantity</th>
-                        <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productionSummary.entries.map((entry) => (
-                        <tr key={entry.id} className="border-b border-zinc-100">
-                          <td className="p-4 align-middle font-mono text-zinc-700">
-                            {new Date(entry.date).toLocaleDateString()}
-                          </td>
-                          <td className="p-4 align-middle font-mono text-zinc-700">{entry.sku_id}</td>
-                          <td className="p-4 align-middle font-mono text-zinc-700">{entry.quantity}</td>
-                          <td className="p-4 align-middle text-sm text-zinc-600">{entry.notes || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {productionSummary.entries.length === 0 && (
-                    <div className="p-12 text-center text-muted-foreground font-mono text-sm">
-                      No production entries in the last 7 days.
-                    </div>
-                  )}
+        {/* Forecast vs Actual */}
+        <TabsContent value="forecast-actual" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Forecast vs Actual</CardTitle>
+                  <CardDescription>Demand forecast accuracy analysis</CardDescription>
                 </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => exportToExcel(forecastVsActualData?.detailed_records, "forecast_vs_actual")}
+                  disabled={!forecastVsActualData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              ) : forecastVsActualData ? (
+                <div className="space-y-6">
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <Card className="bg-blue-50 border-blue-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-blue-700">
+                          {forecastVsActualData.summary?.total_forecast?.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Total Forecast</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-green-50 border-green-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-green-700">
+                          {forecastVsActualData.summary?.total_actual?.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Total Actual</div>
+                      </CardContent>
+                    </Card>
+                    <Card className={forecastVsActualData.summary?.overall_variance >= 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}>
+                      <CardContent className="pt-4">
+                        <div className={`text-2xl font-bold ${forecastVsActualData.summary?.overall_variance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          {forecastVsActualData.summary?.overall_variance >= 0 ? '+' : ''}{forecastVsActualData.summary?.overall_variance?.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Variance</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-purple-50 border-purple-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-purple-700">
+                          {forecastVsActualData.summary?.overall_accuracy_pct}%
+                        </div>
+                        <div className="text-xs text-muted-foreground">Accuracy</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="flex gap-2 text-sm">
+                          <Badge className="bg-green-100 text-green-700">{forecastVsActualData.summary?.items_on_track} On Track</Badge>
+                          <Badge className="bg-orange-100 text-orange-700">{forecastVsActualData.summary?.items_over} Over</Badge>
+                          <Badge className="bg-red-100 text-red-700">{forecastVsActualData.summary?.items_under} Under</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  {/* Detailed Table */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Buyer</TableHead>
+                          <TableHead className="text-right">Forecast</TableHead>
+                          <TableHead className="text-right">Actual</TableHead>
+                          <TableHead className="text-right">Variance</TableHead>
+                          <TableHead className="text-right">Variance %</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {forecastVsActualData.detailed_records?.slice(0, 50).map((record, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-mono text-xs">{record.sku_id}</TableCell>
+                            <TableCell className="text-xs">{record.buyer}</TableCell>
+                            <TableCell className="text-right">{record.forecast_qty.toLocaleString()}</TableCell>
+                            <TableCell className="text-right font-medium">{record.actual_qty.toLocaleString()}</TableCell>
+                            <TableCell className={`text-right ${record.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {record.variance >= 0 ? '+' : ''}{record.variance.toLocaleString()}
+                            </TableCell>
+                            <TableCell className={`text-right ${record.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {record.variance_pct}%
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={record.status === 'On Track' ? 'success' : record.status === 'Over' ? 'warning' : 'destructive'}
+                                className={record.status === 'On Track' ? 'bg-green-100 text-green-700' : record.status === 'Over' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}>
+                                {record.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Showing {Math.min(50, forecastVsActualData.detailed_records?.length || 0)} of {forecastVsActualData.total_records} records
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">No data available</div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Buyer Dispatch History */}
+        <TabsContent value="buyer-history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Buyer Dispatch History</CardTitle>
+                  <CardDescription>Dispatch history grouped by buyer/customer</CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => exportToExcel(buyerHistoryData?.summary, "buyer_dispatch_history")}
+                  disabled={!buyerHistoryData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              ) : buyerHistoryData ? (
+                <div className="space-y-6">
+                  {/* Grand Summary */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card className="bg-blue-50 border-blue-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-blue-700">{buyerHistoryData.total_buyers}</div>
+                        <div className="text-xs text-muted-foreground">Total Buyers</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-green-50 border-green-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-green-700">{buyerHistoryData.grand_total_lots}</div>
+                        <div className="text-xs text-muted-foreground">Total Dispatch Lots</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-purple-50 border-purple-200">
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold text-purple-700">{buyerHistoryData.grand_total_quantity?.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">Total Quantity</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  {/* Buyer Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {buyerHistoryData.summary?.slice(0, 10).map((buyer, idx) => (
+                      <Card key={idx}>
+                        <CardHeader className="pb-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <CardTitle className="text-base">{buyer.buyer_name}</CardTitle>
+                              <CardDescription className="text-xs">{buyer.buyer_id}</CardDescription>
+                            </div>
+                            <Badge variant="outline">{buyer.total_lots} lots</Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-muted-foreground">Total Quantity</span>
+                              <span className="font-bold">{buyer.total_quantity.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-muted-foreground">Unique SKUs</span>
+                              <span className="font-medium">{buyer.unique_skus}</span>
+                            </div>
+                            <div>
+                              <span className="text-xs text-muted-foreground">Top SKUs:</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {buyer.top_skus?.slice(0, 3).map((sku, i) => (
+                                  <Badge key={i} variant="secondary" className="text-xs">
+                                    {sku.sku_id} ({sku.quantity})
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">No data available</div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
-      )}
     </div>
   );
 };
