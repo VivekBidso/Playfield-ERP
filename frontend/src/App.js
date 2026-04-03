@@ -7,14 +7,14 @@ import MasterDashboard from "@/pages/MasterDashboard";
 import RawMaterials from "@/pages/RawMaterials";
 import RMInward from "@/pages/RMInward";
 import RMRepository from "@/pages/RMRepository";
-import SKUs from "@/pages/SKUs";
+// SKUs Legacy page removed - use SKU Management instead
+// Dispatch Legacy page removed - use Dispatch Lots instead
 // SKUMapping removed - use SKU Management BOM instead
 import SKUSubscription from "@/pages/SKUSubscription";
 import SKUManagement from "@/pages/SKUManagement";
 import VendorManagement from "@/pages/VendorManagement";
 // ProductionPlanning page removed - CPC handles all production planning from forecasts
 // Production page removed - Branch Ops handles schedule completion
-import Dispatch from "@/pages/Dispatch";
 import DispatchLots from "@/pages/DispatchLots";
 import Reports from "@/pages/Reports";
 import UserManagement from "@/pages/UserManagement";
@@ -89,13 +89,13 @@ function App() {
             <Route path="user-management" element={<AdminRoute><UserManagement /></AdminRoute>} />
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="rm-inward" element={<RMInward />} />
-            <Route path="skus" element={<SKUs />} />
+            {/* SKUs Legacy removed - use SKU Management */}
             {/* sku-mapping route removed - use SKU Management BOM instead */}
             <Route path="sku-subscription" element={<SKUSubscription />} />
             <Route path="sku-management" element={<SKUManagement />} />
             <Route path="vendors" element={<VendorManagement />} />
             {/* Production page removed - Branch Ops handles schedule completion */}
-            <Route path="dispatch" element={<Dispatch />} />
+            {/* Dispatch Legacy removed - use Dispatch Lots */}
             <Route path="dispatch-lots" element={<DispatchLots />} />
             <Route path="reports" element={<Reports />} />
             <Route path="techops" element={<TechOps />} />

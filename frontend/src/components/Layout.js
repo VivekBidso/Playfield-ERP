@@ -77,7 +77,7 @@ const Layout = () => {
     { path: "/raw-materials", label: "RM Stock View", icon: Package, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('CPC_PLANNER') || hasRole('FINANCE_VIEWER') },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('FINANCE_VIEWER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
-    { path: "/skus", label: "SKUs (Legacy)", icon: Box, show: !isCPCPlanner && isAdmin },
+    // SKUs Legacy page removed - use SKU Management instead
     // RM-SKU Mapping removed - use SKU Management BOM instead
     // Production Planning removed - CPC handles all production planning from forecasts
     // Production page removed - Branch Ops handles schedule completion
@@ -85,7 +85,7 @@ const Layout = () => {
     { path: "/logistics", label: "Logistics", icon: Truck, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/ibt", label: "IBT Transfers", icon: ArrowLeftRight, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') || hasRole('BRANCH_OPS_USER') },
     { path: "/events", label: "Event System", icon: Activity, show: isAdmin },
-    { path: "/dispatch", label: "Dispatch (Legacy)", icon: Receipt, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
+    // Dispatch Legacy page removed - use Dispatch Lots instead
     { path: "/reports", label: "Reports", icon: FileText, show: true },
   ];
 

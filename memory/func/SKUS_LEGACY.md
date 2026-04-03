@@ -1,28 +1,31 @@
-# SKUs (Legacy)
+# SKUs (DELETED)
 
 **Route**: `/skus`  
-**Access**: MASTER_ADMIN only  
-**Frontend**: `/app/frontend/src/pages/SKUs.js`
+**Status**: ❌ DELETED (April 3, 2026)
 
 ---
 
-## Overview
+## Reason for Deletion
 
-Legacy SKU management page. Replaced by SKU Management module.
+Superseded by **SKU Management** (`/sku-management`):
 
----
-
-## Status
-
-⚠️ **LEGACY** - Use `/sku-management` instead.
-
-Features moved to:
-- SKU Management (Bidso/Buyer SKUs)
-- Tech Ops (Verticals/Models)
+| SKU Legacy | SKU Management |
+|------------|----------------|
+| Single flat `skus` collection | Two-tier: `bidso_skus` + `buyer_skus` |
+| No BOM support | Full BOM (Common + Brand-Specific) |
+| Basic filters | Proper hierarchy and inheritance |
 
 ---
 
-## Key Files
+## Replacement
 
-- **Frontend**: `/app/frontend/src/pages/SKUs.js`
+Use **SKU Management** (`/sku-management`) for all SKU operations.
+
+---
+
+## Files Deleted
+
+- `/app/frontend/src/pages/SKUs.js`
+- Route removed from `/app/frontend/src/App.js`
+- Sidebar entry removed from `/app/frontend/src/components/Layout.js`
 

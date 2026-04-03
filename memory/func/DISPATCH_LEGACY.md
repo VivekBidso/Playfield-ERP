@@ -1,24 +1,32 @@
-# Dispatch (Legacy)
+# Dispatch (DELETED)
 
 **Route**: `/dispatch`  
-**Access**: MASTER_ADMIN, LOGISTICS_COORDINATOR  
-**Frontend**: `/app/frontend/src/pages/Dispatch.js`
+**Status**: ❌ DELETED (April 3, 2026)
 
 ---
 
-## Overview
+## Reason for Deletion
 
-Legacy dispatch management. Core functionality moved to Dispatch Lots.
+Superseded by **Dispatch Lots** (`/dispatch-lots`):
+
+| Dispatch Legacy | Dispatch Lots |
+|-----------------|---------------|
+| Simple `dispatch_entries` | `dispatch_lots` + `dispatch_lot_lines` |
+| Ad-hoc entries | Linked to Forecasts |
+| Just SKU + quantity | Full lifecycle tracking |
+| No production visibility | Per-line production dates |
 
 ---
 
-## Status
+## Replacement
 
-⚠️ **LEGACY** - Use `/dispatch-lots` for new dispatch management.
+Use **Dispatch Lots** (`/dispatch-lots`) for all dispatch operations.
 
 ---
 
-## Key Files
+## Files Deleted
 
-- **Frontend**: `/app/frontend/src/pages/Dispatch.js`
+- `/app/frontend/src/pages/Dispatch.js`
+- Route removed from `/app/frontend/src/App.js`
+- Sidebar entry removed from `/app/frontend/src/components/Layout.js`
 
