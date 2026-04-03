@@ -1353,14 +1353,68 @@ async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
     
     # Get common BOM
     common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
-    common_items = common_bom.get("items", []) if common_bom else []
+    common_items_raw = common_bom.get("items", []) if common_bom else []
     
     # Get brand-specific BOM
     brand_bom = await db.brand_specific_bom.find_one(
         {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
         {"_id": 0}
     )
-    brand_items = brand_bom.get("items", []) if brand_bom else []
+    brand_items_raw = brand_bom.get("items", []) if brand_bom else []
+    
+    # Collect all RM IDs to fetch descriptions
+    all_rm_ids = set()
+    for item in common_items_raw + brand_items_raw:
+        if item.get("rm_id"):
+            all_rm_ids.add(item["rm_id"])
+    
+    # Fetch RM details from raw_materials collection
+    rm_details = {}
+    if all_rm_ids:
+        rm_cursor = db.raw_materials.find(
+            {"rm_id": {"$in": list(all_rm_ids)}},
+            {"_id": 0, "rm_id": 1, "name": 1, "category_data": 1}
+        )
+        async for rm in rm_cursor:
+            rm_id = rm.get("rm_id")
+            name = rm.get("name", "")
+            cat_data = rm.get("category_data", {}) or {}
+            
+            # Determine best description
+            # Priority: 1) name (if not same as rm_id), 2) category_data.model_name, 3) category_data.description, 4) name
+            description = ""
+            if name and name != rm_id:
+                description = name
+            elif cat_data.get("model_name"):
+                description = cat_data.get("model_name")
+            elif cat_data.get("description"):
+                description = cat_data.get("description")
+            elif name:
+                description = name
+            
+            rm_details[rm_id] = description
+    
+    # Enrich common items with descriptions
+    common_items = []
+    for item in common_items_raw:
+        rm_id = item.get("rm_id", "")
+        common_items.append({
+            "rm_id": rm_id,
+            "rm_name": rm_details.get(rm_id, item.get("rm_name", "")),
+            "quantity": item.get("quantity", 1),
+            "unit": item.get("unit", "PCS")
+        })
+    
+    # Enrich brand-specific items with descriptions
+    brand_items = []
+    for item in brand_items_raw:
+        rm_id = item.get("rm_id", "")
+        brand_items.append({
+            "rm_id": rm_id,
+            "rm_name": rm_details.get(rm_id, item.get("rm_name", "")),
+            "quantity": item.get("quantity", 1),
+            "unit": item.get("unit", "PCS")
+        })
     
     # Combine
     total_items = common_items + brand_items
