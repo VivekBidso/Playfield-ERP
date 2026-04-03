@@ -1841,4 +1841,28 @@ Full Buyer SKU BOM = Common BOM + Brand-Specific BOM
 
 ---
 
+### April 3, 2026 - BOM Upload & Viewer Enhancements
+
+**Bug Fix: BOM Bulk Upload "RM Not Found" Issue**
+- **Problem**: BOM upload was failing with "RM not found" errors even when RMs existed
+- **Root Cause**: MongoDB query was using case-sensitive exact matching
+- **Fix**: Added case-insensitive fallback using regex: `{"$regex": "^{rm_id}$", "$options": "i"}`
+- **Files Changed**: `/app/backend/routes/sku_management_routes.py`
+
+**Feature: View Full BOM for Buyer SKUs**
+- **Problem**: Users could only view Common BOM for Bidso SKUs, not the complete BOM for Buyer SKUs
+- **Solution**: Added "View BOM" button to Buyer SKUs tab with comprehensive dialog showing:
+  - Summary cards: Total Items, Common Items, Brand-Specific Items, Parent Bidso SKU
+  - Common BOM section (inherited from parent Bidso SKU)
+  - Brand-Specific BOM section (unique to this Buyer SKU)
+  - Each section shows: RM ID, Description, Quantity, Unit
+- **Backend**: Uses existing `GET /api/sku-management/bom/full/{buyer_sku_id}` endpoint
+- **Frontend**: `/app/frontend/src/pages/SKUManagement.js` - Added `handleViewBuyerBOM()` and dialog component
+
+**Testing**:
+- Screenshot verification: BOM dialog displays correctly with all sections
+- API tested: Returns correct common + brand-specific items
+
+---
+
 *Last Updated: April 3, 2026*

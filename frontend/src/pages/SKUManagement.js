@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { 
   Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
-  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,12 @@ const SKUManagement = () => {
   const [commonBOM, setCommonBOM] = useState([]);
   const [brandSpecificBOM, setBrandSpecificBOM] = useState([]);
   const [bomLocked, setBomLocked] = useState(false);
+  
+  // Buyer SKU Full BOM
+  const [showBuyerBOMDialog, setShowBuyerBOMDialog] = useState(false);
+  const [selectedBuyerSKU, setSelectedBuyerSKU] = useState(null);
+  const [buyerFullBOM, setBuyerFullBOM] = useState(null);
+  const [buyerBOMLoading, setBuyerBOMLoading] = useState(false);
   
   // Stats
   const [stats, setStats] = useState({
@@ -315,6 +321,21 @@ const SKUManagement = () => {
       setShowBOMDialog(true);
     } catch (error) {
       toast.error("Failed to fetch BOM");
+    }
+  };
+
+  const handleViewBuyerBOM = async (buyerSKU) => {
+    setSelectedBuyerSKU(buyerSKU);
+    setBuyerBOMLoading(true);
+    setShowBuyerBOMDialog(true);
+    try {
+      const res = await axios.get(`${API}/sku-management/bom/full/${buyerSKU.buyer_sku_id}`, { headers: getHeaders() });
+      setBuyerFullBOM(res.data);
+    } catch (error) {
+      toast.error("Failed to fetch Buyer SKU BOM");
+      setBuyerFullBOM(null);
+    } finally {
+      setBuyerBOMLoading(false);
     }
   };
 
@@ -880,9 +901,20 @@ const SKUManagement = () => {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Edit className="h-4 w-4" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleViewBuyerBOM(sku)}
+                              data-testid={`view-bom-${sku.buyer_sku_id}`}
+                              title="View Full BOM"
+                            >
+                              <FileSpreadsheet className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" title="Edit">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1204,6 +1236,130 @@ const SKUManagement = () => {
               </Table>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Buyer SKU Full BOM Dialog */}
+      <Dialog open={showBuyerBOMDialog} onOpenChange={setShowBuyerBOMDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Full BOM - {selectedBuyerSKU?.buyer_sku_id}
+            </DialogTitle>
+            <DialogDescription>
+              Complete Bill of Materials for this Buyer SKU (Common + Brand-Specific)
+            </DialogDescription>
+          </DialogHeader>
+          
+          {buyerBOMLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : buyerFullBOM ? (
+            <div className="flex-1 overflow-y-auto space-y-6 mt-4 pr-2">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="p-3 bg-blue-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-blue-700">{buyerFullBOM.total_items?.length || 0}</p>
+                  <p className="text-xs text-blue-600">Total Items</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-gray-700">{buyerFullBOM.common_items?.length || 0}</p>
+                  <p className="text-xs text-gray-600">Common Items</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-700">{buyerFullBOM.brand_specific_items?.length || 0}</p>
+                  <p className="text-xs text-green-600">Brand-Specific</p>
+                </div>
+                <div className="p-3 bg-purple-50 rounded-lg text-center">
+                  <p className="text-sm font-mono font-bold text-purple-700">{buyerFullBOM.bidso_sku_id}</p>
+                  <p className="text-xs text-purple-600">Parent Bidso SKU</p>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              {/* Common BOM Section */}
+              <div>
+                <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Common BOM (from {buyerFullBOM.bidso_sku_id})
+                  {buyerFullBOM.is_common_bom_locked && (
+                    <Badge className="bg-green-100 text-green-700 text-xs">
+                      <Lock className="h-3 w-3 mr-1" />
+                      Locked
+                    </Badge>
+                  )}
+                </h4>
+                {buyerFullBOM.common_items?.length > 0 ? (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50">
+                          <TableHead className="w-[120px]">RM ID</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead className="w-[80px] text-right">Qty</TableHead>
+                          <TableHead className="w-[60px]">Unit</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {buyerFullBOM.common_items.map((item, idx) => (
+                          <TableRow key={`common-${idx}`}>
+                            <TableCell className="font-mono text-sm">{item.rm_id}</TableCell>
+                            <TableCell className="text-sm text-gray-600">{item.rm_name || "-"}</TableCell>
+                            <TableCell className="text-right font-medium">{item.quantity}</TableCell>
+                            <TableCell className="text-sm text-gray-500">{item.unit}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No common BOM items defined for the parent Bidso SKU.</p>
+                )}
+              </div>
+              
+              {/* Brand-Specific BOM Section */}
+              <div>
+                <h4 className="font-medium text-green-700 mb-2 flex items-center gap-2">
+                  <Tag className="h-4 w-4" />
+                  Brand-Specific BOM ({buyerFullBOM.brand_code})
+                </h4>
+                {buyerFullBOM.brand_specific_items?.length > 0 ? (
+                  <div className="border border-green-200 rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-green-50">
+                          <TableHead className="w-[120px]">RM ID</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead className="w-[80px] text-right">Qty</TableHead>
+                          <TableHead className="w-[60px]">Unit</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {buyerFullBOM.brand_specific_items.map((item, idx) => (
+                          <TableRow key={`brand-${idx}`} className="bg-green-50/30">
+                            <TableCell className="font-mono text-sm text-green-700">{item.rm_id}</TableCell>
+                            <TableCell className="text-sm text-gray-600">{item.rm_name || "-"}</TableCell>
+                            <TableCell className="text-right font-medium">{item.quantity}</TableCell>
+                            <TableCell className="text-sm text-gray-500">{item.unit}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No brand-specific BOM items defined for this Buyer SKU.</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <FileSpreadsheet className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+              <p>Failed to load BOM data.</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
