@@ -437,25 +437,37 @@ def check_inventory(lot_id, branch_id):
 
 ## Implementation Phases
 
-### Phase 1: Master Data Setup
-1. Add HSN Code and GST Rate fields to `buyer_skus` collection
-2. Create Price Master collection and API
-3. Add Price Master UI to SKU Catalog (or new page)
-4. Allow Finance to edit HSN/GST in SKU Management
+### Phase 1: Master Data Setup ✅ COMPLETE
+1. ✅ Add HSN Code and GST Rate fields to `buyer_skus` collection
+2. ✅ Create Price Master collection and API (`/api/price-master`)
+3. ✅ Allow Finance to edit HSN/GST via `PUT /api/sku-management/buyer-skus/{id}`
+4. ⏳ Add Price Master UI to SKU Catalog (frontend pending)
 
-### Phase 2: Dispatch Lots - Demand Team
-1. Simplify lot creation (Customer + SKU + Qty only)
-2. Remove forecast linkage (pause)
-3. Add bulk upload for simple format
-4. Add "Send to Finance" action
+### Phase 2: Dispatch Lots - Demand Team ✅ COMPLETE
+1. ✅ Simplify lot creation (Customer + SKU + Qty only)
+2. ✅ Remove forecast linkage (paused)
+3. ✅ Add bulk upload for simple format
+4. ✅ Add "Send to Finance" action
+5. ✅ Frontend UI with Create Lot dialog
 
-### Phase 3: Dispatch Lots - Finance Team
-1. Create invoice form with all fields
-2. Implement inventory check with blocking
-3. Auto-populate Rate from Price Master
-4. Auto-populate HSN/GST from SKU Catalog
-5. Preserve manufacturing origin data
-6. Invoice number placeholder (to be implemented later)
+### Phase 3: Dispatch Lots - Finance Team ✅ COMPLETE
+1. ✅ Create invoice form with all fields
+2. ✅ Implement inventory check with blocking
+3. ✅ Auto-populate Rate from Price Master (lookup endpoint ready)
+4. ✅ Auto-populate HSN/GST from SKU Catalog
+5. ✅ Preserve manufacturing origin data
+6. ✅ Invoice number placeholder (to be implemented later)
+
+---
+
+## Testing Results (April 3, 2026)
+
+**Backend**: 16/16 tests passed (100%)
+**Frontend**: All UI elements verified
+
+### Bugs Fixed During Testing:
+1. MongoDB ObjectId serialization in Price Master API
+2. fetchBuyerSkus page_size limit (100 max, not 1000)
 
 ---
 
