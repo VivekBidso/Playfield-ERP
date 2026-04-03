@@ -80,7 +80,7 @@ const Layout = () => {
     { path: "/skus", label: "SKUs (Legacy)", icon: Box, show: !isCPCPlanner && isAdmin },
     // RM-SKU Mapping removed - use SKU Management BOM instead
     // Production Planning removed - CPC handles all production planning from forecasts
-    { path: "/production", label: "Production", icon: Factory, show: isAdmin },
+    // Production page removed - Branch Ops handles schedule completion
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: isAdmin || hasRole('QUALITY_INSPECTOR') },
     { path: "/logistics", label: "Logistics", icon: Truck, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/ibt", label: "IBT Transfers", icon: ArrowLeftRight, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') || hasRole('BRANCH_OPS_USER') },

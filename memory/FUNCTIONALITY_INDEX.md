@@ -14,7 +14,6 @@
 | **ALL USERS** | Reports | [REPORTS.md](func/REPORTS.md) |
 | MASTER_ADMIN | Master Dashboard | [MASTER_DASHBOARD.md](func/MASTER_DASHBOARD.md) |
 | MASTER_ADMIN | User Management | [USER_MANAGEMENT.md](func/USER_MANAGEMENT.md) |
-| MASTER_ADMIN | Production | [PRODUCTION.md](func/PRODUCTION.md) |
 | MASTER_ADMIN | Event System | [EVENTS.md](func/EVENTS.md) |
 | MASTER_ADMIN | SKUs (Legacy) | [SKUS_LEGACY.md](func/SKUS_LEGACY.md) |
 | MASTER_ADMIN, TECH_OPS_ENGINEER | Tech Ops | [TECH_OPS.md](func/TECH_OPS.md) |

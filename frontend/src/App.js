@@ -13,7 +13,7 @@ import SKUSubscription from "@/pages/SKUSubscription";
 import SKUManagement from "@/pages/SKUManagement";
 import VendorManagement from "@/pages/VendorManagement";
 // ProductionPlanning page removed - CPC handles all production planning from forecasts
-import Production from "@/pages/Production";
+// Production page removed - Branch Ops handles schedule completion
 import Dispatch from "@/pages/Dispatch";
 import DispatchLots from "@/pages/DispatchLots";
 import Reports from "@/pages/Reports";
@@ -94,8 +94,7 @@ function App() {
             <Route path="sku-subscription" element={<SKUSubscription />} />
             <Route path="sku-management" element={<SKUManagement />} />
             <Route path="vendors" element={<VendorManagement />} />
-            {/* Production Planning removed - use CPC module for forecast-driven planning */}
-            <Route path="production" element={<Production />} />
+            {/* Production page removed - Branch Ops handles schedule completion */}
             <Route path="dispatch" element={<Dispatch />} />
             <Route path="dispatch-lots" element={<DispatchLots />} />
             <Route path="reports" element={<Reports />} />

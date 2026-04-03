@@ -1,26 +1,36 @@
-# Production (Legacy)
+# Production (DELETED)
 
 **Route**: `/production`  
-**Access**: MASTER_ADMIN only  
-**Frontend**: `/app/frontend/src/pages/Production.js`
+**Status**: ❌ DELETED (April 3, 2026)
 
 ---
 
-## Overview
+## Reason for Deletion
 
-Legacy production tracking page. Most functionality moved to Branch Ops and CPC.
+This page was **redundant** with Branch Ops:
+
+| Production.js (Deleted) | Branch Ops (Active) |
+|-------------------------|---------------------|
+| Ad-hoc manual entries | CPC schedule-driven |
+| No planning integration | Tied to forecasts |
+| Separate `production_entries` | Uses `branch_schedules` |
+| MASTER_ADMIN only | BRANCH_OPS_USER access |
 
 ---
 
-## Status
+## Replacement
 
-⚠️ **LEGACY** - Consider deprecating. Core features available in:
-- Branch Ops (branch-level production)
-- CPC (central production planning)
+Use **Branch Ops** (`/branch-ops`) for all production completion:
+
+```
+Forecast (Demand) → Schedule (CPC) → Execute & Complete (Branch Ops)
+```
 
 ---
 
-## Key Files
+## Files Deleted
 
-- **Frontend**: `/app/frontend/src/pages/Production.js`
+- `/app/frontend/src/pages/Production.js`
+- Route removed from `/app/frontend/src/App.js`
+- Sidebar entry removed from `/app/frontend/src/components/Layout.js`
 
