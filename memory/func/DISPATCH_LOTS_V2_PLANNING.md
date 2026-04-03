@@ -14,6 +14,96 @@ The Dispatch Lots system will now have a **two-stage workflow**:
 
 ---
 
+## Clarified Requirements
+
+| Question | Answer |
+|----------|--------|
+| Invoice numbering | Sequential across ALL branches (001, 002, 003...) - to be inserted later |
+| Multiple branches per lot | NO - single branch per lot |
+| Manufacturing origin | Must preserve where item was manufactured (even if dispatched from different branch) |
+| Unit Rate source | **Price Master** (Buyer SKU × Customer ID mapping) |
+| HSN/GST source | **SKU Catalog** - Finance team maintains this |
+| Source of Supply | Manual selection (not auto from branch) |
+| Salesperson | Free text (no master table) |
+
+---
+
+## New Master Data: Price Master
+
+**Purpose**: Maintain customer-specific pricing for each Buyer SKU
+
+### Price Master Structure
+```javascript
+{
+  "id": "uuid",
+  "customer_id": "CUST_0001",
+  "customer_name": "TVS Motors",
+  "buyer_sku_id": "ERW001_TVS",
+  "unit_price": 1500.00,
+  "currency": "INR",
+  "effective_from": "2026-04-01",
+  "effective_to": null,  // null = currently active
+  "created_by": "demand_planner_id",
+  "created_at": "2026-04-01T10:00:00Z"
+}
+```
+
+### Price Master UI (Demand Team)
+- Located in: **SKU Catalog** or new **Price Master** page
+- Actions: Create, Edit, View history
+- Bulk upload support
+
+---
+
+## HSN/GST in SKU Catalog
+
+**Location**: SKU Management → Buyer SKUs tab
+
+### Fields to Add
+| Field | Type | Maintained By |
+|-------|------|---------------|
+| HSN Code | Text (8 digits) | Finance |
+| GST Rate | Dropdown (5%, 12%, 18%, 28%) | Finance |
+
+### Example
+```
+| Buyer SKU ID | Description      | HSN Code | GST Rate |
+|--------------|------------------|----------|----------|
+| ERW001_TVS   | Body Cover - TVS | 87141090 | 18%      |
+| ERW002_TVS   | Wheel Assembly   | 87149990 | 18%      |
+```
+
+---
+
+## Manufacturing Origin Tracking
+
+When Finance selects a dispatch branch, the system must track:
+
+### Line Item Extended Data
+```javascript
+{
+  "buyer_sku_id": "ERW001_TVS",
+  "quantity": 100,
+  "rate": 1500.00,
+  "hsn_code": "87141090",
+  "gst_rate": 18,
+  "tax_amount": 27000.00,
+  "amount": 150000.00,
+  
+  // Manufacturing Origin (from inventory/production records)
+  "manufacturing_origin": {
+    "branch_id": "BR_003",
+    "branch_name": "Unit 3 Nashik",
+    "production_date": "2026-03-15",
+    "batch_number": "BATCH-2026-0342"
+  }
+}
+```
+
+This preserves WHERE the item was manufactured even if dispatched from a different warehouse/branch.
+
+---
+
 ## Stage 1: Demand Team View
 
 ### Purpose
@@ -81,24 +171,26 @@ Finance team selects a dispatch lot (or creates new) and completes all invoice/b
 |-------|------|----------|-------------|
 | Customer Name | Dropdown | ✅ | Pre-filled if from demand lot |
 | Branch | Dropdown | ✅ | Dispatch from branch (GST impact) |
-| Source of Supply | Auto | - | State based on branch (e.g., "Haryana") |
-| Invoice # | Auto-generated | ✅ | Format: `YY-YY/NNNN` (e.g., 26-27/0004) |
+| Source of Supply | Dropdown | ✅ | **Manual selection** (State) |
+| Invoice # | Auto-generated | ✅ | Sequential across all branches (inserted later) |
 | Order Number | Text | ❌ | Customer PO reference |
 | Invoice Date | Date | ✅ | Defaults to today |
 | Terms | Dropdown | ✅ | Due on Receipt, Net 15/30/45/60 |
 | Due Date | Date | ✅ | Auto-calculated from terms |
 | Accounts Receivable | Dropdown | ✅ | AR account selection |
-| Salesperson | Dropdown | ❌ | Optional sales rep |
+| Salesperson | Text | ❌ | Free text (no master) |
 | Subject | Text | ❌ | Invoice description |
 
-#### Item Table (Pre-filled from Demand Lot)
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| Item Details | Dropdown | ✅ | Buyer SKU (pre-filled) |
-| Quantity | Number | ✅ | Units (pre-filled, editable) |
-| Rate | Number | ✅ | Unit price |
-| Tax | Dropdown | ✅ | GST rate (5%, 12%, 18%, 28%) |
+#### Item Table (Pre-filled from Demand Lot + Price Master + SKU Catalog)
+| Field | Type | Required | Source |
+|-------|------|----------|--------|
+| Item Details | Dropdown | ✅ | Buyer SKU (pre-filled from lot) |
+| Quantity | Number | ✅ | Pre-filled from lot, editable |
+| Rate | Number | ✅ | **Auto from Price Master** (Customer × SKU) |
+| HSN | Text | ✅ | **Auto from SKU Catalog** |
+| Tax | Dropdown | ✅ | **Auto from SKU Catalog** (GST rate) |
 | Amount | Calculated | - | Qty × Rate |
+| Mfg Origin | Display | - | Shows manufacturing branch (read-only) |
 
 #### Totals Section
 | Field | Type | Description |
@@ -323,12 +415,47 @@ def check_inventory(lot_id, branch_id):
 
 ## Questions to Confirm
 
-1. **Invoice Numbering**: Should it be auto-generated per financial year (e.g., 26-27/0001)?
-2. **Multiple Branches**: Can a single lot be dispatched from multiple branches, or is it always single branch?
-3. **Partial Dispatch**: Can finance dispatch partial quantity and leave rest pending?
-4. **Rate Source**: Where does the unit rate come from? SKU master, last price, or manual entry each time?
-5. **Salesperson Master**: Do we need a salesperson master table, or just free text?
-6. **Source of Supply**: Is this derived from branch location (state), or manually selected?
+~~1. Invoice Numbering: Should it be auto-generated per financial year (e.g., 26-27/0001)?~~  
+**ANSWERED**: Sequential across all branches, to be inserted later
+
+~~2. Multiple Branches: Can a single lot be dispatched from multiple branches?~~  
+**ANSWERED**: NO - single branch, but preserve manufacturing origin
+
+~~3. Rate Source: Where does the unit rate come from?~~  
+**ANSWERED**: Price Master (Buyer SKU × Customer ID mapping)
+
+~~4. HSN/GST Source:~~  
+**ANSWERED**: SKU Catalog - maintained by Finance
+
+~~5. Salesperson Master:~~  
+**ANSWERED**: Free text, no master table
+
+~~6. Source of Supply:~~  
+**ANSWERED**: Manual selection (not auto from branch)
+
+---
+
+## Implementation Phases
+
+### Phase 1: Master Data Setup
+1. Add HSN Code and GST Rate fields to `buyer_skus` collection
+2. Create Price Master collection and API
+3. Add Price Master UI to SKU Catalog (or new page)
+4. Allow Finance to edit HSN/GST in SKU Management
+
+### Phase 2: Dispatch Lots - Demand Team
+1. Simplify lot creation (Customer + SKU + Qty only)
+2. Remove forecast linkage (pause)
+3. Add bulk upload for simple format
+4. Add "Send to Finance" action
+
+### Phase 3: Dispatch Lots - Finance Team
+1. Create invoice form with all fields
+2. Implement inventory check with blocking
+3. Auto-populate Rate from Price Master
+4. Auto-populate HSN/GST from SKU Catalog
+5. Preserve manufacturing origin data
+6. Invoice number placeholder (to be implemented later)
 
 ---
 
