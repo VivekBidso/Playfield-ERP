@@ -567,7 +567,6 @@ Example:
 
 ### P1 - High Priority
 - Define Bidso SKU BOM creation workflow (how to author a new BOM for new products)
-- Consolidate IBT routes into logistics_routes.py
 
 ### P2 - Medium Priority
 - Implement Zoho Books API Integration (playbook ready, needs credentials)
@@ -582,6 +581,10 @@ Example:
 - Barcode scanning
 - Real-time dashboard with auto-refresh
 - Multi-month production planning view
+
+### COMPLETED (April 4, 2026)
+- ✅ Consolidated IBT routes into procurement_routes.py (removed legacy duplicate routes from report_routes.py)
+- ✅ IBT Module Overhaul - 6 features: inventory validation, transit tracking, variance logging, shortage records
 
 ---
 
@@ -2362,6 +2365,124 @@ Full BOM = common_bom (via bidso_sku_id) + brand_bom (via buyer_sku_id)
 ---
 
 *Last Updated: April 4, 2026*
+
+---
+
+## 22. INTER-BRANCH TRANSFER (IBT) MODULE OVERHAUL (April 4, 2026)
+
+### Overview
+The IBT module has been completely overhauled to support strict inventory tracking, transit management, and variance/shortage recording.
+
+### Status Flow
+```
+INITIATED → APPROVED → IN_TRANSIT → COMPLETED
+                     ↓
+                CANCELLED (only before dispatch)
+```
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Inventory Check on Create** | Validates source branch has sufficient stock before allowing transfer |
+| **Inventory Re-validation** | Checks stock again at approve and dispatch stages |
+| **Transit Tracking** | Captures vehicle number, driver name, driver contact, expected arrival |
+| **Dispatch Deduction** | Stock is deducted from source branch at dispatch (not approve) |
+| **Receiver Input** | Receiving branch enters actual received quantity |
+| **Shortage Records** | Automatic variance logging when received < dispatched |
+| **Cancel Protection** | Cancel only allowed for INITIATED/APPROVED, not after dispatch |
+
+### API Endpoints (`/app/backend/routes/procurement_routes.py`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/ibt-transfers` | GET | List all transfers with filters |
+| `/api/ibt-transfers` | POST | Create transfer (validates inventory) |
+| `/api/ibt-transfers/{id}` | GET | Get single transfer with details |
+| `/api/ibt-transfers/check-inventory/{type}/{item}/{branch}` | GET | Check available stock |
+| `/api/ibt-transfers/{id}/approve` | PUT | Approve transfer (re-validates inventory) |
+| `/api/ibt-transfers/{id}/dispatch` | PUT | Dispatch - deducts from source, status=IN_TRANSIT |
+| `/api/ibt-transfers/{id}/receive` | PUT | Receive - adds to destination, creates shortage if variance |
+| `/api/ibt-transfers/{id}/cancel` | PUT | Cancel (only before dispatch) |
+| `/api/ibt-shortages` | GET | List shortage records |
+| `/api/ibt-shortages/{id}/resolve` | PUT | Resolve shortage (write-off, recovered, etc.) |
+
+### Database Collections
+
+**ibt_transfers:**
+```json
+{
+  "id": "uuid",
+  "transfer_code": "IBT_20260404_0001",
+  "transfer_type": "RM",  // or "FG"
+  "source_branch": "Unit 1 Vedica",
+  "destination_branch": "Unit 2 Trikes",
+  "item_id": "INP_654",
+  "item_name": "Battery Cover - Red",
+  "quantity": 50,
+  "dispatched_quantity": 50,
+  "received_quantity": 45,
+  "variance": 5,
+  "status": "COMPLETED",
+  "initiated_at": "2026-04-04T19:35:12Z",
+  "approved_at": "2026-04-04T19:35:18Z",
+  "dispatched_at": "2026-04-04T19:35:22Z",
+  "received_at": "2026-04-04T19:35:28Z",
+  "vehicle_number": "MH-12-AB-1234",
+  "driver_name": "John Driver",
+  "driver_contact": "9876543210",
+  "expected_arrival": "2026-04-05",
+  "notes": "Test transfer",
+  "shortage_record_id": "uuid"
+}
+```
+
+**ibt_shortages:**
+```json
+{
+  "id": "uuid",
+  "ibt_transfer_id": "uuid",
+  "transfer_code": "IBT_20260404_0001",
+  "transfer_type": "RM",
+  "item_id": "INP_654",
+  "source_branch": "Unit 1 Vedica",
+  "destination_branch": "Unit 2 Trikes",
+  "dispatched_quantity": 50,
+  "received_quantity": 45,
+  "shortage_quantity": 5,
+  "shortage_percentage": 10.0,
+  "status": "PENDING_INVESTIGATION",
+  "damage_notes": "5 pieces damaged during transit",
+  "received_notes": "Counted 45 pieces",
+  "created_at": "2026-04-04T19:35:28Z"
+}
+```
+
+### Frontend Components (`/app/frontend/src/pages/IBT.js`)
+
+| Component | Description |
+|-----------|-------------|
+| Summary Cards | Total, Pending, In Transit, Completed, Shortages counts |
+| Shortage Alert | Banner showing pending investigation count |
+| Transfers Table | List with status badges, variance indicators |
+| Create Dialog | Transfer type, branches, item, quantity, transit details |
+| Dispatch Dialog | Transit details update, inventory warning |
+| Receive Dialog | Actual quantity input, damage/receipt notes |
+| Detail Dialog | Full transfer timeline, transit info, shortage details |
+
+### Technical Debt Resolved
+- Removed duplicate legacy IBT endpoints from `/app/backend/routes/report_routes.py`
+- Consolidated all IBT logic into `/app/backend/routes/procurement_routes.py`
+
+### Test Verification (April 4, 2026)
+- ✅ 20/20 backend API tests passed (100%)
+- ✅ All frontend UI elements verified
+- ✅ Inventory validation on create/approve/dispatch working
+- ✅ Shortage record creation on variance working
+- ✅ Cancel protection working (blocked after dispatch)
+- ✅ Transit details captured and displayed correctly
+
+---
 
 
 
