@@ -95,14 +95,33 @@ const RMShortage = () => {
     }
   };
 
-  const handleExport = () => {
-    const params = new URLSearchParams();
-    if (branchFilter) params.append('branch', branchFilter);
-    if (startDate) params.append('start_date', startDate);
-    if (endDate) params.append('end_date', endDate);
-    
-    window.open(`${API}/rm-shortage-report/export?${params.toString()}`, '_blank');
-    toast.success("Downloading export...");
+  const handleExport = async () => {
+    try {
+      toast.info("Preparing export...");
+      const params = new URLSearchParams();
+      if (branchFilter) params.append('branch', branchFilter);
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      
+      const response = await axios.get(`${API}/rm-shortage-report/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `rm_shortage_report_${startDate}_${endDate}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Export downloaded!");
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast.error("Failed to export report");
+    }
   };
 
   // Get flat data for display

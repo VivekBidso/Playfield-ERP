@@ -445,7 +445,7 @@ async def get_rm_shortage_report(
         if all_rm_ids:
             rms = await db.raw_materials.find(
                 {"rm_id": {"$in": list(all_rm_ids)}},
-                {"_id": 0, "rm_id": 1, "description": 1, "unit": 1, "category": 1}
+                {"_id": 0, "rm_id": 1, "name": 1, "description": 1, "unit": 1, "category": 1}
             ).to_list(5000)
             rm_details = {rm["rm_id"]: rm for rm in rms}
         
@@ -461,7 +461,7 @@ async def get_rm_shortage_report(
             rm_info = rm_details.get(rm_id, {})
             branch_data.append({
                 "rm_id": rm_id,
-                "description": rm_info.get("description", ""),
+                "description": rm_info.get("name") or rm_info.get("description", ""),
                 "unit": rm_info.get("unit", ""),
                 "category": rm_info.get("category", ""),
                 "current_stock": round(current, 2),
@@ -580,8 +580,8 @@ async def export_rm_shortage_report(
         return merged
     
     # Get all RM details
-    all_rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "description": 1, "unit": 1}).to_list(15000)
-    rm_details = {rm["rm_id"]: rm for rm in all_rms}
+    all_rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "name": 1, "description": 1, "unit": 1}).to_list(15000)
+    rm_details = {rm["rm_id"]: {"rm_id": rm["rm_id"], "description": rm.get("name") or rm.get("description", ""), "unit": rm.get("unit", "")} for rm in all_rms}
     
     # Create Excel workbook
     wb = openpyxl.Workbook()
