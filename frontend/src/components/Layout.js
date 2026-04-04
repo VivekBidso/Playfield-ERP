@@ -44,7 +44,7 @@ const ROLE_DISPLAY_NAMES = {
   'BRANCH_OPS_USER': 'BRANCH OPS',
   'QUALITY_INSPECTOR': 'QUALITY',
   'LOGISTICS_COORDINATOR': 'LOGISTICS',
-  'FINANCE_VIEWER': 'FINANCE',
+  'FINANCE_VIEWER': 'FINANCE USER',
   'AUDITOR_READONLY': 'AUDITOR'
 };
 
@@ -68,7 +68,7 @@ const Layout = () => {
     { path: "/demand-hub", label: "Demand Hub", icon: PlusCircle, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/demand-sku-view", label: "SKU Catalog", icon: List, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/color-development", label: "Color Development", icon: Palette, show: isAdmin || hasRole('DEMAND_PLANNER') },
-    { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
+    { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') || hasRole('FINANCE_VIEWER') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
     { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/rm-shortage", label: "RM Shortage", icon: AlertTriangle, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') },

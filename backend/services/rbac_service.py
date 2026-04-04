@@ -85,13 +85,24 @@ class RBACService:
                 # Map legacy roles to new role codes
                 legacy_mapping = {
                     "master_admin": "MASTER_ADMIN",
-                    "branch_user": "BRANCH_OPS_USER"
+                    "branch_user": "BRANCH_OPS_USER",
+                    "finance_viewer": "FINANCE_VIEWER"
                 }
                 return [legacy_mapping.get(legacy_role, "BRANCH_OPS_USER")]
             return []
         
-        role_ids = [ur["role_id"] for ur in user_roles]
-        roles = await db.roles.find({"id": {"$in": role_ids}, "is_active": True}).to_list(100)
+        # user_roles has role_code field, not role_id
+        role_codes = [ur.get("role_code") or ur.get("role_id") for ur in user_roles if ur.get("role_code") or ur.get("role_id")]
+        
+        if not role_codes:
+            return []
+        
+        # If we have role_codes directly, return them
+        # Otherwise look up from roles collection
+        if all(isinstance(rc, str) and rc.isupper() for rc in role_codes):
+            return role_codes
+        
+        roles = await db.roles.find({"id": {"$in": role_codes}, "is_active": True}).to_list(100)
         return [r["code"] for r in roles]
     
     async def check_permission(

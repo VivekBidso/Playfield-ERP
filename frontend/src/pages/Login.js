@@ -22,7 +22,7 @@ const TEST_ACCOUNTS = [
   { role: "BRANCH_OPS_USER", label: "Branch Ops User", email: "branchops@bidso.com", password: "bidso123", description: "Branch operations" },
   { role: "QUALITY_INSPECTOR", label: "Quality Inspector", email: "qcinspector@bidso.com", password: "bidso123", description: "QC management" },
   { role: "LOGISTICS_COORDINATOR", label: "Logistics Coordinator", email: "logistics@bidso.com", password: "bidso123", description: "Dispatch & IBT" },
-  { role: "FINANCE_VIEWER", label: "Finance Viewer", email: "financeviewer@bidso.com", password: "bidso123", description: "Finance read-only" },
+  { role: "FINANCE_VIEWER", label: "Finance User", email: "finance@bidso.com", password: "bidso123", description: "Finance invoicing & dispatch" },
   { role: "AUDITOR_READONLY", label: "Auditor (Read-Only)", email: "auditor@bidso.com", password: "bidso123", description: "Audit read-only" },
 ];
 
