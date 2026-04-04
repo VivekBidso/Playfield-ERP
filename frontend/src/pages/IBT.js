@@ -104,7 +104,9 @@ const IBT = () => {
       setTransfers(ibtRes.data);
       setBranches(branchRes.data.branches || []);
       setRawMaterials(rmRes.data || []);
-      setBuyerSkus(skuRes.data.buyer_skus || []);
+      // Handle both response formats: {buyer_skus: [...]} or {items: [...]}
+      const skuData = skuRes.data;
+      setBuyerSkus(skuData.buyer_skus || skuData.items || skuData || []);
       setShortages(shortRes.data || []);
     } catch (error) {
       toast.error("Failed to fetch IBT data");
