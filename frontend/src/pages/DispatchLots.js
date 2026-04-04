@@ -50,7 +50,7 @@ const DispatchLots = () => {
   const { hasRole, isMasterAdmin, token } = useAuthStore();
   const isAdmin = isMasterAdmin();
   const isDemandTeam = hasRole('DEMAND_PLANNER') || isAdmin;
-  const isFinanceTeam = hasRole('FINANCE_VIEWER') || isAdmin;
+  const isFinanceTeam = hasRole('FINANCE_VIEWER') || hasRole('finance_viewer') || isAdmin;
   
   const [lots, setLots] = useState([]);
   const [summary, setSummary] = useState({});

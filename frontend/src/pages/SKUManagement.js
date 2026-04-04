@@ -92,6 +92,16 @@ const SKUManagement = () => {
   const [bomEditLoading, setBomEditLoading] = useState(false);
   const [scheduleWarning, setScheduleWarning] = useState(null);
   
+  // Edit Buyer SKU (HSN/GST)
+  const [showEditBuyerDialog, setShowEditBuyerDialog] = useState(false);
+  const [editBuyerForm, setEditBuyerForm] = useState({ hsn_code: "", gst_rate: 18 });
+  const [editBuyerLoading, setEditBuyerLoading] = useState(false);
+  
+  // Bulk HSN/GST Upload
+  const [showBulkHSNDialog, setShowBulkHSNDialog] = useState(false);
+  const [bulkHSNFile, setBulkHSNFile] = useState(null);
+  const [bulkHSNLoading, setBulkHSNLoading] = useState(false);
+  
   // Stats
   const [stats, setStats] = useState({
     bidso_skus: 0,
@@ -459,6 +469,82 @@ const SKUManagement = () => {
   const getModelName = (id) => models.find(m => m.id === id)?.name || "";
   const getBrandName = (id) => brands.find(b => b.id === id)?.name || "";
   const getFilteredModels = () => filterVertical ? models.filter(m => m.vertical_id === filterVertical) : models;
+
+  // Edit Buyer SKU (HSN/GST)
+  const handleEditBuyerSKU = (sku) => {
+    setSelectedBuyerSKU(sku);
+    setEditBuyerForm({
+      hsn_code: sku.hsn_code || "",
+      gst_rate: sku.gst_rate || 18
+    });
+    setShowEditBuyerDialog(true);
+  };
+
+  const handleSaveBuyerHSNGST = async () => {
+    if (!selectedBuyerSKU) return;
+    
+    setEditBuyerLoading(true);
+    try {
+      await axios.put(
+        `${API}/sku-management/buyer-skus/${selectedBuyerSKU.buyer_sku_id}/hsn-gst`,
+        {
+          hsn_code: editBuyerForm.hsn_code,
+          gst_rate: parseFloat(editBuyerForm.gst_rate) || 18
+        },
+        { headers: getHeaders() }
+      );
+      
+      toast.success(`HSN/GST updated for ${selectedBuyerSKU.buyer_sku_id}`);
+      setShowEditBuyerDialog(false);
+      fetchBuyerSKUs();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update HSN/GST");
+    } finally {
+      setEditBuyerLoading(false);
+    }
+  };
+
+  // Bulk HSN/GST Upload
+  const handleDownloadHSNTemplate = () => {
+    const template = [
+      { buyer_sku_id: "EXAMPLE_SKU_001", hsn_code: "87141090", gst_rate: 18 },
+      { buyer_sku_id: "EXAMPLE_SKU_002", hsn_code: "87149990", gst_rate: 18 }
+    ];
+    
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "HSN_GST_Template");
+    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const data = new Blob([excelBuffer], { type: 'application/octet-stream' });
+    saveAs(data, 'hsn_gst_template.xlsx');
+    toast.success("Template downloaded");
+  };
+
+  const handleBulkHSNUpload = async () => {
+    if (!bulkHSNFile) {
+      toast.error("Please select a file");
+      return;
+    }
+    
+    setBulkHSNLoading(true);
+    const formData = new FormData();
+    formData.append("file", bulkHSNFile);
+    
+    try {
+      const res = await axios.post(`${API}/sku-management/buyer-skus/bulk-hsn-gst`, formData, {
+        headers: { ...getHeaders(), "Content-Type": "multipart/form-data" }
+      });
+      
+      toast.success(`Updated ${res.data.updated} SKUs, ${res.data.errors?.length || 0} errors`);
+      setShowBulkHSNDialog(false);
+      setBulkHSNFile(null);
+      fetchBuyerSKUs();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to upload HSN/GST data");
+    } finally {
+      setBulkHSNLoading(false);
+    }
+  };
 
   // Data Sync Functions
   const handleExportData = async () => {
@@ -929,15 +1015,25 @@ const SKUManagement = () => {
               </Button>
             </div>
             
-            <Button 
-              variant="outline" 
-              className="text-red-600 border-red-200 hover:bg-red-50"
-              onClick={() => setShowBulkDeleteDialog(true)}
-              data-testid="bulk-delete-btn"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Bulk Delete
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => setShowBulkDeleteDialog(true)}
+                data-testid="bulk-delete-btn"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Bulk Delete
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => setShowBulkHSNDialog(true)}
+                data-testid="bulk-hsn-btn"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Bulk HSN/GST
+              </Button>
+            </div>
           </div>
 
           {/* Buyer SKUs Table */}
@@ -947,11 +1043,10 @@ const SKUManagement = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Buyer SKU ID</TableHead>
-                    <TableHead>Vertical</TableHead>
-                    <TableHead>Model</TableHead>
                     <TableHead>Brand</TableHead>
-                    <TableHead>Parent Bidso SKU</TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>HSN Code</TableHead>
+                    <TableHead>GST %</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -959,13 +1054,13 @@ const SKUManagement = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : buyerSKUs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                         No Buyer SKUs found. Create from a Bidso SKU first.
                       </TableCell>
                     </TableRow>
@@ -976,19 +1071,24 @@ const SKUManagement = () => {
                           <span className="font-mono font-medium text-green-600">{sku.buyer_sku_id}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{sku.vertical_name || sku.vertical_code || "-"}</span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm">{sku.model_name || sku.model_code || "-"}</span>
-                        </TableCell>
-                        <TableCell>
                           <Badge>{sku.brand_code}</Badge>
                           <span className="ml-2 text-sm text-gray-500">{sku.brand_name}</span>
                         </TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={sku.name}>{sku.name}</TableCell>
                         <TableCell>
-                          <span className="font-mono text-blue-600">{sku.bidso_sku_id}</span>
+                          {sku.hsn_code ? (
+                            <span className="font-mono text-sm">{sku.hsn_code}</span>
+                          ) : (
+                            <span className="text-amber-500 text-xs">Not set</span>
+                          )}
                         </TableCell>
-                        <TableCell>{sku.name}</TableCell>
+                        <TableCell>
+                          {sku.gst_rate ? (
+                            <Badge variant="outline">{sku.gst_rate}%</Badge>
+                          ) : (
+                            <span className="text-amber-500 text-xs">Not set</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={sku.status === 'ACTIVE' ? 'default' : 'secondary'}>
                             {sku.status}
@@ -1005,7 +1105,13 @@ const SKUManagement = () => {
                             >
                               <FileSpreadsheet className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" title="Edit">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              title="Edit HSN/GST"
+                              onClick={() => handleEditBuyerSKU(sku)}
+                              data-testid={`edit-hsn-${sku.buyer_sku_id}`}
+                            >
                               <Edit className="h-4 w-4" />
                             </Button>
                           </div>
@@ -1870,6 +1976,110 @@ const SKUManagement = () => {
                 {bulkDeleteLoading ? 'Deleting...' : `Delete ${bulkDeletePreview.found} SKUs`}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Buyer SKU HSN/GST Dialog */}
+      <Dialog open={showEditBuyerDialog} onOpenChange={setShowEditBuyerDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit HSN/GST</DialogTitle>
+            <DialogDescription>
+              Update tax details for {selectedBuyerSKU?.buyer_sku_id}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-sm text-gray-600">{selectedBuyerSKU?.name}</p>
+              <p className="text-xs text-gray-400">Brand: {selectedBuyerSKU?.brand_code}</p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>HSN Code</Label>
+                <Input
+                  placeholder="e.g., 87141090"
+                  value={editBuyerForm.hsn_code}
+                  onChange={(e) => setEditBuyerForm({ ...editBuyerForm, hsn_code: e.target.value })}
+                  data-testid="hsn-code-input"
+                />
+                <p className="text-xs text-gray-400 mt-1">8-digit HSN code</p>
+              </div>
+              <div>
+                <Label>GST Rate (%)</Label>
+                <Select 
+                  value={String(editBuyerForm.gst_rate)} 
+                  onValueChange={(v) => setEditBuyerForm({ ...editBuyerForm, gst_rate: parseInt(v) })}
+                >
+                  <SelectTrigger data-testid="gst-rate-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">0% (Exempt)</SelectItem>
+                    <SelectItem value="5">5%</SelectItem>
+                    <SelectItem value="12">12%</SelectItem>
+                    <SelectItem value="18">18%</SelectItem>
+                    <SelectItem value="28">28%</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditBuyerDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveBuyerHSNGST} disabled={editBuyerLoading}>
+              {editBuyerLoading ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk HSN/GST Upload Dialog */}
+      <Dialog open={showBulkHSNDialog} onOpenChange={setShowBulkHSNDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload HSN/GST</DialogTitle>
+            <DialogDescription>
+              Upload an Excel file to update HSN codes and GST rates for multiple SKUs
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-700 mb-2">Template Format</h4>
+              <p className="text-sm text-blue-600 mb-3">
+                Excel must have columns: <code className="bg-blue-100 px-1 rounded">buyer_sku_id</code>, <code className="bg-blue-100 px-1 rounded">hsn_code</code>, <code className="bg-blue-100 px-1 rounded">gst_rate</code>
+              </p>
+              <Button variant="outline" size="sm" onClick={handleDownloadHSNTemplate}>
+                <Download className="h-4 w-4 mr-2" />
+                Download Template
+              </Button>
+            </div>
+            
+            <div>
+              <Label>Select Excel File</Label>
+              <Input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(e) => setBulkHSNFile(e.target.files?.[0] || null)}
+                className="mt-1"
+                data-testid="hsn-upload-input"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowBulkHSNDialog(false); setBulkHSNFile(null); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkHSNUpload} disabled={bulkHSNLoading || !bulkHSNFile}>
+              {bulkHSNLoading ? "Uploading..." : "Upload & Update"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

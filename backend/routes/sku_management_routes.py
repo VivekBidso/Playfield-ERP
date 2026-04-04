@@ -504,6 +504,31 @@ async def get_buyer_skus(
     }
 
 
+# ============ HSN/GST Stats (must be before dynamic routes) ============
+
+@router.get("/buyer-skus/hsn-gst-stats")
+async def get_hsn_gst_stats(current_user = Depends(get_current_user)):
+    """Get statistics on HSN/GST data coverage"""
+    
+    total = await db.buyer_skus.count_documents({"status": "ACTIVE"})
+    with_hsn = await db.buyer_skus.count_documents({
+        "status": "ACTIVE",
+        "hsn_code": {"$exists": True, "$ne": ""}
+    })
+    with_gst = await db.buyer_skus.count_documents({
+        "status": "ACTIVE",
+        "gst_rate": {"$exists": True, "$gt": 0}
+    })
+    
+    return {
+        "total_active_skus": total,
+        "with_hsn_code": with_hsn,
+        "with_gst_rate": with_gst,
+        "missing_hsn": total - with_hsn,
+        "coverage_percent": round((with_hsn / total) * 100, 1) if total > 0 else 0
+    }
+
+
 @router.get("/buyer-skus/{buyer_sku_id}")
 async def get_buyer_sku(buyer_sku_id: str):
     """Get a single Buyer SKU by ID"""
@@ -2557,3 +2582,136 @@ async def clone_bidso_sku(data: dict, current_user = Depends(get_current_user)):
         "new_rms_created": len(new_rms_to_create)
     }
 
+
+
+
+# ============ HSN/GST Management ============
+
+class HSNGSTUpdate(BaseModel):
+    hsn_code: str
+    gst_rate: float = 18
+
+
+@router.put("/buyer-skus/{buyer_sku_id}/hsn-gst")
+async def update_buyer_sku_hsn_gst(
+    buyer_sku_id: str,
+    data: HSNGSTUpdate,
+    current_user = Depends(get_current_user)
+):
+    """Update HSN code and GST rate for a Buyer SKU"""
+    
+    # Validate HSN code format (typically 4-8 digits)
+    hsn_code = data.hsn_code.strip()
+    if hsn_code and not re.match(r'^\d{4,8}$', hsn_code):
+        raise HTTPException(status_code=400, detail="HSN code must be 4-8 digits")
+    
+    # Validate GST rate
+    valid_gst_rates = [0, 5, 12, 18, 28]
+    if data.gst_rate not in valid_gst_rates:
+        raise HTTPException(status_code=400, detail=f"GST rate must be one of: {valid_gst_rates}")
+    
+    # Check if SKU exists
+    sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id})
+    if not sku:
+        raise HTTPException(status_code=404, detail="Buyer SKU not found")
+    
+    # Update
+    await db.buyer_skus.update_one(
+        {"buyer_sku_id": buyer_sku_id},
+        {"$set": {
+            "hsn_code": hsn_code,
+            "gst_rate": data.gst_rate,
+            "hsn_updated_at": datetime.now(timezone.utc).isoformat(),
+            "hsn_updated_by": current_user.id
+        }}
+    )
+    
+    return {
+        "message": f"HSN/GST updated for {buyer_sku_id}",
+        "hsn_code": hsn_code,
+        "gst_rate": data.gst_rate
+    }
+
+
+@router.post("/buyer-skus/bulk-hsn-gst")
+async def bulk_update_hsn_gst(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user)
+):
+    """
+    Bulk update HSN codes and GST rates from Excel.
+    Expected columns: buyer_sku_id, hsn_code, gst_rate
+    """
+    
+    # Read Excel file
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid Excel file: {str(e)}")
+    
+    # Parse headers
+    headers = [cell.value.lower().strip() if cell.value else "" for cell in ws[1]]
+    
+    required = ["buyer_sku_id", "hsn_code", "gst_rate"]
+    for col in required:
+        if col not in headers:
+            raise HTTPException(status_code=400, detail=f"Missing required column: {col}")
+    
+    sku_idx = headers.index("buyer_sku_id")
+    hsn_idx = headers.index("hsn_code")
+    gst_idx = headers.index("gst_rate")
+    
+    # Process rows
+    updated = 0
+    errors = []
+    valid_gst_rates = [0, 5, 12, 18, 28]
+    
+    for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or not row[sku_idx]:
+            continue
+        
+        buyer_sku_id = str(row[sku_idx]).strip()
+        hsn_code = str(row[hsn_idx]).strip() if row[hsn_idx] else ""
+        
+        try:
+            gst_rate = float(row[gst_idx]) if row[gst_idx] else 18
+        except (ValueError, TypeError):
+            errors.append(f"Row {row_num}: Invalid GST rate")
+            continue
+        
+        # Validate HSN
+        if hsn_code and not re.match(r'^\d{4,8}$', hsn_code):
+            errors.append(f"Row {row_num}: Invalid HSN code '{hsn_code}' (must be 4-8 digits)")
+            continue
+        
+        # Validate GST
+        if gst_rate not in valid_gst_rates:
+            errors.append(f"Row {row_num}: Invalid GST rate {gst_rate}")
+            continue
+        
+        # Check SKU exists
+        sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id})
+        if not sku:
+            errors.append(f"Row {row_num}: SKU '{buyer_sku_id}' not found")
+            continue
+        
+        # Update
+        await db.buyer_skus.update_one(
+            {"buyer_sku_id": buyer_sku_id},
+            {"$set": {
+                "hsn_code": hsn_code,
+                "gst_rate": gst_rate,
+                "hsn_updated_at": datetime.now(timezone.utc).isoformat(),
+                "hsn_updated_by": current_user.id
+            }}
+        )
+        updated += 1
+    
+    return {
+        "message": "Bulk HSN/GST update complete",
+        "updated": updated,
+        "errors": errors,
+        "error_count": len(errors)
+    }
