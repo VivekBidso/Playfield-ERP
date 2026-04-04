@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
+import useBranchStore from "@/store/branchStore";
 import { 
   Factory, Calendar, CheckCircle2, Clock, Package, 
   Filter, ChevronDown, AlertCircle, Loader2
@@ -18,6 +19,7 @@ const API = `${BACKEND_URL}/api`;
 
 const BranchOps = () => {
   const { token, user } = useAuthStore();
+  const { selectedBranch: globalBranch } = useBranchStore();
   
   // State
   const [loading, setLoading] = useState(true);
@@ -25,11 +27,11 @@ const BranchOps = () => {
   const [schedules, setSchedules] = useState([]);
   const [myBranches, setMyBranches] = useState([]);
   
-  // Filters
+  // Filters - use global branch as initial value
   const [dateFilter, setDateFilter] = useState("today");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState("_all");
+  const [selectedBranch, setSelectedBranch] = useState(globalBranch || "_all");
   const [statusFilter, setStatusFilter] = useState("_all");
   
   // Complete dialog
@@ -41,10 +43,24 @@ const BranchOps = () => {
 
   const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
 
+  // Sync with global branch when it changes
+  useEffect(() => {
+    if (globalBranch && globalBranch !== selectedBranch) {
+      setSelectedBranch(globalBranch);
+    }
+  }, [globalBranch]);
+
   // Fetch data on mount and filter change
   useEffect(() => {
     fetchMyBranches();
   }, [token]);
+
+  // Refetch dashboard when branch changes
+  useEffect(() => {
+    if (myBranches.length > 0) {
+      fetchDashboard();
+    }
+  }, [selectedBranch, myBranches]);
 
   useEffect(() => {
     if (myBranches.length > 0 || dashboard) {
@@ -64,7 +80,11 @@ const BranchOps = () => {
 
   const fetchDashboard = async () => {
     try {
-      const res = await axios.get(`${API}/branch-ops/dashboard`, { headers: getHeaders() });
+      let url = `${API}/branch-ops/dashboard`;
+      if (selectedBranch && selectedBranch !== "_all") {
+        url += `?branch=${encodeURIComponent(selectedBranch)}`;
+      }
+      const res = await axios.get(url, { headers: getHeaders() });
       setDashboard(res.data);
       setLoading(false);
     } catch (error) {
@@ -172,9 +192,11 @@ const BranchOps = () => {
             Branch Operations
           </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {dashboard?.branches?.length === 1 
-              ? `Branch: ${dashboard.branches[0]}`
-              : `${dashboard?.branches?.length || 0} branches assigned`
+            {selectedBranch && selectedBranch !== "_all"
+              ? `Branch: ${selectedBranch}`
+              : dashboard?.branches?.length === 1 
+                ? `Branch: ${dashboard.branches[0]}`
+                : `${dashboard?.branches?.length || 0} branches assigned`
             }
           </p>
         </div>
