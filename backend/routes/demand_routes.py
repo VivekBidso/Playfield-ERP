@@ -1727,6 +1727,7 @@ async def download_dispatch_lot_template():
     """
     Download Excel template for dispatch lot bulk upload.
     Columns: Buyer Name | Forecast No | SKU ID | Qty | Serial No
+    Includes reference sheets for Customers and Buyer SKUs.
     """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -1740,13 +1741,14 @@ async def download_dispatch_lot_template():
     # Header styling
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="16A34A", end_color="16A34A", fill_type="solid")
+    ref_header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
     
     # Headers
     headers = ["Buyer Name", "Forecast No", "SKU ID", "Qty", "Serial No"]
     comments = [
-        "Exact buyer name as in system",
+        "Exact buyer name as in system (see Customers Reference sheet)",
         "Forecast code (e.g., FC_202603_0001)",
-        "SKU ID (e.g., CC_KS_BE_188)",
+        "Buyer SKU ID (see Buyer SKUs Reference sheet)",
         "Quantity for this line",
         "Lot grouping number - same Serial No = same lot"
     ]
@@ -1769,23 +1771,82 @@ async def download_dispatch_lot_template():
         for col_idx, value in enumerate(row_data, 1):
             ws.cell(row=row_idx, column=col_idx, value=value)
     
-    # Instructions sheet
+    # Set column widths on main sheet
+    col_widths = [25, 20, 20, 10, 12]
+    for idx, width in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+    
+    # ============ CUSTOMERS REFERENCE SHEET ============
+    ws_customers = wb.create_sheet("Customers Reference")
+    cust_headers = ["Customer ID", "Customer Name"]
+    for col, header in enumerate(cust_headers, 1):
+        cell = ws_customers.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = ref_header_fill
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Fetch customers/buyers from database
+    buyers = await db.buyers.find(
+        {"status": {"$ne": "INACTIVE"}},
+        {"_id": 0, "customer_code": 1, "name": 1}
+    ).to_list(1000)
+    
+    for row_idx, buyer in enumerate(buyers, 2):
+        ws_customers.cell(row=row_idx, column=1, value=buyer.get("customer_code", ""))
+        ws_customers.cell(row=row_idx, column=2, value=buyer.get("name", ""))
+    
+    ws_customers.column_dimensions['A'].width = 15
+    ws_customers.column_dimensions['B'].width = 40
+    
+    # ============ BUYER SKUS REFERENCE SHEET ============
+    ws_skus = wb.create_sheet("Buyer SKUs Reference")
+    sku_headers = ["Buyer SKU ID", "SKU Name", "Brand", "Model", "Vertical"]
+    for col, header in enumerate(sku_headers, 1):
+        cell = ws_skus.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = ref_header_fill
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Fetch buyer SKUs with their related info
+    buyer_skus = await db.buyer_skus.find(
+        {"status": "ACTIVE"},
+        {"_id": 0, "buyer_sku_id": 1, "name": 1, "brand_name": 1, "model_name": 1, "vertical_name": 1}
+    ).to_list(5000)
+    
+    for row_idx, sku in enumerate(buyer_skus, 2):
+        ws_skus.cell(row=row_idx, column=1, value=sku.get("buyer_sku_id", ""))
+        ws_skus.cell(row=row_idx, column=2, value=sku.get("name", ""))
+        ws_skus.cell(row=row_idx, column=3, value=sku.get("brand_name", ""))
+        ws_skus.cell(row=row_idx, column=4, value=sku.get("model_name", ""))
+        ws_skus.cell(row=row_idx, column=5, value=sku.get("vertical_name", ""))
+    
+    ws_skus.column_dimensions['A'].width = 20
+    ws_skus.column_dimensions['B'].width = 40
+    ws_skus.column_dimensions['C'].width = 15
+    ws_skus.column_dimensions['D'].width = 20
+    ws_skus.column_dimensions['E'].width = 20
+    
+    # ============ INSTRUCTIONS SHEET ============
     ws_help = wb.create_sheet("Instructions")
     instructions = [
         ["DISPATCH LOT BULK UPLOAD INSTRUCTIONS"],
         [""],
         ["COLUMNS:"],
-        ["Buyer Name - Must match exactly with buyer name in system (case-insensitive)"],
+        ["Buyer Name - Must match exactly with buyer name in system (see 'Customers Reference' sheet)"],
         ["Forecast No - The forecast code to link this dispatch to (e.g., FC_202603_0001)"],
-        ["SKU ID - Valid SKU ID from the system"],
+        ["SKU ID - Valid Buyer SKU ID from the system (see 'Buyer SKUs Reference' sheet)"],
         ["Qty - Quantity for this line item (must be > 0)"],
         ["Serial No - Temporary grouping number. Rows with SAME Serial No become ONE dispatch lot"],
+        [""],
+        ["REFERENCE SHEETS:"],
+        ["'Customers Reference' - Lists all Customer IDs and Names"],
+        ["'Buyer SKUs Reference' - Lists all Buyer SKUs with Brand, Model, and Vertical"],
         [""],
         ["EXAMPLE:"],
         ["Serial No 1: Creates lot with 2 lines (CC_KS_BE_188: 500, CC_KS_BE_189: 300)"],
         ["Serial No 2: Creates separate lot with 1 line (CC_KS_BE_002: 200)"],
         [""],
-        ["TIP: Use the Forecast Export feature to get valid Forecast Numbers and SKU IDs"],
+        ["TIP: Use the Forecast Export feature to get valid Forecast Numbers"],
     ]
     
     for row_idx, row in enumerate(instructions, 1):
@@ -1794,11 +1855,6 @@ async def download_dispatch_lot_template():
             cell.font = Font(bold=True, size=14)
     
     ws_help.column_dimensions['A'].width = 80
-    
-    # Set column widths on main sheet
-    col_widths = [25, 20, 20, 10, 12]
-    for idx, width in enumerate(col_widths, 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
     
     # Save to buffer
     output = io.BytesIO()
