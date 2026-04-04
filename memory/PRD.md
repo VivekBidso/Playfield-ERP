@@ -2070,4 +2070,77 @@ BS                      -> 5%
 
 *Completed: April 3, 2026*
 
+---
+
+## 27. PRICE MASTER MODULE (April 4, 2026)
+
+### COMPLETE ✅
+
+**Purpose**: Customer-specific pricing management for Buyer SKUs. Allows Demand team to set and manage unit prices per customer-SKU combination. Finance team uses these prices to auto-populate invoice rates during dispatch lot conversion.
+
+### UI Location
+- **Page**: SKU Catalog (`/sku-catalog`)
+- **Tab**: Price Master (3rd tab after Bidso SKUs and Buyer SKUs)
+
+### Features Implemented
+
+#### Backend (`/app/backend/routes/price_master_routes.py`):
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/price-master` | GET | List prices with filters (customer_id, buyer_sku_id, active_only) |
+| `/api/price-master` | POST | Create new price entry |
+| `/api/price-master/{id}` | PUT | Update existing price |
+| `/api/price-master/{id}` | DELETE | Soft delete (deactivate) price |
+| `/api/price-master/lookup` | GET | Get active price for customer+SKU combo |
+| `/api/price-master/by-customer/{id}` | GET | Get all prices for a customer |
+| `/api/price-master/bulk-upload` | POST | Bulk import from Excel |
+| `/api/price-master/template` | GET | Get template columns for bulk upload |
+
+#### Data Model (`price_master` collection):
+```json
+{
+  "id": "uuid",
+  "customer_id": "CUST_0001",
+  "customer_name": "ABC Toys Inc",
+  "buyer_sku_id": "KM_SC_BN_001",
+  "sku_name": "Kidsmate - Rideon - Bentley",
+  "unit_price": 1500.00,
+  "currency": "INR",
+  "effective_from": "2026-04-04T...",
+  "effective_to": null,
+  "notes": "FY 2026-27 pricing",
+  "created_by": "user_id",
+  "created_at": "2026-04-04T..."
+}
+```
+
+#### Frontend (`/app/frontend/src/pages/DemandSKUView.js`):
+- **Price Master Tab**: Third tab in SKU Catalog page
+- **Action Buttons**: Template download, Bulk Upload, Export, Add Price
+- **Filter**: Customer dropdown to filter prices by customer
+- **Add/Edit Dialog**:
+  - Customer selector (required, locked on edit)
+  - Buyer SKU selector (required, locked on edit)
+  - Unit Price input (₹)
+  - Notes field
+- **Price Table**: Customer, Buyer SKU, SKU Name, Unit Price, Effective From, Notes, Actions
+- **Inline Actions**: Edit (pencil icon), Delete (trash icon)
+
+#### Business Logic:
+1. **Price Versioning**: When a new price is created for existing customer+SKU, old price is auto-deactivated (effective_to set)
+2. **Active Prices**: Only prices with `effective_to: null` or future date are considered active
+3. **Validation**: Customer and Buyer SKU must exist in database
+
+#### Bulk Upload Excel Format:
+| customer_id | buyer_sku_id | unit_price | currency | notes |
+|-------------|--------------|------------|----------|-------|
+| CUST_0001 | ERW001_TVS | 1500.00 | INR | FY 2026-27 |
+
+### Files Created/Modified:
+- `/app/backend/routes/price_master_routes.py` (NEW)
+- `/app/frontend/src/pages/DemandSKUView.js` (UPDATED - added Price Master tab)
+
+---
+
+*Completed: April 4, 2026*
 
