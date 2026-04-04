@@ -517,7 +517,7 @@ const RMInward = () => {
                   <div>
                     <Label className="text-xs font-bold uppercase">Branch</Label>
                     <Select 
-                      value={billData.branch_id} 
+                      value={billData.branch_id || undefined} 
                       onValueChange={(v) => setBillData({...billData, branch_id: v})}
                     >
                       <SelectTrigger data-testid="branch-select">
