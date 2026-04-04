@@ -98,6 +98,24 @@ const DispatchLots = () => {
   });
   
   const fileInputRef = useRef(null);
+  
+  // Finance Create Lot Dialog
+  const [showFinanceCreateDialog, setShowFinanceCreateDialog] = useState(false);
+  const [financeCreateData, setFinanceCreateData] = useState({
+    customer_id: "",
+    branch_id: "",
+    order_number: "",
+    notes: ""
+  });
+  const [financeLines, setFinanceLines] = useState([{ buyer_sku_id: "", quantity: 1, rate: 0 }]);
+  const [financeCreating, setFinanceCreating] = useState(false);
+  
+  // Add Line Dialog
+  const [showAddLineDialog, setShowAddLineDialog] = useState(false);
+  const [addLineData, setAddLineData] = useState({ buyer_sku_id: "", quantity: 1 });
+  const [addLineLotId, setAddLineLotId] = useState(null);
+  const [addingLine, setAddingLine] = useState(false);
+  const [skuLookup, setSkuLookup] = useState(null);
 
   // Fetch data
   useEffect(() => {
@@ -274,6 +292,155 @@ const DispatchLots = () => {
       fetchSummary();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to delete lot");
+    }
+  };
+
+  // ============ Finance Create Lot Functions ============
+  
+  const handleFinanceCreateLot = async () => {
+    if (!financeCreateData.customer_id || !financeCreateData.branch_id) {
+      toast.error("Please select customer and branch");
+      return;
+    }
+    
+    const validLines = financeLines.filter(l => l.buyer_sku_id && l.quantity > 0);
+    if (validLines.length === 0) {
+      toast.error("Please add at least one line item");
+      return;
+    }
+    
+    setFinanceCreating(true);
+    try {
+      const res = await axios.post(`${API}/api/dispatch-lots-v2/finance/create-lot`, {
+        customer_id: financeCreateData.customer_id,
+        branch_id: financeCreateData.branch_id,
+        lines: validLines.map(l => ({
+          buyer_sku_id: l.buyer_sku_id,
+          quantity: parseInt(l.quantity),
+          rate: l.rate || undefined
+        })),
+        order_number: financeCreateData.order_number || undefined,
+        notes: financeCreateData.notes || undefined
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      toast.success(`Dispatch lot ${res.data.lot_number} created`);
+      setShowFinanceCreateDialog(false);
+      setFinanceCreateData({ customer_id: "", branch_id: "", order_number: "", notes: "" });
+      setFinanceLines([{ buyer_sku_id: "", quantity: 1, rate: 0 }]);
+      fetchLots();
+      fetchSummary();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (detail?.error === "INSUFFICIENT_INVENTORY") {
+        toast.error(`Insufficient inventory: ${detail.shortages?.length} item(s) short`);
+      } else {
+        toast.error(typeof detail === 'string' ? detail : "Failed to create lot");
+      }
+    } finally {
+      setFinanceCreating(false);
+    }
+  };
+
+  const handleFinanceLineSkuChange = async (index, skuId) => {
+    const newLines = [...financeLines];
+    newLines[index].buyer_sku_id = skuId;
+    
+    // Lookup SKU details
+    if (skuId && financeCreateData.customer_id) {
+      try {
+        const res = await axios.get(
+          `${API}/api/dispatch-lots-v2/sku-lookup/${skuId}?customer_id=${financeCreateData.customer_id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        newLines[index].rate = res.data.rate || 0;
+        newLines[index].sku_name = res.data.name;
+        newLines[index].hsn_code = res.data.hsn_code;
+        newLines[index].gst_rate = res.data.gst_rate;
+      } catch (err) {
+        // SKU not found or error - just update the ID
+      }
+    }
+    
+    setFinanceLines(newLines);
+  };
+
+  const addFinanceLine = () => {
+    setFinanceLines([...financeLines, { buyer_sku_id: "", quantity: 1, rate: 0 }]);
+  };
+
+  const removeFinanceLine = (index) => {
+    if (financeLines.length > 1) {
+      setFinanceLines(financeLines.filter((_, i) => i !== index));
+    }
+  };
+
+  // ============ Add Line to Existing Lot Functions ============
+  
+  const openAddLineDialog = (lot) => {
+    setAddLineLotId(lot.id);
+    setAddLineData({ buyer_sku_id: "", quantity: 1 });
+    setSkuLookup(null);
+    setShowAddLineDialog(true);
+  };
+
+  const handleAddLineLookup = async (skuId) => {
+    setAddLineData({ ...addLineData, buyer_sku_id: skuId });
+    
+    if (!skuId) {
+      setSkuLookup(null);
+      return;
+    }
+    
+    // Find the lot to get customer_id
+    const lot = lots.find(l => l.id === addLineLotId);
+    if (!lot) return;
+    
+    try {
+      const res = await axios.get(
+        `${API}/api/dispatch-lots-v2/sku-lookup/${skuId}?customer_id=${lot.buyer_id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSkuLookup(res.data);
+    } catch (err) {
+      setSkuLookup(null);
+      toast.error("SKU not found");
+    }
+  };
+
+  const handleAddLineSubmit = async () => {
+    if (!addLineData.buyer_sku_id || addLineData.quantity <= 0) {
+      toast.error("Please enter valid SKU and quantity");
+      return;
+    }
+    
+    setAddingLine(true);
+    try {
+      const res = await axios.post(`${API}/api/dispatch-lots-v2/${addLineLotId}/add-line`, {
+        buyer_sku_id: addLineData.buyer_sku_id,
+        quantity: parseInt(addLineData.quantity)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      toast.success(`Added ${res.data.sku_name} (${res.data.quantity} units)`);
+      setShowAddLineDialog(false);
+      fetchLots();
+      
+      // If invoice dialog is open, refresh it
+      if (showInvoiceDialog && selectedLot?.id === addLineLotId) {
+        openInvoiceDialog(selectedLot);
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (detail?.error === "INSUFFICIENT_INVENTORY") {
+        toast.error(`Insufficient inventory: ${detail.shortage} units short`);
+      } else {
+        toast.error(typeof detail === 'string' ? detail : "Failed to add line");
+      }
+    } finally {
+      setAddingLine(false);
     }
   };
 
@@ -496,6 +663,18 @@ const DispatchLots = () => {
               </Button>
             </>
           )}
+          {isFinanceTeam && !isDemandTeam && (
+            <Button onClick={() => setShowFinanceCreateDialog(true)} data-testid="finance-create-lot-btn">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Dispatch Lot
+            </Button>
+          )}
+          {isFinanceTeam && isDemandTeam && (
+            <Button variant="outline" onClick={() => setShowFinanceCreateDialog(true)} data-testid="finance-create-lot-btn">
+              <FileText className="w-4 h-4 mr-2" />
+              Quick Invoice Lot
+            </Button>
+          )}
         </div>
       </div>
 
@@ -598,10 +777,15 @@ const DispatchLots = () => {
                         </>
                       )}
                       {(lot.status === "PENDING_FINANCE" || lot.status === "DRAFT") && isFinanceTeam && (
-                        <Button size="sm" variant="outline" onClick={() => openInvoiceDialog(lot)}>
-                          <FileText className="h-4 w-4 mr-1" />
-                          Invoice
-                        </Button>
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => openAddLineDialog(lot)} title="Add Line Item">
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openInvoiceDialog(lot)}>
+                            <FileText className="h-4 w-4 mr-1" />
+                            Invoice
+                          </Button>
+                        </>
                       )}
                       {lot.status === "INVOICED" && isFinanceTeam && (
                         <Button size="sm" variant="outline" onClick={() => handleMarkDispatched(lot.id)}>
@@ -1053,6 +1237,240 @@ const DispatchLots = () => {
                 disabled={!inventoryCheck?.can_proceed || !invoiceData.branch_id || !invoiceData.source_of_supply}
               >
                 Create Invoice
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Finance Create Dispatch Lot Dialog */}
+      <Dialog open={showFinanceCreateDialog} onOpenChange={setShowFinanceCreateDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Create Dispatch Lot (Finance)
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Customer *</Label>
+                <Select 
+                  value={financeCreateData.customer_id} 
+                  onValueChange={(v) => setFinanceCreateData({ ...financeCreateData, customer_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} ({c.customer_code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Branch (for inventory) *</Label>
+                <Select 
+                  value={financeCreateData.branch_id} 
+                  onValueChange={(v) => setFinanceCreateData({ ...financeCreateData, branch_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map(b => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Order Number</Label>
+                <Input 
+                  placeholder="PO-12345"
+                  value={financeCreateData.order_number}
+                  onChange={(e) => setFinanceCreateData({ ...financeCreateData, order_number: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Input 
+                  placeholder="Optional notes"
+                  value={financeCreateData.notes}
+                  onChange={(e) => setFinanceCreateData({ ...financeCreateData, notes: e.target.value })}
+                />
+              </div>
+            </div>
+            
+            <Separator />
+            
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <Label>Line Items *</Label>
+                <Button size="sm" variant="outline" onClick={addFinanceLine}>
+                  <Plus className="w-4 h-4 mr-1" /> Add Line
+                </Button>
+              </div>
+              
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="w-[300px]">SKU</TableHead>
+                      <TableHead className="w-[100px]">Qty</TableHead>
+                      <TableHead className="w-[120px]">Rate</TableHead>
+                      <TableHead className="w-[100px]">HSN</TableHead>
+                      <TableHead className="w-[80px]">GST %</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {financeLines.map((line, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>
+                          <Select 
+                            value={line.buyer_sku_id} 
+                            onValueChange={(v) => handleFinanceLineSkuChange(idx, v)}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select SKU" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {buyerSkus.map(s => (
+                                <SelectItem key={s.buyer_sku_id} value={s.buyer_sku_id}>
+                                  {s.buyer_sku_id} - {s.name?.substring(0, 30)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input 
+                            type="number" 
+                            min="1"
+                            value={line.quantity}
+                            onChange={(e) => {
+                              const newLines = [...financeLines];
+                              newLines[idx].quantity = parseInt(e.target.value) || 1;
+                              setFinanceLines(newLines);
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input 
+                            type="number" 
+                            min="0"
+                            step="0.01"
+                            value={line.rate || ""}
+                            placeholder="Auto"
+                            onChange={(e) => {
+                              const newLines = [...financeLines];
+                              newLines[idx].rate = parseFloat(e.target.value) || 0;
+                              setFinanceLines(newLines);
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {line.hsn_code || "-"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {line.gst_rate || 18}%
+                        </TableCell>
+                        <TableCell>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => removeFinanceLine(idx)}
+                            disabled={financeLines.length === 1}
+                          >
+                            <X className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              <p className="text-xs text-muted-foreground mt-2">
+                Rate, HSN, and GST will auto-populate from master data. Inventory will be validated at selected branch.
+              </p>
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setShowFinanceCreateDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleFinanceCreateLot} disabled={financeCreating}>
+                {financeCreating ? "Creating..." : "Create Lot"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Line Item Dialog */}
+      <Dialog open={showAddLineDialog} onOpenChange={setShowAddLineDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Add Line Item
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label>SKU *</Label>
+              <Select value={addLineData.buyer_sku_id} onValueChange={handleAddLineLookup}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select SKU" />
+                </SelectTrigger>
+                <SelectContent>
+                  {buyerSkus.map(s => (
+                    <SelectItem key={s.buyer_sku_id} value={s.buyer_sku_id}>
+                      {s.buyer_sku_id} - {s.name?.substring(0, 40)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {skuLookup && (
+              <div className="bg-gray-50 p-3 rounded-lg text-sm space-y-1">
+                <p><strong>Name:</strong> {skuLookup.name}</p>
+                <p><strong>HSN:</strong> {skuLookup.hsn_code || "Not set"}</p>
+                <p><strong>GST:</strong> {skuLookup.gst_rate}%</p>
+                <p><strong>Rate:</strong> {skuLookup.rate > 0 ? `₹${skuLookup.rate.toLocaleString()}` : "Not set in Price Master"}</p>
+              </div>
+            )}
+            
+            <div>
+              <Label>Quantity *</Label>
+              <Input 
+                type="number" 
+                min="1"
+                value={addLineData.quantity}
+                onChange={(e) => setAddLineData({ ...addLineData, quantity: parseInt(e.target.value) || 1 })}
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowAddLineDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddLineSubmit} disabled={addingLine || !addLineData.buyer_sku_id}>
+                {addingLine ? "Adding..." : "Add Line"}
               </Button>
             </div>
           </div>

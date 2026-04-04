@@ -795,3 +795,331 @@ async def create_new_invoice(
             )
     
     return {"message": "Invoice created", "lot_number": lot_number, "id": lot_id}
+
+
+
+# ============ Finance Direct Create & Line Item Management ============
+
+class FinanceDispatchLine(BaseModel):
+    """Line item for finance-created dispatch lot"""
+    buyer_sku_id: str
+    quantity: int
+    rate: Optional[float] = None  # Will auto-populate from price master
+    hsn_code: Optional[str] = None  # Will auto-populate from SKU
+    gst_rate: Optional[float] = None  # Will auto-populate from SKU
+
+
+class FinanceCreateLotRequest(BaseModel):
+    """Create dispatch lot directly - Finance Team"""
+    customer_id: str
+    branch_id: str  # Must specify branch for inventory check
+    lines: List[FinanceDispatchLine]
+    order_number: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/finance/create-lot")
+async def finance_create_dispatch_lot(
+    data: FinanceCreateLotRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Finance creates dispatch lot directly with inventory validation.
+    Auto-populates HSN, GST, and Price from master data.
+    """
+    
+    # Validate customer
+    customer = await db.buyers.find_one({"id": data.customer_id})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    # Validate branch
+    branch = await db.branches.find_one({"id": data.branch_id})
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    
+    branch_name = branch.get("name")
+    
+    # Validate SKUs and check inventory
+    enriched_lines = []
+    inventory_errors = []
+    
+    for idx, line in enumerate(data.lines):
+        # Get SKU details
+        sku = await db.buyer_skus.find_one({"buyer_sku_id": line.buyer_sku_id})
+        if not sku:
+            raise HTTPException(status_code=400, detail=f"SKU {line.buyer_sku_id} not found")
+        
+        # Check FG inventory at branch
+        fg_inv = await db.branch_sku_inventory.find_one({
+            "branch": branch_name,
+            "buyer_sku_id": line.buyer_sku_id
+        })
+        available_qty = fg_inv.get("current_stock", 0) if fg_inv else 0
+        
+        if available_qty < line.quantity:
+            inventory_errors.append({
+                "line": idx + 1,
+                "sku_id": line.buyer_sku_id,
+                "sku_name": sku.get("name", ""),
+                "requested": line.quantity,
+                "available": available_qty,
+                "shortage": line.quantity - available_qty
+            })
+            continue
+        
+        # Get price from price master
+        price_entry = await db.price_master.find_one({
+            "buyer_id": data.customer_id,
+            "buyer_sku_id": line.buyer_sku_id
+        })
+        rate = line.rate or (price_entry.get("unit_price", 0) if price_entry else 0)
+        
+        # Get HSN/GST from SKU
+        hsn_code = line.hsn_code or sku.get("hsn_code", "")
+        gst_rate = line.gst_rate if line.gst_rate is not None else sku.get("gst_rate", 18)
+        
+        enriched_lines.append({
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": line.buyer_sku_id,
+            "sku_name": sku.get("name", ""),
+            "quantity": line.quantity,
+            "rate": rate,
+            "hsn_code": hsn_code,
+            "gst_rate": gst_rate,
+            "amount": rate * line.quantity
+        })
+    
+    # If inventory errors, return them
+    if inventory_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INSUFFICIENT_INVENTORY",
+                "message": f"{len(inventory_errors)} item(s) have insufficient inventory at {branch_name}",
+                "shortages": inventory_errors
+            }
+        )
+    
+    if not enriched_lines:
+        raise HTTPException(status_code=400, detail="No valid line items")
+    
+    # Generate lot number
+    today = datetime.now(timezone.utc)
+    lot_prefix = f"DL-{today.strftime('%Y')}-{today.strftime('%m%d')}"
+    last_lot = await db.dispatch_lots.find_one(
+        {"lot_number": {"$regex": f"^{lot_prefix}"}},
+        sort=[("lot_number", -1)]
+    )
+    if last_lot:
+        try:
+            last_num = int(last_lot["lot_number"].split("-")[-1])
+            next_num = last_num + 1
+        except:
+            next_num = 1
+    else:
+        next_num = 1
+    
+    lot_number = f"{lot_prefix}-{next_num:03d}"
+    
+    # Calculate totals
+    sub_total = sum(line["amount"] for line in enriched_lines)
+    total_qty = sum(line["quantity"] for line in enriched_lines)
+    
+    # Create dispatch lot (Finance-created starts as PENDING_FINANCE)
+    dispatch_lot = {
+        "id": str(uuid.uuid4()),
+        "lot_number": lot_number,
+        "buyer_id": data.customer_id,
+        "buyer_name": customer.get("name"),
+        "buyer_code": customer.get("customer_code"),
+        "branch_id": data.branch_id,
+        "branch_name": branch_name,
+        "status": "PENDING_FINANCE",
+        "lines": enriched_lines,
+        "total_quantity": total_qty,
+        "sub_total": sub_total,
+        "order_number": data.order_number,
+        "notes": data.notes,
+        "created_by_finance": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.id,
+        "created_by_name": current_user.name
+    }
+    
+    await db.dispatch_lots.insert_one(dispatch_lot)
+    
+    return {
+        "message": f"Dispatch lot {lot_number} created successfully",
+        "lot_number": lot_number,
+        "lot_id": dispatch_lot["id"],
+        "branch": branch_name,
+        "customer": customer.get("name"),
+        "lines": len(enriched_lines),
+        "total_quantity": total_qty,
+        "sub_total": sub_total
+    }
+
+
+class AddLineItemRequest(BaseModel):
+    """Add line item to existing dispatch lot"""
+    buyer_sku_id: str
+    quantity: int
+    rate: Optional[float] = None
+    hsn_code: Optional[str] = None
+    gst_rate: Optional[float] = None
+
+
+@router.post("/{lot_id}/add-line")
+async def add_line_to_dispatch_lot(
+    lot_id: str,
+    data: AddLineItemRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Add a line item to existing dispatch lot.
+    Auto-populates HSN, GST, and Price from master data.
+    Validates inventory if branch is assigned.
+    """
+    
+    # Get lot
+    lot = await db.dispatch_lots.find_one({"id": lot_id})
+    if not lot:
+        raise HTTPException(status_code=404, detail="Dispatch lot not found")
+    
+    # Can only add lines to DRAFT or PENDING_FINANCE lots
+    if lot.get("status") not in ["DRAFT", "PENDING_FINANCE"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot add lines to lot with status {lot.get('status')}"
+        )
+    
+    # Get SKU details
+    sku = await db.buyer_skus.find_one({"buyer_sku_id": data.buyer_sku_id})
+    if not sku:
+        raise HTTPException(status_code=404, detail=f"SKU {data.buyer_sku_id} not found")
+    
+    # If branch is assigned, validate inventory
+    branch_name = lot.get("branch_name")
+    if branch_name:
+        fg_inv = await db.branch_sku_inventory.find_one({
+            "branch": branch_name,
+            "buyer_sku_id": data.buyer_sku_id
+        })
+        available_qty = fg_inv.get("current_stock", 0) if fg_inv else 0
+        
+        # Check existing lines for same SKU
+        existing_qty = sum(
+            line.get("quantity", 0) 
+            for line in lot.get("lines", []) 
+            if line.get("buyer_sku_id") == data.buyer_sku_id
+        )
+        
+        total_requested = existing_qty + data.quantity
+        if available_qty < total_requested:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "INSUFFICIENT_INVENTORY",
+                    "sku_id": data.buyer_sku_id,
+                    "sku_name": sku.get("name", ""),
+                    "requested": data.quantity,
+                    "existing_in_lot": existing_qty,
+                    "available": available_qty,
+                    "shortage": total_requested - available_qty
+                }
+            )
+    
+    # Get price from price master
+    buyer_id = lot.get("buyer_id")
+    price_entry = await db.price_master.find_one({
+        "buyer_id": buyer_id,
+        "buyer_sku_id": data.buyer_sku_id
+    })
+    rate = data.rate or (price_entry.get("unit_price", 0) if price_entry else 0)
+    
+    # Get HSN/GST from SKU
+    hsn_code = data.hsn_code or sku.get("hsn_code", "")
+    gst_rate = data.gst_rate if data.gst_rate is not None else sku.get("gst_rate", 18)
+    
+    # Create new line item
+    new_line = {
+        "id": str(uuid.uuid4()),
+        "buyer_sku_id": data.buyer_sku_id,
+        "sku_name": sku.get("name", ""),
+        "quantity": data.quantity,
+        "rate": rate,
+        "hsn_code": hsn_code,
+        "gst_rate": gst_rate,
+        "amount": rate * data.quantity,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "added_by": current_user.id,
+        "added_by_name": current_user.name
+    }
+    
+    # Update lot
+    lines = lot.get("lines", [])
+    lines.append(new_line)
+    
+    total_quantity = sum(l.get("quantity", 0) for l in lines)
+    sub_total = sum(l.get("amount", 0) for l in lines)
+    
+    await db.dispatch_lots.update_one(
+        {"id": lot_id},
+        {"$set": {
+            "lines": lines,
+            "total_quantity": total_quantity,
+            "sub_total": sub_total,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user.id
+        }}
+    )
+    
+    return {
+        "message": f"Line item added to {lot.get('lot_number')}",
+        "line_id": new_line["id"],
+        "sku_id": data.buyer_sku_id,
+        "sku_name": sku.get("name", ""),
+        "quantity": data.quantity,
+        "rate": rate,
+        "hsn_code": hsn_code,
+        "gst_rate": gst_rate,
+        "amount": new_line["amount"],
+        "lot_total_quantity": total_quantity,
+        "lot_sub_total": sub_total
+    }
+
+
+@router.get("/sku-lookup/{buyer_sku_id}")
+async def lookup_sku_for_dispatch(
+    buyer_sku_id: str,
+    customer_id: Optional[str] = Query(None),
+    current_user = Depends(get_current_user)
+):
+    """
+    Lookup SKU details for adding to dispatch lot.
+    Returns HSN, GST, and Price (if customer specified).
+    """
+    
+    sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id})
+    if not sku:
+        raise HTTPException(status_code=404, detail="SKU not found")
+    
+    result = {
+        "buyer_sku_id": buyer_sku_id,
+        "name": sku.get("name", ""),
+        "hsn_code": sku.get("hsn_code", ""),
+        "gst_rate": sku.get("gst_rate", 18),
+        "rate": 0
+    }
+    
+    # Get price if customer specified
+    if customer_id:
+        price_entry = await db.price_master.find_one({
+            "buyer_id": customer_id,
+            "buyer_sku_id": buyer_sku_id
+        })
+        if price_entry:
+            result["rate"] = price_entry.get("unit_price", 0)
+    
+    return result
