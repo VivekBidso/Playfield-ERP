@@ -1,18 +1,40 @@
-# Logistics
+# Logistics (DEPRECATED)
 
-**Route**: `/logistics`  
+> **⚠️ DEPRECATED: April 4, 2026**
+> 
+> This module has been replaced by **Dispatch Lots V2**. Do not use for new development.
+> 
+> **Replacement**: `/dispatch-lots` → See `/app/memory/func/DISPATCH_LOTS_V2_PLANNING.md`
+
+---
+
+**Route**: `/logistics` (HIDDEN from sidebar)  
 **Access**: MASTER_ADMIN, LOGISTICS_COORDINATOR  
 **Frontend**: `/app/frontend/src/pages/Logistics.js`
 
 ---
 
-## Overview
+## Deprecation Details
 
-Manages outbound logistics, shipment tracking, and delivery coordination.
+| Aspect | Legacy (Logistics) | Replacement (Dispatch Lots V2) |
+|--------|-------------------|-------------------------------|
+| **Collection** | `dispatches` | `dispatch_lots` |
+| **Routes** | `/api/dispatches` in `procurement_routes.py` | `/api/dispatch-lots-v2` |
+| **Workflow** | Single-stage: dispatch → ship → deliver | Two-stage: Demand creates lot → Finance invoices |
+| **Status Flow** | PENDING → SHIPPED → DELIVERED | DRAFT → PENDING_FINANCE → INVOICED → DISPATCHED |
 
 ---
 
-## Key Features
+## Migration Notes
+
+- Legacy `dispatches` collection has minimal data (1 record as of April 2026)
+- No data migration required - can be archived
+- Frontend route `/logistics` still exists but hidden from navigation
+- Backend endpoints in `procurement_routes.py` still functional but unused
+
+---
+
+## Original Features (For Reference Only)
 
 ### Shipment Management
 - Create shipments from dispatch lots
@@ -31,7 +53,7 @@ Manages outbound logistics, shipment tracking, and delivery coordination.
 
 ---
 
-## Shipment Flow
+## Original Shipment Flow
 
 ```
 CREATED → PICKED_UP → IN_TRANSIT → DELIVERED
@@ -40,27 +62,25 @@ CREATED → PICKED_UP → IN_TRANSIT → DELIVERED
 
 ---
 
-## API Endpoints
+## Original API Endpoints (DEPRECATED)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/shipments` | Shipment list |
-| POST | `/api/shipments` | Create shipment |
-| PUT | `/api/shipments/{id}/status` | Update status |
-| GET | `/api/transporters` | Transporter list |
-
----
-
-## Database Collections
-
-- `shipments`
-- `transporters`
-- `delivery_logs`
+| Method | Endpoint | Description | Status |
+|--------|----------|-------------|--------|
+| GET | `/api/dispatches` | Dispatch list | DEPRECATED |
+| POST | `/api/dispatches` | Create dispatch | DEPRECATED |
+| PUT | `/api/dispatches/{id}/ship` | Mark shipped | DEPRECATED |
+| PUT | `/api/dispatches/{id}/deliver` | Mark delivered | DEPRECATED |
 
 ---
 
-## Key Files
+## Cleanup Tasks (Future)
 
-- **Frontend**: `/app/frontend/src/pages/Logistics.js`
-- **Backend**: `/app/backend/routes/logistics_routes.py`
+- [ ] Remove `/api/dispatches` endpoints from `procurement_routes.py`
+- [ ] Archive `dispatches` collection data
+- [ ] Delete `/app/frontend/src/pages/Logistics.js`
+- [ ] Remove route from `/app/frontend/src/App.js`
 
+---
+
+*Deprecated: April 4, 2026*
+*Replaced by: Dispatch Lots V2*

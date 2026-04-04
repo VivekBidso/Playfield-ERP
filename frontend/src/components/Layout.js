@@ -82,7 +82,7 @@ const Layout = () => {
     // Production Planning removed - CPC handles all production planning from forecasts
     // Production page removed - Branch Ops handles schedule completion
     { path: "/quality", label: "Quality Control", icon: CheckCircle, show: isAdmin || hasRole('QUALITY_INSPECTOR') },
-    { path: "/logistics", label: "Logistics", icon: Truck, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') },
+    // Logistics Legacy page removed - use Dispatch Lots V2 instead (deprecated April 2026)
     { path: "/ibt", label: "IBT Transfers", icon: ArrowLeftRight, show: isAdmin || hasRole('LOGISTICS_COORDINATOR') || hasRole('BRANCH_OPS_USER') },
     { path: "/events", label: "Event System", icon: Activity, show: isAdmin },
     // Dispatch Legacy page removed - use Dispatch Lots instead
