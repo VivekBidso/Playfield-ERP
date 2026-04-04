@@ -2213,3 +2213,82 @@ BS                      -> 5%
 *Completed: April 4, 2026*
 
 
+---
+
+## 36. PRODUCTION SCHEDULE COMPLETION WITH INVENTORY MANAGEMENT (April 4, 2026)
+
+### Requirement:
+When marking a production schedule as "Completed", the system must:
+1. Check if sufficient RM stock exists in the branch (based on merged Common + Brand BOM)
+2. If insufficient, return an error showing exactly which RMs are short
+3. If sufficient, consume RM from `branch_rm_inventory` and add FG to `branch_sku_inventory`
+
+### Implementation:
+
+#### BOM Merge Logic (`get_merged_bom_for_sku`):
+```
+Full BOM = common_bom (via bidso_sku_id) + brand_bom (via buyer_sku_id)
+- Brand items ADD to common items (not replace)
+- Returns: {rm_id: total_quantity_per_unit, ...}
+```
+
+#### Backend Functions (`/app/backend/routes/branch_ops_routes.py`):
+| Function | Purpose |
+|----------|---------|
+| `get_merged_bom_for_sku(buyer_sku_id)` | Returns merged BOM dict {rm_id: qty} |
+| `check_rm_availability_for_production(branch, buyer_sku_id, quantity)` | Returns {sufficient: bool, shortages: [...], bom: {...}} |
+| `consume_rm_for_production(branch, buyer_sku_id, quantity, schedule_code)` | Deducts RM and logs to `rm_consumption_log` |
+| `add_fg_inventory(branch, buyer_sku_id, quantity, schedule_code)` | Adds FG to `branch_sku_inventory`, logs to `fg_production_log` |
+
+#### API Endpoints:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/branch-ops/schedules/{id}/check-rm` | GET | Pre-check RM availability before completion |
+| `/api/branch-ops/schedules/{id}/complete` | PUT | Complete schedule with inventory updates |
+
+#### Error Response (Insufficient RM):
+```json
+{
+  "detail": {
+    "error": "INSUFFICIENT_RM_STOCK",
+    "message": "Cannot complete production. 30 RM(s) have insufficient stock.",
+    "shortages": [
+      {"rm_id": "SP_002", "description": "Axle Bolt", "required": 5000, "available": 935, "shortage": 4065}
+    ]
+  }
+}
+```
+
+#### Success Response:
+```json
+{
+  "message": "Schedule PS_202604_0002 completed successfully",
+  "completed_quantity": 10,
+  "rm_consumed": {"total_items": 35, "items": [...]},
+  "fg_added": {"buyer_sku_id": "TB_KS_BT_093", "quantity": 10, "branch": "Unit 1 Vedica"}
+}
+```
+
+#### New Collections:
+| Collection | Purpose |
+|------------|---------|
+| `branch_sku_inventory` | Tracks FG stock by branch + buyer_sku_id |
+| `rm_consumption_log` | Audit trail of RM deductions per schedule |
+| `fg_production_log` | Audit trail of FG additions per schedule |
+
+#### Frontend (`/app/frontend/src/pages/BranchOps.js`):
+- Shows RM shortage dialog when completion fails
+- Displays table of short RMs with required/available/shortage amounts
+- Toast notification on success/failure
+
+### Test Verification (April 4, 2026):
+- ✅ Backend correctly checks RM availability
+- ✅ Backend consumes RM and logs to `rm_consumption_log`
+- ✅ Backend adds FG and logs to `fg_production_log`
+- ✅ Backend returns proper shortage error with details
+- ✅ Frontend displays shortage error dialog
+- ✅ Schedule status updates to COMPLETED
+
+
+
+
