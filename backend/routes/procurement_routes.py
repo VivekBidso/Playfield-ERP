@@ -56,9 +56,20 @@ class IBTCreate(BaseModel):
     transfer_type: str  # RM or FG
     source_branch: str
     destination_branch: str
-    item_id: str  # rm_id or sku_id
+    item_id: str  # rm_id or buyer_sku_id
     quantity: float
     notes: str = ""
+    # Transit details
+    vehicle_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_contact: Optional[str] = None
+    expected_arrival: Optional[str] = None  # YYYY-MM-DD
+
+
+class IBTReceiveRequest(BaseModel):
+    received_quantity: float
+    received_notes: Optional[str] = None
+    damage_notes: Optional[str] = None
 
 # --- Purchase Orders ---
 @router.get("/purchase-orders")
@@ -278,7 +289,8 @@ async def mark_invoice_paid(invoice_id: str):
         raise HTTPException(status_code=404, detail="Invoice not found")
     return {"message": "Invoice marked as paid"}
 
-# --- Inter-Branch Transfers ---
+# --- Inter-Branch Transfers (Enhanced) ---
+
 @router.get("/ibt-transfers")
 async def get_ibt_transfers(
     source_branch: Optional[str] = None,
@@ -295,11 +307,90 @@ async def get_ibt_transfers(
         query["status"] = status
     if transfer_type:
         query["transfer_type"] = transfer_type
-    transfers = await db.ibt_transfers.find(query, {"_id": 0}).to_list(1000)
+    transfers = await db.ibt_transfers.find(query, {"_id": 0}).sort("initiated_at", -1).to_list(1000)
     return [serialize_doc(t) for t in transfers]
+
+
+@router.get("/ibt-transfers/{transfer_id}")
+async def get_ibt_transfer(transfer_id: str):
+    """Get single IBT transfer with full details"""
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id}, {"_id": 0})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    # Get item details
+    if transfer.get("transfer_type") == "RM":
+        item = await db.raw_materials.find_one({"rm_id": transfer["item_id"]}, {"_id": 0, "rm_id": 1, "description": 1, "category": 1})
+        transfer["item_name"] = item.get("description") if item else transfer["item_id"]
+    else:
+        item = await db.buyer_skus.find_one({"buyer_sku_id": transfer["item_id"]}, {"_id": 0, "buyer_sku_id": 1, "name": 1})
+        transfer["item_name"] = item.get("name") if item else transfer["item_id"]
+    
+    return serialize_doc(transfer)
+
+
+@router.get("/ibt-transfers/check-inventory/{item_type}/{item_id}/{branch}")
+async def check_ibt_inventory(item_type: str, item_id: str, branch: str):
+    """Check available inventory before creating IBT"""
+    if item_type == "RM":
+        inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": item_id, "branch": branch},
+            {"_id": 0, "current_stock": 1}
+        )
+    else:
+        inv = await db.branch_sku_inventory.find_one(
+            {"buyer_sku_id": item_id, "branch": branch},
+            {"_id": 0, "current_stock": 1}
+        )
+    
+    available = inv.get("current_stock", 0) if inv else 0
+    return {"item_id": item_id, "branch": branch, "available_stock": available}
+
 
 @router.post("/ibt-transfers")
 async def create_ibt_transfer(data: IBTCreate):
+    """
+    Create IBT transfer with inventory validation.
+    Checks source branch has sufficient stock before allowing transfer.
+    """
+    
+    # Validate source ≠ destination
+    if data.source_branch == data.destination_branch:
+        raise HTTPException(status_code=400, detail="Source and destination branch cannot be the same")
+    
+    # Check source inventory
+    if data.transfer_type == "RM":
+        source_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": data.item_id, "branch": data.source_branch},
+            {"_id": 0, "current_stock": 1}
+        )
+        # Get item details
+        item = await db.raw_materials.find_one({"rm_id": data.item_id}, {"_id": 0, "rm_id": 1, "description": 1})
+        item_name = item.get("description") if item else data.item_id
+    else:
+        source_inv = await db.branch_sku_inventory.find_one(
+            {"buyer_sku_id": data.item_id, "branch": data.source_branch},
+            {"_id": 0, "current_stock": 1}
+        )
+        item = await db.buyer_skus.find_one({"buyer_sku_id": data.item_id}, {"_id": 0, "buyer_sku_id": 1, "name": 1})
+        item_name = item.get("name") if item else data.item_id
+    
+    available_stock = source_inv.get("current_stock", 0) if source_inv else 0
+    
+    if available_stock < data.quantity:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INSUFFICIENT_INVENTORY",
+                "message": f"Insufficient stock at {data.source_branch}",
+                "item_id": data.item_id,
+                "requested": data.quantity,
+                "available": available_stock,
+                "shortage": data.quantity - available_stock
+            }
+        )
+    
+    # Generate transfer code
     count = await db.ibt_transfers.count_documents({})
     transfer_code = f"IBT_{datetime.now(timezone.utc).strftime('%Y%m%d')}_{count + 1:04d}"
     
@@ -310,30 +401,115 @@ async def create_ibt_transfer(data: IBTCreate):
         "source_branch": data.source_branch,
         "destination_branch": data.destination_branch,
         "item_id": data.item_id,
+        "item_name": item_name,
         "quantity": data.quantity,
+        "dispatched_quantity": 0,
+        "received_quantity": 0,
         "status": "INITIATED",
-        "initiated_at": datetime.now(timezone.utc),
-        "notes": data.notes
+        "initiated_at": datetime.now(timezone.utc).isoformat(),
+        "notes": data.notes,
+        # Transit details
+        "vehicle_number": data.vehicle_number,
+        "driver_name": data.driver_name,
+        "driver_contact": data.driver_contact,
+        "expected_arrival": data.expected_arrival
     }
+    
     await db.ibt_transfers.insert_one(transfer)
     del transfer["_id"]
-    return serialize_doc(transfer)
+    
+    return {
+        "message": f"IBT {transfer_code} created successfully",
+        "transfer": serialize_doc(transfer)
+    }
+
 
 @router.put("/ibt-transfers/{transfer_id}/approve")
 async def approve_ibt_transfer(transfer_id: str):
-    result = await db.ibt_transfers.update_one(
-        {"id": transfer_id, "status": "INITIATED"},
-        {"$set": {"status": "APPROVED", "approved_at": datetime.now(timezone.utc)}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=400, detail="Transfer not found or not in INITIATED status")
-    return {"message": "Transfer approved"}
-
-@router.put("/ibt-transfers/{transfer_id}/ship")
-async def ship_ibt_transfer(transfer_id: str):
+    """Approve IBT transfer - validates inventory still available"""
     transfer = await db.ibt_transfers.find_one({"id": transfer_id})
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    if transfer.get("status") != "INITIATED":
+        raise HTTPException(status_code=400, detail=f"Cannot approve transfer in {transfer.get('status')} status")
+    
+    # Re-validate inventory
+    if transfer["transfer_type"] == "RM":
+        source_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": transfer["item_id"], "branch": transfer["source_branch"]},
+            {"_id": 0, "current_stock": 1}
+        )
+    else:
+        source_inv = await db.branch_sku_inventory.find_one(
+            {"buyer_sku_id": transfer["item_id"], "branch": transfer["source_branch"]},
+            {"_id": 0, "current_stock": 1}
+        )
+    
+    available_stock = source_inv.get("current_stock", 0) if source_inv else 0
+    
+    if available_stock < transfer["quantity"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INSUFFICIENT_INVENTORY",
+                "message": f"Inventory reduced since initiation. Only {available_stock} available.",
+                "available": available_stock,
+                "requested": transfer["quantity"]
+            }
+        )
+    
+    await db.ibt_transfers.update_one(
+        {"id": transfer_id},
+        {"$set": {"status": "APPROVED", "approved_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Transfer approved", "transfer_code": transfer.get("transfer_code")}
+
+
+@router.put("/ibt-transfers/{transfer_id}/dispatch")
+async def dispatch_ibt_transfer(
+    transfer_id: str,
+    vehicle_number: Optional[str] = None,
+    driver_name: Optional[str] = None,
+    driver_contact: Optional[str] = None,
+    expected_arrival: Optional[str] = None
+):
+    """
+    Dispatch IBT - deducts from source inventory, sets status to IN_TRANSIT.
+    Optionally updates transit details.
+    """
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    if transfer.get("status") != "APPROVED":
+        raise HTTPException(status_code=400, detail=f"Cannot dispatch transfer in {transfer.get('status')} status. Must be APPROVED first.")
+    
+    # Final inventory check before deduction
+    if transfer["transfer_type"] == "RM":
+        source_inv = await db.branch_rm_inventory.find_one(
+            {"rm_id": transfer["item_id"], "branch": transfer["source_branch"]},
+            {"_id": 0, "current_stock": 1}
+        )
+    else:
+        source_inv = await db.branch_sku_inventory.find_one(
+            {"buyer_sku_id": transfer["item_id"], "branch": transfer["source_branch"]},
+            {"_id": 0, "current_stock": 1}
+        )
+    
+    available_stock = source_inv.get("current_stock", 0) if source_inv else 0
+    
+    if available_stock < transfer["quantity"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INSUFFICIENT_INVENTORY",
+                "message": f"Cannot dispatch. Only {available_stock} available, need {transfer['quantity']}.",
+                "available": available_stock,
+                "requested": transfer["quantity"]
+            }
+        )
     
     # Deduct from source
     if transfer["transfer_type"] == "RM":
@@ -341,80 +517,156 @@ async def ship_ibt_transfer(transfer_id: str):
             {"rm_id": transfer["item_id"], "branch": transfer["source_branch"]},
             {"$inc": {"current_stock": -transfer["quantity"]}}
         )
-    else:  # FG
+    else:
         await db.branch_sku_inventory.update_one(
-            {"sku_id": transfer["item_id"], "branch": transfer["source_branch"]},
+            {"buyer_sku_id": transfer["item_id"], "branch": transfer["source_branch"]},
             {"$inc": {"current_stock": -transfer["quantity"]}}
         )
     
+    # Update transfer status
+    update_data = {
+        "status": "IN_TRANSIT",
+        "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        "dispatched_quantity": transfer["quantity"]
+    }
+    
+    # Update transit details if provided
+    if vehicle_number:
+        update_data["vehicle_number"] = vehicle_number
+    if driver_name:
+        update_data["driver_name"] = driver_name
+    if driver_contact:
+        update_data["driver_contact"] = driver_contact
+    if expected_arrival:
+        update_data["expected_arrival"] = expected_arrival
+    
     await db.ibt_transfers.update_one(
         {"id": transfer_id},
-        {"$set": {"status": "IN_TRANSIT", "shipped_at": datetime.now(timezone.utc)}}
+        {"$set": update_data}
     )
-    return {"message": "Transfer shipped"}
+    
+    return {
+        "message": f"Transfer {transfer.get('transfer_code')} dispatched",
+        "dispatched_quantity": transfer["quantity"],
+        "status": "IN_TRANSIT"
+    }
+
 
 @router.put("/ibt-transfers/{transfer_id}/receive")
-async def receive_ibt_transfer(transfer_id: str):
+async def receive_ibt_transfer(transfer_id: str, data: IBTReceiveRequest):
+    """
+    Receive IBT - receiver enters actual received quantity.
+    Creates shortage record if received < dispatched.
+    Adds received quantity to destination inventory.
+    """
     transfer = await db.ibt_transfers.find_one({"id": transfer_id})
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
     
+    if transfer.get("status") != "IN_TRANSIT":
+        raise HTTPException(status_code=400, detail=f"Cannot receive transfer in {transfer.get('status')} status. Must be IN_TRANSIT.")
+    
+    dispatched_qty = transfer.get("dispatched_quantity", transfer["quantity"])
+    received_qty = data.received_quantity
+    
+    if received_qty < 0:
+        raise HTTPException(status_code=400, detail="Received quantity cannot be negative")
+    
+    if received_qty > dispatched_qty:
+        raise HTTPException(status_code=400, detail=f"Received quantity ({received_qty}) cannot exceed dispatched quantity ({dispatched_qty})")
+    
     origin_breakdown = []
+    shortage_id = None
     
-    # Add to destination
-    if transfer["transfer_type"] == "RM":
-        existing = await db.branch_rm_inventory.find_one({
-            "rm_id": transfer["item_id"], 
-            "branch": transfer["destination_branch"]
-        })
-        if existing:
-            await db.branch_rm_inventory.update_one(
-                {"rm_id": transfer["item_id"], "branch": transfer["destination_branch"]},
-                {"$inc": {"current_stock": transfer["quantity"]}}
-            )
-        else:
-            await db.branch_rm_inventory.insert_one({
-                "id": str(uuid.uuid4()),
-                "rm_id": transfer["item_id"],
-                "branch": transfer["destination_branch"],
-                "current_stock": transfer["quantity"],
-                "is_active": True,
-                "activated_at": datetime.now(timezone.utc)
+    # Add received quantity to destination
+    if received_qty > 0:
+        if transfer["transfer_type"] == "RM":
+            existing = await db.branch_rm_inventory.find_one({
+                "rm_id": transfer["item_id"], 
+                "branch": transfer["destination_branch"]
             })
-    else:  # FG (Finished Goods / SKU)
-        existing = await db.branch_sku_inventory.find_one({
-            "sku_id": transfer["item_id"], 
-            "branch": transfer["destination_branch"]
-        })
-        if existing:
-            await db.branch_sku_inventory.update_one(
-                {"sku_id": transfer["item_id"], "branch": transfer["destination_branch"]},
-                {"$inc": {"current_stock": transfer["quantity"]}}
-            )
-        else:
-            await db.branch_sku_inventory.insert_one({
-                "id": str(uuid.uuid4()),
-                "sku_id": transfer["item_id"],
-                "branch": transfer["destination_branch"],
-                "current_stock": transfer["quantity"],
-                "is_active": True,
-                "activated_at": datetime.now(timezone.utc)
+            if existing:
+                await db.branch_rm_inventory.update_one(
+                    {"rm_id": transfer["item_id"], "branch": transfer["destination_branch"]},
+                    {"$inc": {"current_stock": received_qty}}
+                )
+            else:
+                await db.branch_rm_inventory.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "rm_id": transfer["item_id"],
+                    "branch": transfer["destination_branch"],
+                    "current_stock": received_qty,
+                    "is_active": True,
+                    "activated_at": datetime.now(timezone.utc).isoformat()
+                })
+        else:  # FG
+            existing = await db.branch_sku_inventory.find_one({
+                "buyer_sku_id": transfer["item_id"], 
+                "branch": transfer["destination_branch"]
             })
-        
-        # Transfer stock origin ledger entries (preserves manufacturing origin)
-        origin_breakdown = await transfer_stock_with_origin(
-            sku_id=transfer["item_id"],
-            source_branch=transfer["source_branch"],
-            destination_branch=transfer["destination_branch"],
-            quantity=transfer["quantity"],
-            ibt_id=transfer_id
-        )
+            if existing:
+                await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": transfer["item_id"], "branch": transfer["destination_branch"]},
+                    {"$inc": {"current_stock": received_qty}}
+                )
+            else:
+                await db.branch_sku_inventory.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "buyer_sku_id": transfer["item_id"],
+                    "branch": transfer["destination_branch"],
+                    "current_stock": received_qty,
+                    "is_active": True,
+                    "activated_at": datetime.now(timezone.utc).isoformat()
+                })
+            
+            # Transfer stock origin ledger entries
+            origin_breakdown = await transfer_stock_with_origin(
+                sku_id=transfer["item_id"],
+                source_branch=transfer["source_branch"],
+                destination_branch=transfer["destination_branch"],
+                quantity=received_qty,
+                ibt_id=transfer_id
+            )
     
-    # Update transfer status with origin info
+    # Calculate variance
+    variance = dispatched_qty - received_qty
+    
+    # Create shortage record if variance > 0
+    if variance > 0:
+        shortage_record = {
+            "id": str(uuid.uuid4()),
+            "ibt_transfer_id": transfer_id,
+            "transfer_code": transfer.get("transfer_code"),
+            "transfer_type": transfer["transfer_type"],
+            "item_id": transfer["item_id"],
+            "item_name": transfer.get("item_name", ""),
+            "source_branch": transfer["source_branch"],
+            "destination_branch": transfer["destination_branch"],
+            "dispatched_quantity": dispatched_qty,
+            "received_quantity": received_qty,
+            "shortage_quantity": variance,
+            "shortage_percentage": round((variance / dispatched_qty) * 100, 2),
+            "status": "PENDING_INVESTIGATION",
+            "damage_notes": data.damage_notes,
+            "received_notes": data.received_notes,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.ibt_shortages.insert_one(shortage_record)
+        shortage_id = shortage_record["id"]
+    
+    # Update transfer status
     update_data = {
-        "status": "COMPLETED", 
-        "received_at": datetime.now(timezone.utc)
+        "status": "COMPLETED",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_quantity": received_qty,
+        "variance": variance,
+        "received_notes": data.received_notes,
+        "damage_notes": data.damage_notes
     }
+    
+    if shortage_id:
+        update_data["shortage_record_id"] = shortage_id
+    
     if origin_breakdown:
         update_data["origin_breakdown"] = origin_breakdown
     
@@ -423,7 +675,112 @@ async def receive_ibt_transfer(transfer_id: str):
         {"$set": update_data}
     )
     
-    return {
-        "message": "Transfer received and completed",
-        "origin_breakdown": origin_breakdown
+    result = {
+        "message": f"Transfer {transfer.get('transfer_code')} received",
+        "received_quantity": received_qty,
+        "dispatched_quantity": dispatched_qty,
+        "variance": variance,
+        "status": "COMPLETED"
     }
+    
+    if shortage_id:
+        result["shortage_record_id"] = shortage_id
+        result["shortage_status"] = "PENDING_INVESTIGATION"
+    
+    return result
+
+
+@router.put("/ibt-transfers/{transfer_id}/cancel")
+async def cancel_ibt_transfer(transfer_id: str, reason: str = ""):
+    """Cancel IBT transfer - only allowed before dispatch"""
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    if transfer.get("status") in ["IN_TRANSIT", "COMPLETED"]:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel transfer in {transfer.get('status')} status")
+    
+    await db.ibt_transfers.update_one(
+        {"id": transfer_id},
+        {"$set": {
+            "status": "CANCELLED",
+            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            "cancel_reason": reason
+        }}
+    )
+    
+    return {"message": "Transfer cancelled"}
+
+
+# --- IBT Shortage Records ---
+
+@router.get("/ibt-shortages")
+async def get_ibt_shortages(status: Optional[str] = None):
+    """Get all IBT shortage records"""
+    query = {}
+    if status:
+        query["status"] = status
+    shortages = await db.ibt_shortages.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return shortages
+
+
+@router.put("/ibt-shortages/{shortage_id}/resolve")
+async def resolve_ibt_shortage(
+    shortage_id: str,
+    resolution: str,  # WRITE_OFF, RECOVERED, INSURANCE_CLAIM, etc.
+    resolution_notes: str = "",
+    recovered_quantity: float = 0
+):
+    """Resolve an IBT shortage record"""
+    shortage = await db.ibt_shortages.find_one({"id": shortage_id})
+    if not shortage:
+        raise HTTPException(status_code=404, detail="Shortage record not found")
+    
+    update_data = {
+        "status": "RESOLVED",
+        "resolution": resolution,
+        "resolution_notes": resolution_notes,
+        "recovered_quantity": recovered_quantity,
+        "resolved_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # If recovered, add back to destination inventory
+    if recovered_quantity > 0:
+        if shortage["transfer_type"] == "RM":
+            await db.branch_rm_inventory.update_one(
+                {"rm_id": shortage["item_id"], "branch": shortage["destination_branch"]},
+                {"$inc": {"current_stock": recovered_quantity}}
+            )
+        else:
+            await db.branch_sku_inventory.update_one(
+                {"buyer_sku_id": shortage["item_id"], "branch": shortage["destination_branch"]},
+                {"$inc": {"current_stock": recovered_quantity}}
+            )
+        update_data["inventory_adjusted"] = True
+    
+    await db.ibt_shortages.update_one(
+        {"id": shortage_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Shortage resolved", "resolution": resolution}
+
+
+# Legacy ship endpoint - redirects to dispatch
+@router.put("/ibt-transfers/{transfer_id}/ship")
+async def ship_ibt_transfer_legacy(transfer_id: str):
+    """Legacy endpoint - use /dispatch instead"""
+    # For backwards compatibility, call dispatch
+    transfer = await db.ibt_transfers.find_one({"id": transfer_id})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    
+    # If not approved yet, approve first
+    if transfer.get("status") == "INITIATED":
+        await db.ibt_transfers.update_one(
+            {"id": transfer_id},
+            {"$set": {"status": "APPROVED", "approved_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    # Now dispatch
+    return await dispatch_ibt_transfer(transfer_id)
