@@ -582,11 +582,11 @@ const RMInward = () => {
                 <div>
                   <Label className="text-xs font-bold uppercase">Payment Terms</Label>
                   <Select 
-                    value={billData.payment_terms} 
+                    value={billData.payment_terms || undefined} 
                     onValueChange={(v) => setBillData({...billData, payment_terms: v})}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select payment terms" />
                     </SelectTrigger>
                     <SelectContent>
                       {PAYMENT_TERMS.map(pt => (
@@ -598,11 +598,11 @@ const RMInward = () => {
                 <div>
                   <Label className="text-xs font-bold uppercase">Accounts Payable</Label>
                   <Select 
-                    value={billData.accounts_payable} 
+                    value={billData.accounts_payable || undefined} 
                     onValueChange={(v) => setBillData({...billData, accounts_payable: v})}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select account" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Trade Payables">Trade Payables</SelectItem>
@@ -722,11 +722,11 @@ const RMInward = () => {
                           </TableCell>
                           <TableCell className="p-2">
                             <Select 
-                              value={item.tax} 
+                              value={item.tax || undefined} 
                               onValueChange={(v) => handleLineItemChange(idx, "tax", v)}
                             >
                               <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
+                                <SelectValue placeholder="Tax" />
                               </SelectTrigger>
                               <SelectContent>
                                 {TAX_OPTIONS.map(t => (
@@ -782,11 +782,11 @@ const RMInward = () => {
                   <div className="flex items-center gap-2">
                     <span className="text-sm w-20">Discount</span>
                     <Select 
-                      value={totals.discount_type} 
+                      value={totals.discount_type || undefined} 
                       onValueChange={(v) => setTotals({...totals, discount_type: v})}
                     >
                       <SelectTrigger className="w-20 h-8">
-                        <SelectValue />
+                        <SelectValue placeholder="%" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="percentage">%</SelectItem>
@@ -808,11 +808,11 @@ const RMInward = () => {
                   <div className="flex items-center gap-2">
                     <span className="text-sm w-20">TDS/TCS</span>
                     <Select 
-                      value={totals.tds_tcs} 
+                      value={totals.tds_tcs || undefined} 
                       onValueChange={(v) => setTotals({...totals, tds_tcs: v})}
                     >
                       <SelectTrigger className="w-32 h-8">
-                        <SelectValue />
+                        <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
                         {TDS_TCS_OPTIONS.map(t => (
