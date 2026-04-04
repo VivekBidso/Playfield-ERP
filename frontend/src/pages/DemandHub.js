@@ -515,7 +515,7 @@ const DemandHub = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Verticals</SelectItem>
-                      {verticals.map(v => (
+                      {verticals.filter(v => v.id).map(v => (
                         <SelectItem key={v.id} value={v.id}>{v.code} - {v.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -525,7 +525,7 @@ const DemandHub = () => {
                 <div className="w-[200px]">
                   <Label className="text-xs text-gray-500">Model</Label>
                   <Select 
-                    value={skuFilters.model_id} 
+                    value={skuFilters.model_id || "all"} 
                     onValueChange={(v) => setSkuFilters({ ...skuFilters, model_id: v === "all" ? "" : v })}
                     disabled={!skuFilters.vertical_id}
                   >
@@ -534,7 +534,7 @@ const DemandHub = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Models</SelectItem>
-                      {getFilteredModels().map(m => (
+                      {getFilteredModels().filter(m => m.id).map(m => (
                         <SelectItem key={m.id} value={m.id}>{m.code} - {m.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -974,12 +974,12 @@ const DemandHub = () => {
             {/* Category Selection */}
             <div>
               <Label>Category *</Label>
-              <Select value={rmForm.category} onValueChange={handleRmCategoryChange}>
+              <Select value={rmForm.category || undefined} onValueChange={handleRmCategoryChange}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(RM_CATEGORIES).map(([code, config]) => (
+                  {Object.entries(RM_CATEGORIES).filter(([code]) => code).map(([code, config]) => (
                     <SelectItem key={code} value={code}>{code} - {config.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1059,7 +1059,7 @@ const DemandHub = () => {
                   <SelectValue placeholder="Add brand..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {brands.filter(b => !rmForm.brand_ids.includes(b.id)).map(b => (
+                  {brands.filter(b => b.id && !rmForm.brand_ids.includes(b.id)).map(b => (
                     <SelectItem key={b.id} value={b.id}>{b.code} - {b.name}</SelectItem>
                   ))}
                 </SelectContent>

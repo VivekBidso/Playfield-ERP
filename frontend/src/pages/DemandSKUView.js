@@ -458,7 +458,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Verticals</SelectItem>
-                    {verticals.map(v => (
+                    {verticals.filter(v => v.id).map(v => (
                       <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -473,7 +473,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Models</SelectItem>
-                    {getFilteredModels(bidsoFilters.vertical_id).map(m => (
+                    {getFilteredModels(bidsoFilters.vertical_id).filter(m => m.id).map(m => (
                       <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -580,7 +580,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Verticals</SelectItem>
-                    {verticals.map(v => (
+                    {verticals.filter(v => v.id).map(v => (
                       <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -595,7 +595,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Brands</SelectItem>
-                    {brands.map(b => (
+                    {brands.filter(b => b.id).map(b => (
                       <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -610,7 +610,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Models</SelectItem>
-                    {getFilteredModels(buyerFilters.vertical_id).map(m => (
+                    {getFilteredModels(buyerFilters.vertical_id).filter(m => m.id).map(m => (
                       <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -625,7 +625,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Buyers</SelectItem>
-                    {buyers.map(b => (
+                    {buyers.filter(b => b.id).map(b => (
                       <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -751,7 +751,7 @@ const DemandSKUView = () => {
                               <SelectValue placeholder="Select customer" />
                             </SelectTrigger>
                             <SelectContent>
-                              {buyers.map(b => (
+                              {buyers.filter(b => b.id || b.customer_code).map(b => (
                                 <SelectItem key={b.id} value={b.customer_code || b.id}>
                                   {b.name} ({b.customer_code || b.id})
                                 </SelectItem>
@@ -763,7 +763,7 @@ const DemandSKUView = () => {
                         <div>
                           <Label className="text-xs uppercase">Buyer SKU *</Label>
                           <Select 
-                            value={priceForm.buyer_sku_id} 
+                            value={priceForm.buyer_sku_id || undefined} 
                             onValueChange={(v) => setPriceForm({...priceForm, buyer_sku_id: v})}
                             disabled={!!editingPrice}
                           >
@@ -771,7 +771,7 @@ const DemandSKUView = () => {
                               <SelectValue placeholder="Select SKU" />
                             </SelectTrigger>
                             <SelectContent>
-                              {buyerSkus.slice(0, 200).map(sku => (
+                              {buyerSkus.filter(sku => sku.buyer_sku_id || sku.sku_id).slice(0, 200).map(sku => (
                                 <SelectItem key={sku.buyer_sku_id || sku.sku_id} value={sku.buyer_sku_id || sku.sku_id}>
                                   {sku.buyer_sku_id || sku.sku_id} - {sku.name}
                                 </SelectItem>
@@ -819,7 +819,7 @@ const DemandSKUView = () => {
               {/* Filters */}
               <div className="flex gap-4 mb-4">
                 <Select 
-                  value={priceFilters.customer_id} 
+                  value={priceFilters.customer_id || "_all"} 
                   onValueChange={(v) => setPriceFilters({...priceFilters, customer_id: v})}
                 >
                   <SelectTrigger className="w-[250px]">
@@ -827,7 +827,7 @@ const DemandSKUView = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Customers</SelectItem>
-                    {buyers.map(b => (
+                    {buyers.filter(b => b.id || b.customer_code).map(b => (
                       <SelectItem key={b.id} value={b.customer_code || b.id}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>

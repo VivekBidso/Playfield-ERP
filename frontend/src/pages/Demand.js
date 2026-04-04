@@ -958,7 +958,7 @@ const Demand = () => {
                         <SelectTrigger><SelectValue placeholder="All filtered SKUs" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_all">All SKUs (Vertical-level forecast)</SelectItem>
-                          {getFilteredSkus().slice(0, 200).map(s => (
+                          {getFilteredSkus().filter(s => s.sku_id).slice(0, 200).map(s => (
                             <SelectItem key={s.sku_id} value={s.sku_id}>
                               {s.sku_id} - {s.description?.slice(0, 25)}
                             </SelectItem>
@@ -1039,7 +1039,7 @@ const Demand = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Customers</SelectItem>
-                {buyers.map(b => (
+                {buyers.filter(b => b.id).map(b => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -1058,7 +1058,7 @@ const Demand = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Verticals</SelectItem>
-                {verticals.map(v => (
+                {verticals.filter(v => v.id).map(v => (
                   <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -1074,7 +1074,7 @@ const Demand = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Brands</SelectItem>
-                {brands.map(b => (
+                {brands.filter(b => b.id).map(b => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -1090,7 +1090,7 @@ const Demand = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Models</SelectItem>
-                {getFilterModels().map(m => (
+                {getFilterModels().filter(m => m.id).map(m => (
                   <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -1729,7 +1729,7 @@ const Demand = () => {
                     {/* Add to Existing Lot */}
                     <div className="space-y-2">
                       <Label className="text-xs">Add to Existing Lot (Same Buyer)</Label>
-                      <Select value={selectedLotForAdd} onValueChange={setSelectedLotForAdd}>
+                      <Select value={selectedLotForAdd || undefined} onValueChange={setSelectedLotForAdd}>
                         <SelectTrigger className="text-sm">
                           <SelectValue placeholder="Select lot..." />
                         </SelectTrigger>
@@ -1737,7 +1737,7 @@ const Demand = () => {
                           {buyerExistingLots.length === 0 ? (
                             <SelectItem value="_none" disabled>No existing lots for this buyer</SelectItem>
                           ) : (
-                            buyerExistingLots.map(lot => (
+                            buyerExistingLots.filter(lot => lot.id).map(lot => (
                               <SelectItem key={lot.id} value={lot.id}>
                                 {lot.lot_code} ({(lot.total_quantity || 0).toLocaleString()} units)
                               </SelectItem>
@@ -1887,7 +1887,7 @@ const Demand = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_all">All Buyers</SelectItem>
-                  {buyers.map(b => (
+                  {buyers.filter(b => b.id).map(b => (
                     <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1907,7 +1907,7 @@ const Demand = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Brands</SelectItem>
-                    {getUniqueBrands().map(brand => (
+                    {getUniqueBrands().filter(brand => brand).map(brand => (
                       <SelectItem key={brand} value={brand}>{brand}</SelectItem>
                     ))}
                   </SelectContent>
@@ -1924,7 +1924,7 @@ const Demand = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_all">All Models</SelectItem>
-                    {getUniqueModels().map(model => (
+                    {getUniqueModels().filter(model => model).map(model => (
                       <SelectItem key={model} value={model}>{model}</SelectItem>
                     ))}
                   </SelectContent>
