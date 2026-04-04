@@ -11,7 +11,8 @@ import {
   Upload,
   ClipboardList,
   Package,
-  ExternalLink
+  ExternalLink,
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,12 @@ const CPC = () => {
   // Dialog states
   const [showScheduleFromForecastDialog, setShowScheduleFromForecastDialog] = useState(false);
   const [showCapacityDialog, setShowCapacityDialog] = useState(false);
+  const [showOverflowDialog, setShowOverflowDialog] = useState(false);
+  
+  // Overflow allocation state
+  const [overflowItems, setOverflowItems] = useState([]);
+  const [overflowAllocation, setOverflowAllocation] = useState({});
+  const [availableCapacity, setAvailableCapacity] = useState([]);
   
   // Form Data
   const [forecastScheduleForm, setForecastScheduleForm] = useState({
@@ -138,6 +145,41 @@ const CPC = () => {
       setBranchForecast(res.data);
     } catch (error) {
       toast.error("Failed to load forecast");
+    }
+  };
+
+  const fetchAvailableCapacity = async () => {
+    try {
+      const res = await axios.get(`${API}/cpc/available-capacity`);
+      setAvailableCapacity(res.data.data || []);
+    } catch (error) {
+      console.error("Failed to fetch available capacity:", error);
+    }
+  };
+
+  const handleAllocateOverflow = async (idx) => {
+    const item = overflowItems[idx];
+    const alloc = overflowAllocation[idx];
+    
+    if (!alloc.date) {
+      toast.error("Please select a date for allocation");
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/cpc/allocate-overflow`, {
+        sku_id: item.sku_id,
+        branch: alloc.branch,
+        date: alloc.date,
+        quantity: alloc.qty
+      });
+      toast.success(`Allocated ${alloc.qty} units to ${alloc.branch} on ${alloc.date}`);
+      
+      // Remove allocated item from overflow
+      setOverflowItems(prev => prev.filter((_, i) => i !== idx));
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to allocate overflow");
     }
   };
 
@@ -308,6 +350,15 @@ const CPC = () => {
                     Download Template
                   </Button>
                   <Button 
+                    variant="outline"
+                    onClick={() => window.open(`${API}/cpc/available-capacity/download`, '_blank')}
+                    className="uppercase text-xs tracking-wide"
+                    data-testid="download-capacity-btn"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Capacity Report
+                  </Button>
+                  <Button 
                     variant="default"
                     onClick={() => document.getElementById('plan-excel-upload').click()}
                     className="uppercase text-xs tracking-wide"
@@ -333,7 +384,20 @@ const CPC = () => {
                           headers: { 'Content-Type': 'multipart/form-data' }
                         });
                         
-                        if (res.data.total_errors > 0) {
+                        // Check for overflow (capacity exceeded)
+                        if (res.data.has_overflow && res.data.overflow?.length > 0) {
+                          toast.warning(`Created ${res.data.created} schedules. ${res.data.total_overflow} units need reallocation.`);
+                          setOverflowItems(res.data.overflow);
+                          // Initialize allocation state
+                          const initAlloc = {};
+                          res.data.overflow.forEach((o, idx) => {
+                            initAlloc[idx] = { date: "", branch: o.branch, qty: o.overflow_qty };
+                          });
+                          setOverflowAllocation(initAlloc);
+                          // Fetch available capacity
+                          fetchAvailableCapacity();
+                          setShowOverflowDialog(true);
+                        } else if (res.data.total_errors > 0) {
                           toast.warning(`Created ${res.data.created} schedules with ${res.data.total_errors} errors`);
                           if (res.data.errors?.length > 0) {
                             res.data.errors.slice(0, 5).forEach(err => toast.error(err));
@@ -951,6 +1015,151 @@ const CPC = () => {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Overflow Allocation Dialog */}
+      <Dialog open={showOverflowDialog} onOpenChange={setShowOverflowDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <AlertTriangle className="w-5 h-5" />
+              Capacity Exceeded - Allocate Remaining
+            </DialogTitle>
+            <DialogDescription>
+              Some quantities exceeded branch capacity and were capped. Allocate the remaining units to different dates.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Download capacity button */}
+            <div className="flex justify-end">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => window.open(`${API}/cpc/available-capacity/download`, '_blank')}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Capacity Report
+              </Button>
+            </div>
+
+            {/* Overflow items */}
+            {overflowItems.map((item, idx) => (
+              <Card key={idx} className="border-l-4 border-l-orange-500">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="font-mono font-bold">{item.sku_id}</div>
+                      <div className="text-sm text-muted-foreground">{item.sku_name}</div>
+                      <div className="flex gap-4 mt-2 text-sm">
+                        <span>Original Date: <strong>{item.date}</strong></span>
+                        <span>Branch: <strong>{item.branch}</strong></span>
+                      </div>
+                      <div className="flex gap-4 mt-1 text-sm">
+                        <span>Requested: <strong>{item.requested_qty}</strong></span>
+                        <span className="text-green-600">Allocated: <strong>{item.allocated_qty}</strong></span>
+                        <span className="text-orange-600">Remaining: <strong>{item.overflow_qty}</strong></span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-end gap-2">
+                      <div>
+                        <Label className="text-xs">Branch</Label>
+                        <Select 
+                          value={overflowAllocation[idx]?.branch || item.branch}
+                          onValueChange={(v) => setOverflowAllocation(prev => ({
+                            ...prev,
+                            [idx]: { ...prev[idx], branch: v }
+                          }))}
+                        >
+                          <SelectTrigger className="w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {branchCapacities.map(b => (
+                              <SelectItem key={b.branch} value={b.branch}>{b.branch}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Date</Label>
+                        <Input 
+                          type="date"
+                          className="w-40"
+                          value={overflowAllocation[idx]?.date || ""}
+                          onChange={(e) => setOverflowAllocation(prev => ({
+                            ...prev,
+                            [idx]: { ...prev[idx], date: e.target.value }
+                          }))}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Qty</Label>
+                        <Input 
+                          type="number"
+                          className="w-24"
+                          value={overflowAllocation[idx]?.qty || item.overflow_qty}
+                          onChange={(e) => setOverflowAllocation(prev => ({
+                            ...prev,
+                            [idx]: { ...prev[idx], qty: parseInt(e.target.value) || 0 }
+                          }))}
+                        />
+                      </div>
+                      <Button 
+                        size="sm"
+                        onClick={() => handleAllocateOverflow(idx)}
+                        className="uppercase text-xs"
+                      >
+                        Allocate
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {/* Show available capacity for selected branch */}
+                  {overflowAllocation[idx]?.branch && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs text-muted-foreground mb-2">Available Capacity for {overflowAllocation[idx]?.branch}:</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {availableCapacity
+                          .filter(c => c.branch === overflowAllocation[idx]?.branch && c.available > 0)
+                          .slice(0, 7)
+                          .map(c => (
+                            <button
+                              key={c.date}
+                              className={`px-2 py-1 rounded text-xs font-mono border hover:bg-zinc-100 ${
+                                overflowAllocation[idx]?.date === c.date ? 'bg-blue-100 border-blue-500' : ''
+                              }`}
+                              onClick={() => setOverflowAllocation(prev => ({
+                                ...prev,
+                                [idx]: { ...prev[idx], date: c.date }
+                              }))}
+                            >
+                              {c.date.slice(5)} ({c.available} avail)
+                            </button>
+                          ))
+                        }
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+
+            {overflowItems.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+                All overflow items have been allocated!
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowOverflowDialog(false)}>
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -47,20 +47,42 @@ The CPC (Central Production Control) module manages production planning and sche
 | Button | Action |
 |--------|--------|
 | Download Template | Downloads Excel template with valid Branch IDs and Buyer SKU IDs |
+| Capacity Report | Downloads available capacity day-wise for all branches (Excel) |
 | Upload Plan | Bulk upload production schedules from Excel |
+
+#### Capacity Handling (NEW - v2.1):
+When uploaded quantity exceeds branch capacity:
+1. **Auto-Cap**: System caps allocation to available capacity
+2. **Overflow Dialog**: Opens dialog showing remaining unallocated quantity
+3. **Reallocation**: User can allocate overflow to different dates/branches
+4. **Capacity Report**: User can download capacity report to find available slots
 
 #### Upload Validation:
 1. Branch ID must exist in `branches` collection
 2. Buyer SKU ID must exist in `buyer_skus` collection with status ACTIVE
 3. Quantity must be > 0
 4. Date must be valid format (YYYY-MM-DD)
-5. Branch capacity checked (if exceeded, shows warning)
+5. If capacity exceeded: caps to available, shows overflow dialog
 
 #### API Endpoints:
 ```
-GET  /api/cpc/production-plan/template  - Download Excel template
-POST /api/cpc/production-plan/upload-excel - Bulk upload schedules
+GET  /api/cpc/production-plan/template      - Download Excel template
+POST /api/cpc/production-plan/upload-excel  - Bulk upload (returns overflow data)
+GET  /api/cpc/available-capacity            - Get capacity day-wise (JSON)
+GET  /api/cpc/available-capacity/download   - Download capacity report (Excel)
+POST /api/cpc/allocate-overflow             - Allocate overflow to new date
 ```
+
+#### Overflow Allocation Dialog:
+When capacity is exceeded, dialog shows:
+- SKU details (ID, name)
+- Original date and branch
+- Requested vs Allocated vs Remaining quantities
+- Branch selector (change target branch)
+- Date selector (pick new date)
+- Quantity input (adjust allocation)
+- Available capacity chips for quick date selection
+- "Download Capacity Report" button
 
 ---
 
@@ -224,6 +246,13 @@ The production plan template includes 2 reference sheets:
 ---
 
 ## Changelog
+
+### v2.1 (April 4, 2026) - Capacity Overflow Handling
+- Added auto-cap behavior when capacity exceeded (instead of rejection)
+- Added overflow allocation dialog for reallocating excess quantity
+- Added "Capacity Report" download button (Excel with all branches/dates)
+- Added `/api/cpc/available-capacity` and `/api/cpc/allocate-overflow` endpoints
+- Overflow dialog shows available capacity chips for quick date selection
 
 ### v2.0 (April 4, 2026) - MVP Simplification
 - Removed forecast linking from production schedule upload

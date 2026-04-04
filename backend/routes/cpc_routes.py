@@ -1908,7 +1908,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     date_branch_usage = {}  # {date|branch: allocated_qty}
     
     # Process rows
-    results = {"created": 0, "errors": [], "schedules": []}
+    results = {"created": 0, "errors": [], "schedules": [], "overflow": []}
     
     for idx, row in df.iterrows():
         try:
@@ -1976,11 +1976,46 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             existing_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
             
             available = branch_capacity - existing_allocated - current_usage
-            if qty > available:
-                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds available capacity {available} for {branch_name} on {date_str}")
-                continue
+            allocated_qty = qty
+            overflow_qty = 0
             
-            # Create schedule
+            # Cap to available capacity if exceeded
+            if qty > available:
+                if available <= 0:
+                    # No capacity at all - add to overflow
+                    results["overflow"].append({
+                        "row": idx + 2,
+                        "branch_id": branch_value,
+                        "branch": branch_name,
+                        "date": date_str,
+                        "sku_id": sku_id,
+                        "sku_name": sku.get("name", "") or sku.get("description", ""),
+                        "requested_qty": qty,
+                        "allocated_qty": 0,
+                        "overflow_qty": qty,
+                        "available_capacity": 0,
+                        "branch_capacity": branch_capacity
+                    })
+                    continue
+                else:
+                    # Partial allocation - cap to available
+                    allocated_qty = available
+                    overflow_qty = qty - available
+                    results["overflow"].append({
+                        "row": idx + 2,
+                        "branch_id": branch_value,
+                        "branch": branch_name,
+                        "date": date_str,
+                        "sku_id": sku_id,
+                        "sku_name": sku.get("name", "") or sku.get("description", ""),
+                        "requested_qty": qty,
+                        "allocated_qty": allocated_qty,
+                        "overflow_qty": overflow_qty,
+                        "available_capacity": available,
+                        "branch_capacity": branch_capacity
+                    })
+            
+            # Create schedule with allocated quantity
             count = await db.production_schedules.count_documents({})
             schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
             
@@ -1992,20 +2027,20 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 "branch": branch_name,
                 "sku_id": sku_id,
                 "sku_description": sku.get("name", "") or sku.get("description", ""),
-                "target_quantity": qty,
-                "allocated_quantity": qty,
+                "target_quantity": allocated_qty,
+                "allocated_quantity": allocated_qty,
                 "completed_quantity": 0,
                 "target_date": target_date,
                 "priority": "MEDIUM",  # Default priority
                 "status": "SCHEDULED",
-                "notes": f"Bulk upload",
+                "notes": f"Bulk upload" + (f" (capped from {qty})" if overflow_qty > 0 else ""),
                 "created_at": datetime.now(timezone.utc)
             }
             
             await db.production_schedules.insert_one(schedule)
             
             # Update tracking
-            date_branch_usage[usage_key] = current_usage + qty
+            date_branch_usage[usage_key] = current_usage + allocated_qty
             
             results["created"] += 1
             results["schedules"].append({
@@ -2013,18 +2048,316 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 "sku_id": sku_id,
                 "branch": branch_name,
                 "date": date_str,
-                "qty": qty
+                "qty": allocated_qty,
+                "original_qty": qty if overflow_qty > 0 else None,
+                "overflow": overflow_qty if overflow_qty > 0 else None
             })
             
         except Exception as e:
             results["errors"].append(f"Row {idx+2}: {str(e)}")
     
+    # Calculate total overflow
+    total_overflow = sum(o["overflow_qty"] for o in results["overflow"])
+    
     return {
         "message": f"Bulk upload complete. Created {results['created']} schedules.",
         "created": results["created"],
-        "schedules": results["schedules"][:20],
+        "schedules": results["schedules"][:50],
         "errors": results["errors"][:20],
-        "total_errors": len(results["errors"])
+        "total_errors": len(results["errors"]),
+        "overflow": results["overflow"],
+        "total_overflow": total_overflow,
+        "has_overflow": total_overflow > 0
+    }
+
+
+@router.get("/cpc/available-capacity")
+async def get_available_capacity(
+    start_date: str = None,
+    end_date: str = None,
+    branch: str = None
+):
+    """
+    Get available capacity day-wise for branches.
+    Returns: For each branch/date combo: total capacity, scheduled, available.
+    """
+    # Default date range: today + 30 days
+    if not start_date:
+        start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not end_date:
+        end_dt = datetime.now(timezone.utc) + timedelta(days=30)
+        end_date = end_dt.strftime("%Y-%m-%d")
+    
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    # Get branches
+    branch_query = {"is_active": True}
+    if branch:
+        branch_query["name"] = branch
+    branches = await db.branches.find(branch_query, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    
+    # Get daily capacity overrides
+    daily_overrides = await db.branch_daily_capacity.find(
+        {"date": {"$gte": start_date, "$lte": end_date}},
+        {"_id": 0}
+    ).to_list(5000)
+    override_map = {f"{d['branch']}|{d['date']}": d.get("capacity", 0) for d in daily_overrides}
+    
+    # Get scheduled quantities
+    schedules = await db.production_schedules.find(
+        {
+            "target_date": {"$gte": start_dt, "$lte": end_dt + timedelta(days=1)},
+            "status": {"$ne": "CANCELLED"}
+        },
+        {"_id": 0, "branch": 1, "target_date": 1, "target_quantity": 1}
+    ).to_list(10000)
+    
+    # Build scheduled map
+    scheduled_map = {}
+    for s in schedules:
+        dt = s["target_date"]
+        if isinstance(dt, datetime):
+            date_key = dt.strftime("%Y-%m-%d")
+        else:
+            date_key = str(dt)[:10]
+        key = f"{s['branch']}|{date_key}"
+        scheduled_map[key] = scheduled_map.get(key, 0) + s.get("target_quantity", 0)
+    
+    # Build result
+    result = []
+    current = start_dt
+    while current <= end_dt:
+        date_str = current.strftime("%Y-%m-%d")
+        for b in branches:
+            branch_name = b["name"]
+            key = f"{branch_name}|{date_str}"
+            
+            # Get capacity (override or default)
+            capacity = override_map.get(key, b.get("capacity_units_per_day", 0))
+            scheduled = scheduled_map.get(key, 0)
+            available = max(0, capacity - scheduled)
+            
+            result.append({
+                "branch_id": b.get("branch_id", ""),
+                "branch": branch_name,
+                "date": date_str,
+                "capacity": capacity,
+                "scheduled": scheduled,
+                "available": available,
+                "utilization_pct": round((scheduled / capacity * 100) if capacity > 0 else 0, 1)
+            })
+        current += timedelta(days=1)
+    
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "data": result,
+        "total_rows": len(result)
+    }
+
+
+@router.get("/cpc/available-capacity/download")
+async def download_available_capacity(
+    start_date: str = None,
+    end_date: str = None,
+    branch: str = None
+):
+    """Download available capacity day-wise as Excel file."""
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    # Default date range: today + 30 days
+    if not start_date:
+        start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not end_date:
+        end_dt = datetime.now(timezone.utc) + timedelta(days=30)
+        end_date = end_dt.strftime("%Y-%m-%d")
+    
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    # Get branches
+    branch_query = {"is_active": True}
+    if branch:
+        branch_query["name"] = branch
+    branches = await db.branches.find(branch_query, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    
+    # Get daily capacity overrides
+    daily_overrides = await db.branch_daily_capacity.find(
+        {"date": {"$gte": start_date, "$lte": end_date}},
+        {"_id": 0}
+    ).to_list(5000)
+    override_map = {f"{d['branch']}|{d['date']}": d.get("capacity", 0) for d in daily_overrides}
+    
+    # Get scheduled quantities
+    schedules = await db.production_schedules.find(
+        {
+            "target_date": {"$gte": start_dt, "$lte": end_dt + timedelta(days=1)},
+            "status": {"$ne": "CANCELLED"}
+        },
+        {"_id": 0, "branch": 1, "target_date": 1, "target_quantity": 1}
+    ).to_list(10000)
+    
+    # Build scheduled map
+    scheduled_map = {}
+    for s in schedules:
+        dt = s["target_date"]
+        if isinstance(dt, datetime):
+            date_key = dt.strftime("%Y-%m-%d")
+        else:
+            date_key = str(dt)[:10]
+        key = f"{s['branch']}|{date_key}"
+        scheduled_map[key] = scheduled_map.get(key, 0) + s.get("target_quantity", 0)
+    
+    # Create Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Available Capacity"
+    
+    # Headers
+    headers = ["Branch ID", "Branch", "Date", "Capacity", "Scheduled", "Available", "Utilization %"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data rows
+    row_num = 2
+    current = start_dt
+    while current <= end_dt:
+        date_str = current.strftime("%Y-%m-%d")
+        for b in branches:
+            branch_name = b["name"]
+            key = f"{branch_name}|{date_str}"
+            
+            capacity = override_map.get(key, b.get("capacity_units_per_day", 0))
+            scheduled = scheduled_map.get(key, 0)
+            available = max(0, capacity - scheduled)
+            utilization = round((scheduled / capacity * 100) if capacity > 0 else 0, 1)
+            
+            ws.cell(row=row_num, column=1, value=b.get("branch_id", ""))
+            ws.cell(row=row_num, column=2, value=branch_name)
+            ws.cell(row=row_num, column=3, value=date_str)
+            ws.cell(row=row_num, column=4, value=capacity)
+            ws.cell(row=row_num, column=5, value=scheduled)
+            ws.cell(row=row_num, column=6, value=available)
+            ws.cell(row=row_num, column=7, value=utilization)
+            
+            # Highlight low availability
+            if available < capacity * 0.2:  # Less than 20% available
+                for c in range(1, 8):
+                    ws.cell(row=row_num, column=c).fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+            
+            row_num += 1
+        current += timedelta(days=1)
+    
+    # Auto-width columns
+    for col in range(1, 8):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+    
+    # Save
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"available_capacity_{start_date}_to_{end_date}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/cpc/allocate-overflow")
+async def allocate_overflow_schedule(data: dict):
+    """
+    Allocate overflow quantity to a different date.
+    Input: {sku_id, branch, date, quantity}
+    """
+    sku_id = data.get("sku_id")
+    branch = data.get("branch")
+    date_str = data.get("date")
+    qty = int(data.get("quantity", 0))
+    
+    if not all([sku_id, branch, date_str, qty > 0]):
+        raise HTTPException(status_code=400, detail="Missing required fields: sku_id, branch, date, quantity")
+    
+    # Validate branch
+    branch_doc = await db.branches.find_one({"name": branch, "is_active": True}, {"_id": 0, "capacity_units_per_day": 1})
+    if not branch_doc:
+        raise HTTPException(status_code=400, detail=f"Branch '{branch}' not found")
+    
+    # Validate SKU
+    sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id, "status": "ACTIVE"}, {"_id": 0, "name": 1, "description": 1})
+    if not sku:
+        raise HTTPException(status_code=400, detail=f"Buyer SKU '{sku_id}' not found")
+    
+    # Parse date
+    target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    # Check capacity
+    branch_capacity = branch_doc.get("capacity_units_per_day", 0)
+    daily_cap = await db.branch_daily_capacity.find_one(
+        {"branch": branch, "date": date_str},
+        {"_id": 0, "capacity": 1}
+    )
+    if daily_cap:
+        branch_capacity = daily_cap.get("capacity", branch_capacity)
+    
+    # Get existing schedules
+    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+    existing = await db.production_schedules.find(
+        {
+            "branch": branch,
+            "target_date": {"$gte": day_start, "$lt": day_end},
+            "status": {"$ne": "CANCELLED"}
+        },
+        {"_id": 0, "target_quantity": 1}
+    ).to_list(1000)
+    existing_allocated = sum(s.get("target_quantity", 0) for s in existing)
+    
+    available = branch_capacity - existing_allocated
+    if qty > available:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Requested qty {qty} exceeds available capacity {available} for {branch} on {date_str}"
+        )
+    
+    # Create schedule
+    count = await db.production_schedules.count_documents({})
+    schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+    
+    schedule = {
+        "id": str(uuid.uuid4()),
+        "schedule_code": schedule_code,
+        "forecast_id": None,
+        "dispatch_lot_id": None,
+        "branch": branch,
+        "sku_id": sku_id,
+        "sku_description": sku.get("name", "") or sku.get("description", ""),
+        "target_quantity": qty,
+        "allocated_quantity": qty,
+        "completed_quantity": 0,
+        "target_date": target_date,
+        "priority": "MEDIUM",
+        "status": "SCHEDULED",
+        "notes": "Overflow allocation",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.production_schedules.insert_one(schedule)
+    
+    return {
+        "success": True,
+        "schedule_code": schedule_code,
+        "message": f"Created schedule {schedule_code} for {qty} units on {date_str}"
     }
 
 
