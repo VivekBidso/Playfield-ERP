@@ -2291,4 +2291,78 @@ Full BOM = common_bom (via bidso_sku_id) + brand_bom (via buyer_sku_id)
 
 
 
+---
+
+## 37. OVERDUE SCHEDULE HANDLING & SPILLOVER (April 4, 2026)
+
+### Requirement:
+1. **Overdue Schedules**: Track and alert when production schedules are past their target_date but still SCHEDULED
+2. **Partial Completion**: When completed_qty < target_qty, prompt user to create a spillover schedule for the balance
+
+### Implementation:
+
+#### A. Overdue Schedule Handling
+
+**Backend Endpoints (`/app/backend/routes/branch_ops_routes.py`):**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/branch-ops/overdue-count` | GET | Quick count for dashboard badge |
+| `/api/branch-ops/overdue-schedules` | GET | Full list with days_overdue, is_critical flag |
+| `/api/branch-ops/reschedule` | POST | Bulk reschedule selected schedules to new date |
+
+**Logic:**
+- Overdue = `target_date < today` AND `status = SCHEDULED`
+- Critical = 3+ days overdue
+- Reschedule updates `target_date` and logs `rescheduled_from`, `rescheduled_by`
+
+**Frontend:**
+- Amber/Red alert banner shows when overdue count > 0
+- Click opens dialog with table of overdue schedules
+- Bulk select + date picker + "Reschedule" button
+
+#### B. Partial Completion Spillover
+
+**Backend Endpoint:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/branch-ops/create-spillover` | POST | Create new schedule for remaining balance |
+
+**Spillover Schedule Fields:**
+```json
+{
+  "is_spillover": true,
+  "parent_schedule_id": "uuid",
+  "parent_schedule_code": "PS_202604_0001",
+  "notes": "Spillover from PS_202604_0001"
+}
+```
+
+**Frontend Flow:**
+1. User enters completed_qty < target_qty
+2. On "Confirm Complete":
+   - Schedule marked COMPLETED with completed_qty
+   - RM consumed, FG added
+   - Spillover dialog auto-opens with:
+     - Shortfall quantity pre-filled
+     - Tomorrow's date pre-selected
+3. User chooses:
+   - "Create Spillover" → New schedule created
+   - "Discard Balance" → No action, balance lost
+
+### Test Verification (April 4, 2026):
+- ✅ Overdue count endpoint returns correct count and critical count
+- ✅ Overdue schedules endpoint returns list with days_overdue
+- ✅ Reschedule endpoint bulk updates schedules to new date
+- ✅ Overdue alert banner displays correctly (amber/red based on critical)
+- ✅ Overdue dialog shows table with checkboxes and reschedule controls
+- ✅ Spillover dialog auto-opens on partial completion
+- ✅ Spillover schedule created with correct parent linkage
+- ✅ "Discard Balance" closes dialog without action
+
+---
+
+*Last Updated: April 4, 2026*
+
+
+
 

@@ -4,7 +4,8 @@ import useAuthStore from "@/store/authStore";
 import useBranchStore from "@/store/branchStore";
 import { 
   Factory, Calendar, CheckCircle2, Clock, Package, 
-  Filter, ChevronDown, AlertCircle, Loader2, Search, CheckCheck
+  Filter, ChevronDown, AlertCircle, Loader2, Search, CheckCheck,
+  AlertTriangle, CalendarClock, Plus, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,24 @@ const BranchOps = () => {
   // Pre-check RM state
   const [preChecking, setPreChecking] = useState(false);
   const [preCheckResult, setPreCheckResult] = useState(null); // {sufficient: bool, shortages: [], bom_items: N}
+  
+  // Overdue schedules state
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [criticalCount, setCriticalCount] = useState(0);
+  const [showOverdueDialog, setShowOverdueDialog] = useState(false);
+  const [overdueSchedules, setOverdueSchedules] = useState([]);
+  const [loadingOverdue, setLoadingOverdue] = useState(false);
+  const [selectedOverdue, setSelectedOverdue] = useState([]);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
+  
+  // Spillover dialog state
+  const [showSpilloverDialog, setShowSpilloverDialog] = useState(false);
+  const [spilloverQty, setSpilloverQty] = useState(0);
+  const [spilloverDate, setSpilloverDate] = useState("");
+  const [spilloverNotes, setSpilloverNotes] = useState("");
+  const [creatingSpillover, setCreatingSpillover] = useState(false);
+  const [completedScheduleData, setCompletedScheduleData] = useState(null);
 
   const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -61,6 +80,7 @@ const BranchOps = () => {
   // Fetch data on mount and filter change
   useEffect(() => {
     fetchMyBranches();
+    fetchOverdueCount();
   }, [token]);
 
   // Refetch dashboard when branch changes
@@ -124,6 +144,106 @@ const BranchOps = () => {
     }
   };
 
+  const fetchOverdueCount = async () => {
+    try {
+      const res = await axios.get(`${API}/branch-ops/overdue-count`, { headers: getHeaders() });
+      setOverdueCount(res.data.count || 0);
+      setCriticalCount(res.data.critical || 0);
+    } catch (error) {
+      console.error("Failed to fetch overdue count");
+    }
+  };
+
+  const fetchOverdueSchedules = async () => {
+    setLoadingOverdue(true);
+    try {
+      const res = await axios.get(`${API}/branch-ops/overdue-schedules`, { headers: getHeaders() });
+      setOverdueSchedules(res.data.overdue || []);
+    } catch (error) {
+      toast.error("Failed to load overdue schedules");
+    } finally {
+      setLoadingOverdue(false);
+    }
+  };
+
+  const handleReschedule = async () => {
+    if (selectedOverdue.length === 0) {
+      toast.error("Please select at least one schedule to reschedule");
+      return;
+    }
+    if (!rescheduleDate) {
+      toast.error("Please select a new date");
+      return;
+    }
+    
+    setRescheduling(true);
+    try {
+      await axios.post(
+        `${API}/branch-ops/reschedule`,
+        {
+          schedule_ids: selectedOverdue,
+          new_date: rescheduleDate,
+          notes: "Rescheduled from overdue"
+        },
+        { headers: getHeaders() }
+      );
+      
+      toast.success(`Rescheduled ${selectedOverdue.length} schedule(s) to ${rescheduleDate}`);
+      setShowOverdueDialog(false);
+      setSelectedOverdue([]);
+      setRescheduleDate("");
+      fetchOverdueCount();
+      fetchSchedules();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to reschedule");
+    } finally {
+      setRescheduling(false);
+    }
+  };
+
+  const handleCreateSpillover = async () => {
+    if (!completedScheduleData || spilloverQty <= 0 || !spilloverDate) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+    
+    setCreatingSpillover(true);
+    try {
+      const res = await axios.post(
+        `${API}/branch-ops/create-spillover`,
+        {
+          parent_schedule_id: completedScheduleData.id,
+          spillover_quantity: spilloverQty,
+          target_date: spilloverDate,
+          notes: spilloverNotes || `Spillover from ${completedScheduleData.schedule_code}`
+        },
+        { headers: getHeaders() }
+      );
+      
+      toast.success(`Spillover schedule ${res.data.schedule.schedule_code} created for ${spilloverQty} units`);
+      setShowSpilloverDialog(false);
+      resetSpilloverState();
+      fetchSchedules();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to create spillover");
+    } finally {
+      setCreatingSpillover(false);
+    }
+  };
+
+  const handleDiscardBalance = () => {
+    toast.info("Balance discarded. Schedule marked as complete.");
+    setShowSpilloverDialog(false);
+    resetSpilloverState();
+  };
+
+  const resetSpilloverState = () => {
+    setSpilloverQty(0);
+    setSpilloverDate("");
+    setSpilloverNotes("");
+    setCompletedScheduleData(null);
+  };
+
   const openCompleteDialog = (schedule) => {
     setSelectedSchedule(schedule);
     setCompletedQty(schedule.target_quantity);
@@ -182,8 +302,34 @@ const BranchOps = () => {
         { headers: getHeaders() }
       );
       
-      toast.success(`Schedule ${selectedSchedule.schedule_code} completed! RM consumed and FG added to inventory.`);
-      setShowCompleteDialog(false);
+      // Check if there's a shortfall (partial completion)
+      const shortfall = selectedSchedule.target_quantity - completedQty;
+      
+      if (shortfall > 0) {
+        // Show spillover dialog
+        setCompletedScheduleData({
+          id: selectedSchedule.id,
+          schedule_code: selectedSchedule.schedule_code,
+          sku_id: selectedSchedule.sku_id,
+          branch: selectedSchedule.branch,
+          target_quantity: selectedSchedule.target_quantity,
+          completed_quantity: completedQty
+        });
+        setSpilloverQty(shortfall);
+        
+        // Set default spillover date to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setSpilloverDate(tomorrow.toISOString().split('T')[0]);
+        
+        setShowCompleteDialog(false);
+        setShowSpilloverDialog(true);
+        toast.success(`Schedule completed with ${completedQty} units. ${shortfall} units remaining.`);
+      } else {
+        toast.success(`Schedule ${selectedSchedule.schedule_code} completed! RM consumed and FG added to inventory.`);
+        setShowCompleteDialog(false);
+      }
+      
       setSelectedSchedule(null);
       setRmShortages([]);
       setShowShortageError(false);
@@ -336,6 +482,45 @@ const BranchOps = () => {
           </div>
         </div>
       </div>
+
+      {/* Overdue Alert Banner */}
+      {overdueCount > 0 && (
+        <div 
+          className={`border rounded-lg p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow ${
+            criticalCount > 0 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+          }`}
+          onClick={() => {
+            fetchOverdueSchedules();
+            setShowOverdueDialog(true);
+          }}
+          data-testid="overdue-alert-banner"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className={`w-6 h-6 ${criticalCount > 0 ? 'text-red-600' : 'text-amber-600'}`} />
+              <div>
+                <h3 className={`font-bold ${criticalCount > 0 ? 'text-red-800' : 'text-amber-800'}`}>
+                  {overdueCount} Overdue Schedule{overdueCount !== 1 ? 's' : ''}
+                </h3>
+                <p className={`text-sm ${criticalCount > 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                  {criticalCount > 0 
+                    ? `${criticalCount} critical (3+ days overdue). Click to view and reschedule.`
+                    : 'Click to view and reschedule.'
+                  }
+                </p>
+              </div>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm"
+              className={criticalCount > 0 ? 'border-red-300 text-red-700' : 'border-amber-300 text-amber-700'}
+            >
+              <CalendarClock className="w-4 h-4 mr-1" />
+              Manage
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white border rounded-lg p-4 shadow-sm">
@@ -667,6 +852,248 @@ const BranchOps = () => {
                       Confirm Complete
                     </>
                   )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Overdue Schedules Dialog */}
+      <Dialog open={showOverdueDialog} onOpenChange={setShowOverdueDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="w-5 h-5" />
+              Overdue Production Schedules
+            </DialogTitle>
+          </DialogHeader>
+          
+          {loadingOverdue ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {overdueSchedules.length === 0 ? (
+                <p className="text-center text-zinc-500 py-8">No overdue schedules found</p>
+              ) : (
+                <>
+                  {/* Reschedule Controls */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <div className="flex flex-wrap items-end gap-4">
+                      <div>
+                        <Label className="text-xs">Select All</Label>
+                        <div className="mt-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedOverdue.length === overdueSchedules.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedOverdue(overdueSchedules.map(s => s.id));
+                              } else {
+                                setSelectedOverdue([]);
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-xs">Reschedule To</Label>
+                        <Input
+                          type="date"
+                          value={rescheduleDate}
+                          onChange={(e) => setRescheduleDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          className="w-48"
+                          data-testid="reschedule-date-input"
+                        />
+                      </div>
+                      <Button
+                        onClick={handleReschedule}
+                        disabled={rescheduling || selectedOverdue.length === 0 || !rescheduleDate}
+                        className="bg-amber-600 hover:bg-amber-700"
+                        data-testid="reschedule-btn"
+                      >
+                        {rescheduling ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                        ) : (
+                          <CalendarClock className="w-4 h-4 mr-1" />
+                        )}
+                        Reschedule {selectedOverdue.length > 0 ? `(${selectedOverdue.length})` : ''}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-amber-700 mt-2">
+                      Selected: {selectedOverdue.length} of {overdueSchedules.length} schedules
+                    </p>
+                  </div>
+
+                  {/* Overdue Table */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-zinc-100">
+                        <tr>
+                          <th className="text-left p-3 w-10"></th>
+                          <th className="text-left p-3">Schedule</th>
+                          <th className="text-left p-3">Branch</th>
+                          <th className="text-left p-3">SKU</th>
+                          <th className="text-right p-3">Qty</th>
+                          <th className="text-left p-3">Due Date</th>
+                          <th className="text-right p-3">Days Overdue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {overdueSchedules.map((schedule) => (
+                          <tr 
+                            key={schedule.id} 
+                            className={`border-t hover:bg-zinc-50 ${schedule.is_critical ? 'bg-red-50' : ''}`}
+                          >
+                            <td className="p-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedOverdue.includes(schedule.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedOverdue([...selectedOverdue, schedule.id]);
+                                  } else {
+                                    setSelectedOverdue(selectedOverdue.filter(id => id !== schedule.id));
+                                  }
+                                }}
+                                className="w-4 h-4"
+                              />
+                            </td>
+                            <td className="p-3 font-mono font-bold">{schedule.schedule_code}</td>
+                            <td className="p-3">{schedule.branch}</td>
+                            <td className="p-3">
+                              <div className="truncate max-w-[150px]" title={schedule.sku_name || schedule.sku_id}>
+                                {schedule.sku_id}
+                              </div>
+                              {schedule.sku_name && (
+                                <div className="text-xs text-zinc-500 truncate max-w-[150px]">{schedule.sku_name}</div>
+                              )}
+                            </td>
+                            <td className="p-3 text-right font-mono">{schedule.target_quantity?.toLocaleString()}</td>
+                            <td className="p-3">{schedule.target_date?.split('T')[0]}</td>
+                            <td className="p-3 text-right">
+                              <Badge className={schedule.is_critical ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}>
+                                {schedule.days_overdue} day{schedule.days_overdue !== 1 ? 's' : ''}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setShowOverdueDialog(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Spillover Dialog (Partial Completion) */}
+      <Dialog open={showSpilloverDialog} onOpenChange={setShowSpilloverDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <AlertCircle className="w-5 h-5" />
+              Partial Completion - Remaining Balance
+            </DialogTitle>
+          </DialogHeader>
+          
+          {completedScheduleData && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-zinc-500">Schedule:</span>
+                    <span className="ml-2 font-bold">{completedScheduleData.schedule_code}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">SKU:</span>
+                    <span className="ml-2 font-mono">{completedScheduleData.sku_id}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Target:</span>
+                    <span className="ml-2">{completedScheduleData.target_quantity?.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Completed:</span>
+                    <span className="ml-2 text-green-600 font-bold">{completedScheduleData.completed_quantity?.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-amber-300">
+                  <p className="text-amber-800 font-bold text-lg">
+                    Remaining: {spilloverQty.toLocaleString()} units
+                  </p>
+                  <p className="text-sm text-amber-600">What would you like to do with the balance?</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <Label>Schedule spillover for date:</Label>
+                  <Input
+                    type="date"
+                    value={spilloverDate}
+                    onChange={(e) => setSpilloverDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="mt-1"
+                    data-testid="spillover-date-input"
+                  />
+                </div>
+
+                <div>
+                  <Label>Spillover Quantity</Label>
+                  <Input
+                    type="number"
+                    value={spilloverQty}
+                    onChange={(e) => setSpilloverQty(parseInt(e.target.value) || 0)}
+                    className="mt-1"
+                    data-testid="spillover-qty-input"
+                  />
+                </div>
+
+                <div>
+                  <Label>Notes (optional)</Label>
+                  <Input
+                    value={spilloverNotes}
+                    onChange={(e) => setSpilloverNotes(e.target.value)}
+                    placeholder="Reason for partial completion..."
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={handleDiscardBalance}
+                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                  data-testid="discard-balance-btn"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Discard Balance
+                </Button>
+                <Button
+                  onClick={handleCreateSpillover}
+                  disabled={creatingSpillover || spilloverQty <= 0 || !spilloverDate}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700"
+                  data-testid="create-spillover-btn"
+                >
+                  {creatingSpillover ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  ) : (
+                    <Plus className="w-4 h-4 mr-1" />
+                  )}
+                  Create Spillover
                 </Button>
               </div>
             </div>

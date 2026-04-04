@@ -1057,3 +1057,322 @@ async def export_rm_shortage_report(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+
+# ============ OVERDUE SCHEDULE HANDLING ============
+
+@router.get("/branch-ops/overdue-schedules")
+async def get_overdue_schedules(
+    branch: Optional[str] = Query(None, description="Filter by branch"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all overdue production schedules (target_date < today AND status = SCHEDULED).
+    Returns list of overdue schedules with days overdue.
+    """
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Determine user's branches
+    is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    if is_master:
+        if branch:
+            user_branches = [branch]
+        else:
+            branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+            user_branches = [b["name"] for b in branches]
+    else:
+        user_branches = current_user.assigned_branches or []
+        if branch and branch in user_branches:
+            user_branches = [branch]
+    
+    if not user_branches:
+        return {"overdue": [], "count": 0}
+    
+    # Find overdue schedules
+    overdue_schedules = await db.production_schedules.find(
+        {
+            "branch": {"$in": user_branches},
+            "target_date": {"$lt": today},
+            "status": "SCHEDULED"
+        },
+        {"_id": 0}
+    ).sort("target_date", 1).to_list(500)
+    
+    # Enrich with days overdue and SKU details
+    sku_ids = list(set(s.get("sku_id") for s in overdue_schedules if s.get("sku_id")))
+    skus = await db.buyer_skus.find({"buyer_sku_id": {"$in": sku_ids}}, {"_id": 0, "buyer_sku_id": 1, "name": 1}).to_list(1000)
+    sku_map = {s["buyer_sku_id"]: s.get("name", "") for s in skus}
+    
+    enriched = []
+    for schedule in overdue_schedules:
+        target_date = schedule.get("target_date")
+        if isinstance(target_date, str):
+            target_date = datetime.fromisoformat(target_date)
+        if target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=timezone.utc)
+        
+        days_overdue = (today - target_date).days
+        
+        enriched.append({
+            **serialize_doc(schedule),
+            "days_overdue": days_overdue,
+            "sku_name": sku_map.get(schedule.get("sku_id"), ""),
+            "is_critical": days_overdue >= 3  # Flag if 3+ days overdue
+        })
+    
+    return {
+        "overdue": enriched,
+        "count": len(enriched),
+        "by_branch": {
+            branch: len([s for s in enriched if s.get("branch") == branch])
+            for branch in set(s.get("branch") for s in enriched)
+        }
+    }
+
+
+@router.get("/branch-ops/overdue-count")
+async def get_overdue_count(
+    current_user: User = Depends(get_current_user)
+):
+    """Quick count of overdue schedules for dashboard badge"""
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    if is_master:
+        branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+        user_branches = [b["name"] for b in branches]
+    else:
+        user_branches = current_user.assigned_branches or []
+    
+    if not user_branches:
+        return {"count": 0, "critical": 0}
+    
+    # Count overdue
+    count = await db.production_schedules.count_documents({
+        "branch": {"$in": user_branches},
+        "target_date": {"$lt": today},
+        "status": "SCHEDULED"
+    })
+    
+    # Count critical (3+ days overdue)
+    critical_date = today - timedelta(days=3)
+    critical = await db.production_schedules.count_documents({
+        "branch": {"$in": user_branches},
+        "target_date": {"$lt": critical_date},
+        "status": "SCHEDULED"
+    })
+    
+    return {"count": count, "critical": critical}
+
+
+from pydantic import BaseModel
+
+class RescheduleRequest(BaseModel):
+    schedule_ids: List[str]
+    new_date: str  # YYYY-MM-DD format
+    notes: Optional[str] = None
+
+
+@router.post("/branch-ops/reschedule")
+async def reschedule_schedules(
+    request: RescheduleRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Reschedule one or more production schedules to a new date.
+    Used for handling overdue schedules.
+    """
+    try:
+        new_date = datetime.strptime(request.new_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if new_date < today:
+        raise HTTPException(status_code=400, detail="Cannot reschedule to a past date")
+    
+    # Get schedules
+    schedules = await db.production_schedules.find(
+        {"id": {"$in": request.schedule_ids}, "status": "SCHEDULED"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    if not schedules:
+        raise HTTPException(status_code=404, detail="No valid schedules found")
+    
+    # Verify user has access to all branches
+    is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    if not is_master:
+        for schedule in schedules:
+            if schedule.get("branch") not in current_user.assigned_branches:
+                raise HTTPException(
+                    status_code=403, 
+                    detail=f"Access denied to branch: {schedule.get('branch')}"
+                )
+    
+    # Update schedules
+    rescheduled = []
+    for schedule in schedules:
+        old_date = schedule.get("target_date")
+        if isinstance(old_date, datetime):
+            old_date_str = old_date.strftime("%Y-%m-%d")
+        else:
+            old_date_str = str(old_date)[:10]
+        
+        update_data = {
+            "target_date": new_date,
+            "rescheduled_from": old_date_str,
+            "rescheduled_at": datetime.now(timezone.utc).isoformat(),
+            "rescheduled_by": current_user.name
+        }
+        
+        if request.notes:
+            update_data["reschedule_notes"] = request.notes
+        
+        await db.production_schedules.update_one(
+            {"id": schedule["id"]},
+            {"$set": update_data}
+        )
+        
+        rescheduled.append({
+            "schedule_code": schedule.get("schedule_code"),
+            "old_date": old_date_str,
+            "new_date": request.new_date
+        })
+    
+    return {
+        "message": f"Rescheduled {len(rescheduled)} schedule(s) to {request.new_date}",
+        "rescheduled": rescheduled
+    }
+
+
+# ============ PARTIAL COMPLETION / SPILLOVER HANDLING ============
+
+class SpilloverRequest(BaseModel):
+    parent_schedule_id: str
+    spillover_quantity: int
+    target_date: str  # YYYY-MM-DD format
+    notes: Optional[str] = None
+
+
+@router.post("/branch-ops/create-spillover")
+async def create_spillover_schedule(
+    request: SpilloverRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a spillover schedule for remaining quantity from partial completion.
+    Links back to the parent schedule.
+    """
+    # Get parent schedule
+    parent = await db.production_schedules.find_one(
+        {"id": request.parent_schedule_id},
+        {"_id": 0}
+    )
+    
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent schedule not found")
+    
+    # Verify access
+    is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    if not is_master:
+        if parent.get("branch") not in current_user.assigned_branches:
+            raise HTTPException(status_code=403, detail="Access denied to this branch")
+    
+    # Parse target date
+    try:
+        target_date = datetime.strptime(request.target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if target_date < today:
+        raise HTTPException(status_code=400, detail="Cannot create spillover for past date")
+    
+    if request.spillover_quantity <= 0:
+        raise HTTPException(status_code=400, detail="Spillover quantity must be greater than 0")
+    
+    # Generate new schedule code
+    now = datetime.now(timezone.utc)
+    prefix = f"PS_{now.strftime('%Y%m')}"
+    last_schedule = await db.production_schedules.find_one(
+        {"schedule_code": {"$regex": f"^{prefix}"}},
+        sort=[("schedule_code", -1)]
+    )
+    
+    if last_schedule:
+        try:
+            last_num = int(last_schedule["schedule_code"].split("_")[-1])
+            new_num = last_num + 1
+        except:
+            new_num = 1
+    else:
+        new_num = 1
+    
+    schedule_code = f"{prefix}_{new_num:04d}"
+    
+    # Create spillover schedule
+    spillover = {
+        "id": str(uuid.uuid4()),
+        "schedule_code": schedule_code,
+        "branch": parent.get("branch"),
+        "sku_id": parent.get("sku_id"),
+        "sku_description": parent.get("sku_description", ""),
+        "target_quantity": request.spillover_quantity,
+        "allocated_quantity": request.spillover_quantity,
+        "completed_quantity": 0,
+        "target_date": target_date,
+        "status": "SCHEDULED",
+        "priority": parent.get("priority", "MEDIUM"),
+        "parent_schedule_id": request.parent_schedule_id,
+        "parent_schedule_code": parent.get("schedule_code"),
+        "is_spillover": True,
+        "notes": request.notes or f"Spillover from {parent.get('schedule_code')}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.id,
+        "created_by_name": current_user.name
+    }
+    
+    await db.production_schedules.insert_one(spillover)
+    
+    # Update parent to track spillover
+    await db.production_schedules.update_one(
+        {"id": request.parent_schedule_id},
+        {"$set": {
+            "has_spillover": True,
+            "spillover_schedule_id": spillover["id"],
+            "spillover_quantity": request.spillover_quantity
+        }}
+    )
+    
+    return {
+        "message": f"Spillover schedule {schedule_code} created",
+        "schedule": {
+            "id": spillover["id"],
+            "schedule_code": schedule_code,
+            "branch": spillover["branch"],
+            "sku_id": spillover["sku_id"],
+            "quantity": request.spillover_quantity,
+            "target_date": request.target_date,
+            "parent_schedule_code": parent.get("schedule_code")
+        }
+    }
+
+
+@router.get("/branch-ops/schedules/{schedule_id}/spillovers")
+async def get_schedule_spillovers(
+    schedule_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get all spillover schedules linked to a parent schedule"""
+    spillovers = await db.production_schedules.find(
+        {"parent_schedule_id": schedule_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    return {
+        "parent_schedule_id": schedule_id,
+        "spillovers": [serialize_doc(s) for s in spillovers],
+        "count": len(spillovers)
+    }
