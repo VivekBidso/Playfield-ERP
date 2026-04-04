@@ -4,7 +4,7 @@ import useAuthStore from "@/store/authStore";
 import useBranchStore from "@/store/branchStore";
 import { 
   Factory, Calendar, CheckCircle2, Clock, Package, 
-  Filter, ChevronDown, AlertCircle, Loader2
+  Filter, ChevronDown, AlertCircle, Loader2, Search, CheckCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,10 @@ const BranchOps = () => {
   // RM Shortage state
   const [rmShortages, setRmShortages] = useState([]);
   const [showShortageError, setShowShortageError] = useState(false);
+  
+  // Pre-check RM state
+  const [preChecking, setPreChecking] = useState(false);
+  const [preCheckResult, setPreCheckResult] = useState(null); // {sufficient: bool, shortages: [], bom_items: N}
 
   const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -124,7 +128,43 @@ const BranchOps = () => {
     setSelectedSchedule(schedule);
     setCompletedQty(schedule.target_quantity);
     setCompletionNotes("");
+    setPreCheckResult(null);
+    setRmShortages([]);
+    setShowShortageError(false);
     setShowCompleteDialog(true);
+  };
+
+  const handlePreCheck = async () => {
+    if (!selectedSchedule || completedQty <= 0) {
+      toast.error("Please enter a valid quantity to check");
+      return;
+    }
+    
+    setPreChecking(true);
+    setPreCheckResult(null);
+    setRmShortages([]);
+    setShowShortageError(false);
+    
+    try {
+      const res = await axios.get(
+        `${API}/branch-ops/schedules/${selectedSchedule.id}/check-rm?quantity=${completedQty}`,
+        { headers: getHeaders() }
+      );
+      
+      setPreCheckResult(res.data);
+      
+      if (res.data.sufficient) {
+        toast.success(`RM available! ${res.data.bom_items} BOM items verified.`);
+      } else {
+        setRmShortages(res.data.shortages || []);
+        setShowShortageError(true);
+        toast.warning(`${res.data.shortages?.length || 0} RM(s) have insufficient stock`);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to check RM availability");
+    } finally {
+      setPreChecking(false);
+    }
   };
 
   const handleComplete = async () => {
@@ -147,6 +187,7 @@ const BranchOps = () => {
       setSelectedSchedule(null);
       setRmShortages([]);
       setShowShortageError(false);
+      setPreCheckResult(null);
       fetchSchedules();
       fetchDashboard();
     } catch (error) {
@@ -156,6 +197,7 @@ const BranchOps = () => {
       if (errorData?.error === "INSUFFICIENT_RM_STOCK") {
         setRmShortages(errorData.shortages || []);
         setShowShortageError(true);
+        setPreCheckResult({ sufficient: false, shortages: errorData.shortages });
         toast.error(`Cannot complete: ${errorData.shortages?.length || 0} RM(s) have insufficient stock`);
       } else {
         toast.error(typeof errorData === 'string' ? errorData : "Failed to complete schedule");
@@ -491,13 +533,36 @@ const BranchOps = () => {
 
               <div>
                 <Label>Actual Quantity Produced</Label>
-                <Input
-                  type="number"
-                  value={completedQty}
-                  onChange={(e) => setCompletedQty(parseInt(e.target.value) || 0)}
-                  className="text-lg font-bold"
-                  data-testid="completed-qty-input"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    value={completedQty}
+                    onChange={(e) => {
+                      setCompletedQty(parseInt(e.target.value) || 0);
+                      setPreCheckResult(null); // Reset pre-check when qty changes
+                      setShowShortageError(false);
+                      setRmShortages([]);
+                    }}
+                    className="text-lg font-bold flex-1"
+                    data-testid="completed-qty-input"
+                  />
+                  <Button 
+                    variant="outline" 
+                    onClick={handlePreCheck}
+                    disabled={preChecking || completedQty <= 0}
+                    className="shrink-0"
+                    data-testid="precheck-rm-btn"
+                  >
+                    {preChecking ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4 mr-1" />
+                        Check RM
+                      </>
+                    )}
+                  </Button>
+                </div>
                 {completedQty !== selectedSchedule.target_quantity && (
                   <p className="text-xs text-amber-600 mt-1">
                     {completedQty < selectedSchedule.target_quantity 
@@ -507,6 +572,21 @@ const BranchOps = () => {
                   </p>
                 )}
               </div>
+
+              {/* Pre-check Success Display */}
+              {preCheckResult?.sufficient && (
+                <div className="bg-green-50 border border-green-200 rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCheck className="w-5 h-5 text-green-600" />
+                    <div>
+                      <h4 className="font-bold text-green-700">RM Available</h4>
+                      <p className="text-sm text-green-600">
+                        All {preCheckResult.bom_items} BOM items verified. Ready to complete.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <Label>Notes (Optional)</Label>
@@ -564,6 +644,7 @@ const BranchOps = () => {
                     setShowCompleteDialog(false);
                     setShowShortageError(false);
                     setRmShortages([]);
+                    setPreCheckResult(null);
                   }}
                   className="flex-1"
                 >
