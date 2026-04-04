@@ -98,7 +98,7 @@ const IBT = () => {
         axios.get(`${API}/ibt-transfers`, { headers: getHeaders() }),
         axios.get(`${API}/branches/names`, { headers: getHeaders() }),
         axios.get(`${API}/raw-materials`, { headers: getHeaders() }),
-        axios.get(`${API}/sku-management/buyer-skus?page_size=1000`, { headers: getHeaders() }),
+        axios.get(`${API}/sku-management/buyer-skus?page_size=100`, { headers: getHeaders() }),
         axios.get(`${API}/ibt-shortages`, { headers: getHeaders() }).catch(() => ({ data: [] }))
       ]);
       setTransfers(ibtRes.data);

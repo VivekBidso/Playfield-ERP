@@ -160,177 +160,34 @@ async def get_audit_logs(
 
 
 # ============ IBT Transfers ============
+# NOTE: IBT endpoints have been moved to procurement_routes.py for enhanced functionality
+# including: inventory validation, variance tracking, shortage records, and transit details.
+# The legacy endpoints below have been deprecated.
 
-@router.get("/ibt-transfers")
-async def get_ibt_transfers(
-    from_branch: Optional[str] = None,
-    to_branch: Optional[str] = None,
-    status: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
-):
-    """Get inter-branch transfers"""
-    query = {}
-    
-    if from_branch:
-        query["from_branch"] = from_branch
-    if to_branch:
-        query["to_branch"] = to_branch
-    if status:
-        query["status"] = status
-    
-    # Filter by user's branches if not master admin
-    if current_user.role != "master_admin":
-        query["$or"] = [
-            {"from_branch": {"$in": current_user.assigned_branches}},
-            {"to_branch": {"$in": current_user.assigned_branches}}
-        ]
-    
-    transfers = await db.ibt_transfers.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
-    return transfers
+# DEPRECATED - Legacy IBT endpoints removed in favor of procurement_routes.py implementation
+# See /api/ibt-transfers endpoints in procurement_routes.py for:
+# - Inventory validation on create/approve/dispatch
+# - IN_TRANSIT status with transit details (vehicle, driver, ETA)
+# - Receiver inputs actual quantity received
+# - Automatic shortage record creation when received < dispatched
+# - Partial rejection handling
 
 
-@router.post("/ibt-transfers")
-async def create_ibt_transfer(
-    from_branch: str,
-    to_branch: str,
-    rm_id: str,
-    quantity: float,
-    notes: str = "",
-    current_user: User = Depends(get_current_user)
-):
-    """Create an inter-branch transfer request"""
-    check_branch_access(current_user, from_branch)
-    
-    # Generate transfer code
-    now = datetime.now(timezone.utc)
-    prefix = f"IBT_{now.strftime('%Y%m%d')}"
-    count = await db.ibt_transfers.count_documents({"transfer_code": {"$regex": f"^{prefix}"}})
-    transfer_code = f"{prefix}_{count + 1:04d}"
-    
-    transfer = {
-        "id": str(__import__('uuid').uuid4()),
-        "transfer_code": transfer_code,
-        "from_branch": from_branch,
-        "to_branch": to_branch,
-        "rm_id": rm_id,
-        "quantity": quantity,
-        "status": "PENDING",
-        "notes": notes,
-        "requested_by": current_user.id,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.ibt_transfers.insert_one(transfer)
-    
-    return {"message": "IBT transfer created", "transfer": {k: v for k, v in transfer.items() if k != '_id'}}
+# Placeholder to maintain line numbers for git history - this section is now handled by procurement_routes.py
+async def _deprecated_ibt_note():
+    """
+    IBT Transfer endpoints have been consolidated into procurement_routes.py.
+    The new implementation provides:
+    1. Strict inventory checks before creating/dispatching transfers
+    2. Transit tracking (vehicle number, driver, expected arrival)
+    3. Variance handling (shortage records when received qty < dispatched qty)
+    4. INITIATED -> APPROVED -> IN_TRANSIT -> COMPLETED status flow
+    """
+    pass
 
 
-@router.put("/ibt-transfers/{transfer_id}/approve")
-async def approve_ibt_transfer(transfer_id: str, current_user: User = Depends(get_current_user)):
-    """Approve an IBT transfer"""
-    transfer = await db.ibt_transfers.find_one({"id": transfer_id}, {"_id": 0})
-    if not transfer:
-        raise HTTPException(status_code=404, detail="Transfer not found")
-    
-    await db.ibt_transfers.update_one(
-        {"id": transfer_id},
-        {"$set": {"status": "APPROVED", "approved_by": current_user.id, "approved_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    return {"message": "Transfer approved"}
-
-
-@router.put("/ibt-transfers/{transfer_id}/ship")
-async def ship_ibt_transfer(transfer_id: str, current_user: User = Depends(get_current_user)):
-    """Ship an IBT transfer - deducts from source branch"""
-    from services.utils import update_branch_rm_inventory, generate_movement_code, get_branch_rm_stock
-    
-    transfer = await db.ibt_transfers.find_one({"id": transfer_id}, {"_id": 0})
-    if not transfer:
-        raise HTTPException(status_code=404, detail="Transfer not found")
-    
-    check_branch_access(current_user, transfer["from_branch"])
-    
-    # Deduct from source branch
-    current_stock = await get_branch_rm_stock(transfer["from_branch"], transfer["rm_id"])
-    await update_branch_rm_inventory(transfer["from_branch"], transfer["rm_id"], -transfer["quantity"])
-    
-    # Record movement
-    movement_code = await generate_movement_code()
-    await db.rm_stock_movements.insert_one({
-        "id": str(__import__('uuid').uuid4()),
-        "movement_code": movement_code,
-        "rm_id": transfer["rm_id"],
-        "branch": transfer["from_branch"],
-        "movement_type": "IBT_OUT",
-        "quantity": -transfer["quantity"],
-        "reference_type": "IBT_TRANSFER",
-        "reference_id": transfer_id,
-        "balance_after": current_stock - transfer["quantity"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    await db.ibt_transfers.update_one(
-        {"id": transfer_id},
-        {"$set": {"status": "IN_TRANSIT", "shipped_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    return {"message": "Transfer shipped"}
-
-
-@router.put("/ibt-transfers/{transfer_id}/receive")
-async def receive_ibt_transfer(transfer_id: str, current_user: User = Depends(get_current_user)):
-    """Receive an IBT transfer - adds to destination branch"""
-    from services.utils import update_branch_rm_inventory, generate_movement_code, get_branch_rm_stock
-    
-    transfer = await db.ibt_transfers.find_one({"id": transfer_id}, {"_id": 0})
-    if not transfer:
-        raise HTTPException(status_code=404, detail="Transfer not found")
-    
-    check_branch_access(current_user, transfer["to_branch"])
-    
-    # Add to destination branch
-    current_stock = await get_branch_rm_stock(transfer["to_branch"], transfer["rm_id"])
-    await update_branch_rm_inventory(transfer["to_branch"], transfer["rm_id"], transfer["quantity"])
-    
-    # Record movement
-    movement_code = await generate_movement_code()
-    await db.rm_stock_movements.insert_one({
-        "id": str(__import__('uuid').uuid4()),
-        "movement_code": movement_code,
-        "rm_id": transfer["rm_id"],
-        "branch": transfer["to_branch"],
-        "movement_type": "IBT_IN",
-        "quantity": transfer["quantity"],
-        "reference_type": "IBT_TRANSFER",
-        "reference_id": transfer_id,
-        "balance_after": current_stock + transfer["quantity"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    await db.ibt_transfers.update_one(
-        {"id": transfer_id},
-        {"$set": {"status": "COMPLETED", "received_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    # Publish IBT_COMPLETED event
-    from services.event_system import event_bus, EventType
-    await event_bus.publish(
-        EventType.IBT_COMPLETED,
-        {
-            "transfer_id": transfer_id,
-            "transfer_code": transfer.get("transfer_code"),
-            "from_branch": transfer["from_branch"],
-            "to_branch": transfer["to_branch"],
-            "rm_id": transfer["rm_id"],
-            "quantity": transfer["quantity"],
-            "received_by": current_user.id
-        },
-        source_module="logistics"
-    )
-    
-    return {"message": "Transfer received"}
+# Keep the IBT_COMPLETED event publishing for reference - now handled in procurement_routes.py
+# The event_bus.publish(EventType.IBT_COMPLETED, {...}) is called in the receive endpoint
 
 
 # ============ NEW REPORTS ============
