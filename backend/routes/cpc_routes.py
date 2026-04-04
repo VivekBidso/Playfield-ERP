@@ -1904,6 +1904,14 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     ).to_list(10000)
     sku_map = {s["buyer_sku_id"]: s for s in buyer_skus}
     
+    # Get SKU-Branch subscriptions for validation
+    sku_assignments = await db.sku_branch_assignments.find(
+        {},
+        {"_id": 0, "sku_id": 1, "branch": 1}
+    ).to_list(20000)
+    # Create lookup: {(sku_id, branch): True}
+    sku_branch_subscribed = {(a["sku_id"], a["branch"]): True for a in sku_assignments}
+    
     # Track capacity usage for validation
     date_branch_usage = {}  # {date|branch: allocated_qty}
     
@@ -1943,6 +1951,11 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
                 continue
             
             sku = sku_map[sku_id]
+            
+            # Validate SKU is subscribed to the branch
+            if (sku_id, branch_name) not in sku_branch_subscribed:
+                results["errors"].append(f"Row {idx+2}: SKU '{sku_id}' is not subscribed to branch '{branch_name}'. Please subscribe the SKU first.")
+                continue
             
             # Validate qty > 0
             if qty <= 0:
