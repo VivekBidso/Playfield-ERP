@@ -512,27 +512,90 @@ async def export_rm_shortage_report(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     current_user: User = Depends(get_current_user)
 ):
-    """Export RM shortage report as Excel"""
+    """
+    Export RM shortage report as Excel with consumption pattern.
+    Shows: Buyer SKU ID | RM ID | RM Description | Total Qty Required | Qty Shortage
+    """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
     from fastapi.responses import StreamingResponse
     import io
     
-    # Get the report data
-    report = await get_rm_shortage_report(branch, start_date, end_date, current_user)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
+    # Parse dates with defaults (next 7 days)
+    if not start_date:
+        start_dt = today
+    else:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    if not end_date:
+        end_dt = today + timedelta(days=7)
+    else:
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    # Determine branches to query
+    is_admin = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    is_procurement = "PROCUREMENT" in current_user.role.upper() if current_user.role else False
+    
+    if branch:
+        branches_to_query = [branch]
+    elif is_admin or is_procurement:
+        all_branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+        branches_to_query = [b["name"] for b in all_branches]
+    else:
+        branches_to_query = current_user.assigned_branches or []
+    
+    if not branches_to_query:
+        raise HTTPException(status_code=400, detail="No branches available")
+    
+    # Build BOM lookup
+    buyer_skus = await db.buyer_skus.find(
+        {"status": "ACTIVE"},
+        {"_id": 0, "buyer_sku_id": 1, "bidso_sku_id": 1, "name": 1}
+    ).to_list(10000)
+    buyer_to_bidso = {s["buyer_sku_id"]: s.get("bidso_sku_id") for s in buyer_skus}
+    buyer_sku_names = {s["buyer_sku_id"]: s.get("name", "") for s in buyer_skus}
+    
+    common_boms = await db.common_bom.find({}, {"_id": 0, "bidso_sku_id": 1, "items": 1}).to_list(10000)
+    bidso_to_bom = {b["bidso_sku_id"]: b.get("items", []) for b in common_boms}
+    
+    brand_boms = await db.brand_bom.find({}, {"_id": 0, "buyer_sku_id": 1, "items": 1}).to_list(10000)
+    buyer_to_brand_bom = {b["buyer_sku_id"]: b.get("items", []) for b in brand_boms}
+    
+    def get_merged_bom(buyer_sku_id):
+        bidso_sku_id = buyer_to_bidso.get(buyer_sku_id)
+        common_items = bidso_to_bom.get(bidso_sku_id, []) if bidso_sku_id else []
+        brand_items = buyer_to_brand_bom.get(buyer_sku_id, [])
+        
+        merged = {}
+        for item in common_items:
+            rm_id = item.get("rm_id")
+            if rm_id:
+                merged[rm_id] = item.get("quantity", 0)
+        for item in brand_items:
+            rm_id = item.get("rm_id")
+            if rm_id:
+                merged[rm_id] = merged.get(rm_id, 0) + item.get("quantity", 0)
+        return merged
+    
+    # Get all RM details
+    all_rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "description": 1, "unit": 1}).to_list(15000)
+    rm_details = {rm["rm_id"]: rm for rm in all_rms}
+    
+    # Create Excel workbook
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "RM Shortage Report"
+    ws.title = "RM Consumption Pattern"
     
     # Header styling
     header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="DC2626", end_color="DC2626", fill_type="solid")
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
     shortage_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
     
-    # Headers
-    headers = ["Branch", "RM ID", "Description", "Unit", "Category", "Current Stock", 
-               "Interim Consumption", "Projected Stock", "Period Requirement", "Shortage"]
+    # Headers for consumption pattern
+    headers = ["Branch", "Buyer SKU ID", "SKU Name", "RM ID", "RM Description", "Unit", 
+               "RM Qty per Unit", "SKU Production Qty", "Total RM Required", "Current Stock", "Shortage"]
     
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -540,45 +603,141 @@ async def export_rm_shortage_report(
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows
     row_num = 2
-    branches_data = report.get("branches", [])
-    if not branches_data and "data" in report:
-        # Single branch result
-        branches_data = [{"branch": report.get("branch", ""), "data": report.get("data", [])}]
     
-    for branch_info in branches_data:
-        branch_name = branch_info.get("branch", "")
-        for item in branch_info.get("data", []):
-            ws.cell(row=row_num, column=1, value=branch_name)
-            ws.cell(row=row_num, column=2, value=item.get("rm_id", ""))
-            ws.cell(row=row_num, column=3, value=item.get("description", ""))
-            ws.cell(row=row_num, column=4, value=item.get("unit", ""))
-            ws.cell(row=row_num, column=5, value=item.get("category", ""))
-            ws.cell(row=row_num, column=6, value=item.get("current_stock", 0))
-            ws.cell(row=row_num, column=7, value=item.get("interim_consumption", 0))
-            ws.cell(row=row_num, column=8, value=item.get("projected_stock", 0))
-            ws.cell(row=row_num, column=9, value=item.get("period_requirement", 0))
-            ws.cell(row=row_num, column=10, value=item.get("shortage", 0))
+    for branch_name in branches_to_query:
+        # Get branch RM stock
+        branch_inventory = await db.branch_rm_inventory.find(
+            {"branch": branch_name},
+            {"_id": 0, "rm_id": 1, "current_stock": 1}
+        ).to_list(15000)
+        stock_map = {inv["rm_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        
+        # Get production schedules for the period
+        period_schedules = await db.production_schedules.find(
+            {
+                "branch": branch_name,
+                "target_date": {"$gte": start_dt, "$lte": end_dt + timedelta(days=1)},
+                "status": {"$nin": ["CANCELLED", "COMPLETED"]}
+            },
+            {"_id": 0, "sku_id": 1, "target_quantity": 1}
+        ).to_list(5000)
+        
+        # Aggregate by SKU
+        sku_qty_map = {}
+        for sched in period_schedules:
+            sku_id = sched.get("sku_id")
+            qty = sched.get("target_quantity", 0)
+            sku_qty_map[sku_id] = sku_qty_map.get(sku_id, 0) + qty
+        
+        # Calculate RM requirements per SKU and track totals
+        rm_totals = {}  # rm_id -> total required
+        
+        for sku_id, sku_qty in sku_qty_map.items():
+            bom = get_merged_bom(sku_id)
+            sku_name = buyer_sku_names.get(sku_id, "")
+            
+            for rm_id, rm_per_unit in bom.items():
+                total_rm_needed = rm_per_unit * sku_qty
+                rm_totals[rm_id] = rm_totals.get(rm_id, 0) + total_rm_needed
+                
+                rm_info = rm_details.get(rm_id, {})
+                current_stock = stock_map.get(rm_id, 0)
+                
+                ws.cell(row=row_num, column=1, value=branch_name)
+                ws.cell(row=row_num, column=2, value=sku_id)
+                ws.cell(row=row_num, column=3, value=sku_name)
+                ws.cell(row=row_num, column=4, value=rm_id)
+                ws.cell(row=row_num, column=5, value=rm_info.get("description", ""))
+                ws.cell(row=row_num, column=6, value=rm_info.get("unit", ""))
+                ws.cell(row=row_num, column=7, value=rm_per_unit)
+                ws.cell(row=row_num, column=8, value=sku_qty)
+                ws.cell(row=row_num, column=9, value=total_rm_needed)
+                ws.cell(row=row_num, column=10, value=current_stock)
+                
+                # Calculate shortage (will be computed after aggregation in summary sheet)
+                # For this row, we show per-SKU contribution
+                ws.cell(row=row_num, column=11, value="")  # Will be in summary sheet
+                
+                row_num += 1
+    
+    # Create Summary sheet with aggregated shortages
+    ws_summary = wb.create_sheet("RM Shortage Summary")
+    summary_headers = ["Branch", "RM ID", "RM Description", "Unit", "Total Qty Required", "Current Stock", "Qty Shortage"]
+    
+    for col, header in enumerate(summary_headers, 1):
+        cell = ws_summary.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = PatternFill(start_color="DC2626", end_color="DC2626", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+    
+    summary_row = 2
+    
+    for branch_name in branches_to_query:
+        # Get branch RM stock
+        branch_inventory = await db.branch_rm_inventory.find(
+            {"branch": branch_name},
+            {"_id": 0, "rm_id": 1, "current_stock": 1}
+        ).to_list(15000)
+        stock_map = {inv["rm_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        
+        # Get production schedules
+        period_schedules = await db.production_schedules.find(
+            {
+                "branch": branch_name,
+                "target_date": {"$gte": start_dt, "$lte": end_dt + timedelta(days=1)},
+                "status": {"$nin": ["CANCELLED", "COMPLETED"]}
+            },
+            {"_id": 0, "sku_id": 1, "target_quantity": 1}
+        ).to_list(5000)
+        
+        # Aggregate RM requirements
+        rm_totals = {}
+        for sched in period_schedules:
+            sku_id = sched.get("sku_id")
+            qty = sched.get("target_quantity", 0)
+            bom = get_merged_bom(sku_id)
+            for rm_id, rm_per_unit in bom.items():
+                rm_totals[rm_id] = rm_totals.get(rm_id, 0) + (rm_per_unit * qty)
+        
+        # Write summary rows
+        for rm_id in sorted(rm_totals.keys()):
+            total_required = rm_totals[rm_id]
+            current_stock = stock_map.get(rm_id, 0)
+            shortage = current_stock - total_required
+            
+            rm_info = rm_details.get(rm_id, {})
+            
+            ws_summary.cell(row=summary_row, column=1, value=branch_name)
+            ws_summary.cell(row=summary_row, column=2, value=rm_id)
+            ws_summary.cell(row=summary_row, column=3, value=rm_info.get("description", ""))
+            ws_summary.cell(row=summary_row, column=4, value=rm_info.get("unit", ""))
+            ws_summary.cell(row=summary_row, column=5, value=round(total_required, 2))
+            ws_summary.cell(row=summary_row, column=6, value=round(current_stock, 2))
+            ws_summary.cell(row=summary_row, column=7, value=round(shortage, 2))
             
             # Highlight shortage rows
-            if item.get("is_shortage"):
-                for c in range(1, 11):
-                    ws.cell(row=row_num, column=c).fill = shortage_fill
+            if shortage < 0:
+                for c in range(1, 8):
+                    ws_summary.cell(row=summary_row, column=c).fill = shortage_fill
             
-            row_num += 1
+            summary_row += 1
     
     # Auto-width columns
-    col_widths = [20, 15, 35, 8, 15, 15, 18, 15, 18, 12]
+    col_widths = [18, 18, 30, 12, 30, 8, 15, 18, 18, 15, 12]
     for idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+    
+    summary_widths = [18, 12, 35, 8, 18, 15, 15]
+    for idx, width in enumerate(summary_widths, 1):
+        ws_summary.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
     
     # Save
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
     
-    filename = f"rm_shortage_report_{report.get('start_date', 'export')}_{report.get('end_date', '')}.xlsx"
+    filename = f"rm_shortage_report_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.xlsx"
     
     return StreamingResponse(
         output,
