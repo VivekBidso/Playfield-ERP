@@ -30,6 +30,7 @@ import BranchOps from "@/pages/BranchOps";
 import DemandHub from "@/pages/DemandHub";
 import DemandSKUView from "@/pages/DemandSKUView";
 import ColorDevelopment from "@/pages/ColorDevelopment";
+import RMShortage from "@/pages/RMShortage";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -106,6 +107,7 @@ function App() {
             <Route path="ibt" element={<IBT />} />
             <Route path="events" element={<Events />} />
             <Route path="branch-ops" element={<BranchOps />} />
+            <Route path="rm-shortage" element={<RMShortage />} />
             <Route path="rm-repository" element={<RMRepository />} />
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
