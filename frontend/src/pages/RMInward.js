@@ -524,7 +524,7 @@ const RMInward = () => {
                         <SelectValue placeholder={selectedBranch} />
                       </SelectTrigger>
                       <SelectContent>
-                        {branches.map(b => (
+                        {branches.filter(b => b.branch_id).map(b => (
                           <SelectItem key={b.branch_id} value={b.branch_id}>{b.name} ({b.branch_id})</SelectItem>
                         ))}
                       </SelectContent>
@@ -589,7 +589,7 @@ const RMInward = () => {
                       <SelectValue placeholder="Select payment terms" />
                     </SelectTrigger>
                     <SelectContent>
-                      {PAYMENT_TERMS.map(pt => (
+                      {PAYMENT_TERMS.filter(pt => pt.value).map(pt => (
                         <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
                       ))}
                     </SelectContent>
@@ -729,7 +729,7 @@ const RMInward = () => {
                                 <SelectValue placeholder="Tax" />
                               </SelectTrigger>
                               <SelectContent>
-                                {TAX_OPTIONS.map(t => (
+                                {TAX_OPTIONS.filter(t => t.value).map(t => (
                                   <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                                 ))}
                               </SelectContent>
@@ -815,7 +815,7 @@ const RMInward = () => {
                         <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
-                        {TDS_TCS_OPTIONS.map(t => (
+                        {TDS_TCS_OPTIONS.filter(t => t.value).map(t => (
                           <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                         ))}
                       </SelectContent>

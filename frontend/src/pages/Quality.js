@@ -256,10 +256,10 @@ const Quality = () => {
                   </div>
                   <div>
                     <Label>Vertical (Optional - applies to all if empty)</Label>
-                    <Select value={checklistForm.vertical_id} onValueChange={(v) => setChecklistForm({...checklistForm, vertical_id: v})}>
+                    <Select value={checklistForm.vertical_id || undefined} onValueChange={(v) => setChecklistForm({...checklistForm, vertical_id: v})}>
                       <SelectTrigger><SelectValue placeholder="All verticals" /></SelectTrigger>
                       <SelectContent>
-                        {verticals.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                        {verticals.filter(v => v.id).map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -382,10 +382,10 @@ const Quality = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Checklist</Label>
-                    <Select value={qcForm.checklist_id} onValueChange={(v) => setQcForm({...qcForm, checklist_id: v})}>
+                    <Select value={qcForm.checklist_id || undefined} onValueChange={(v) => setQcForm({...qcForm, checklist_id: v})}>
                       <SelectTrigger><SelectValue placeholder="Select checklist" /></SelectTrigger>
                       <SelectContent>
-                        {checklists.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                        {checklists.filter(c => c.id).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

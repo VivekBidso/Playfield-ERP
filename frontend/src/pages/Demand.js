@@ -880,7 +880,7 @@ const Demand = () => {
                           <SelectValue placeholder="Select buyer (required)" />
                         </SelectTrigger>
                         <SelectContent>
-                          {buyers.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                          {buyers.filter(b => b.id).map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                       {!forecastForm.buyer_id && (
@@ -904,7 +904,7 @@ const Demand = () => {
                         <SelectTrigger><SelectValue placeholder="Select vertical" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">All Verticals</SelectItem>
-                          {getFilteredVerticals().map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                          {getFilteredVerticals().filter(v => v.id).map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -924,7 +924,7 @@ const Demand = () => {
                         <SelectTrigger><SelectValue placeholder="Select model (optional)" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">All Models</SelectItem>
-                          {getFilteredModels().map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                          {getFilteredModels().filter(m => m.id).map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -943,7 +943,7 @@ const Demand = () => {
                         <SelectTrigger><SelectValue placeholder="Select brand (optional)" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">All Brands</SelectItem>
-                          {getFilteredBrands().map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                          {getFilteredBrands().filter(b => b.id).map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
