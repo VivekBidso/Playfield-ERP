@@ -1750,7 +1750,9 @@ async def download_demand_forecasts():
 
 @router.get("/cpc/production-plan/template")
 async def download_production_plan_template():
-    """Download Excel template for bulk production plan upload"""
+    """Download Excel template for bulk production plan upload.
+    Format: Branch ID | Date | Buyer SKU ID | Quantity
+    """
     if not openpyxl:
         raise HTTPException(status_code=500, detail="openpyxl not installed")
     
@@ -1758,8 +1760,8 @@ async def download_production_plan_template():
     ws = wb.active
     ws.title = "Production Plan"
     
-    # Headers
-    headers = ["Forecast Code", "Branch ID", "Target Date (YYYY-MM-DD)", "Quantity", "Priority"]
+    # Headers - Simplified: Branch ID | Date | Buyer SKU ID | Quantity
+    headers = ["Branch ID", "Date (YYYY-MM-DD)", "Buyer SKU ID", "Quantity"]
     header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -1770,10 +1772,10 @@ async def download_production_plan_template():
         cell.alignment = Alignment(horizontal="center")
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 22
     
-    # Get sample forecasts and branches for reference
-    forecasts = await db.forecasts.find(
-        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
-        {"_id": 0, "forecast_code": 1, "sku_id": 1, "quantity": 1}
+    # Get sample SKUs and branches for reference
+    buyer_skus = await db.buyer_skus.find(
+        {"status": "ACTIVE"},
+        {"_id": 0, "buyer_sku_id": 1, "name": 1}
     ).to_list(20)
     
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "branch_id": 1}).to_list(100)
@@ -1781,40 +1783,12 @@ async def download_production_plan_template():
     # Add sample rows
     row = 2
     sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-    for f in forecasts[:5]:
-        ws.cell(row=row, column=1, value=f.get("forecast_code", ""))
-        ws.cell(row=row, column=2, value=branches[0].get("branch_id", "") if branches else "")
-        ws.cell(row=row, column=3, value=sample_date)
-        ws.cell(row=row, column=4, value=min(100, f.get("quantity", 100)))
-        ws.cell(row=row, column=5, value="MEDIUM")
+    for sku in buyer_skus[:5]:
+        ws.cell(row=row, column=1, value=branches[0].get("branch_id", "") if branches else "BR_001")
+        ws.cell(row=row, column=2, value=sample_date)
+        ws.cell(row=row, column=3, value=sku.get("buyer_sku_id", ""))
+        ws.cell(row=row, column=4, value=100)
         row += 1
-    
-    # Forecasts reference sheet
-    ws_forecasts = wb.create_sheet("Forecasts Reference")
-    ws_forecasts.cell(row=1, column=1, value="Forecast Code")
-    ws_forecasts.cell(row=1, column=2, value="SKU ID")
-    ws_forecasts.cell(row=1, column=3, value="Forecast Qty")
-    ws_forecasts.cell(row=1, column=4, value="Status")
-    ws_forecasts["A1"].font = Font(bold=True)
-    ws_forecasts["B1"].font = Font(bold=True)
-    ws_forecasts["C1"].font = Font(bold=True)
-    ws_forecasts["D1"].font = Font(bold=True)
-    
-    all_forecasts = await db.forecasts.find(
-        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
-        {"_id": 0, "forecast_code": 1, "sku_id": 1, "quantity": 1, "status": 1}
-    ).to_list(500)
-    
-    for i, f in enumerate(all_forecasts, 2):
-        ws_forecasts.cell(row=i, column=1, value=f.get("forecast_code", ""))
-        ws_forecasts.cell(row=i, column=2, value=f.get("sku_id", ""))
-        ws_forecasts.cell(row=i, column=3, value=f.get("quantity", 0))
-        ws_forecasts.cell(row=i, column=4, value=f.get("status", ""))
-    
-    ws_forecasts.column_dimensions["A"].width = 20
-    ws_forecasts.column_dimensions["B"].width = 20
-    ws_forecasts.column_dimensions["C"].width = 15
-    ws_forecasts.column_dimensions["D"].width = 15
     
     # Branches reference sheet
     ws_branches = wb.create_sheet("Branches Reference")
@@ -1835,6 +1809,24 @@ async def download_production_plan_template():
     ws_branches.column_dimensions["B"].width = 25
     ws_branches.column_dimensions["C"].width = 15
     
+    # Buyer SKUs reference sheet
+    ws_skus = wb.create_sheet("Buyer SKUs Reference")
+    ws_skus.cell(row=1, column=1, value="Buyer SKU ID")
+    ws_skus.cell(row=1, column=2, value="Name")
+    ws_skus["A1"].font = Font(bold=True)
+    ws_skus["B1"].font = Font(bold=True)
+    
+    all_skus = await db.buyer_skus.find(
+        {"status": "ACTIVE"},
+        {"_id": 0, "buyer_sku_id": 1, "name": 1}
+    ).to_list(500)
+    for i, s in enumerate(all_skus, 2):
+        ws_skus.cell(row=i, column=1, value=s.get("buyer_sku_id", ""))
+        ws_skus.cell(row=i, column=2, value=s.get("name", ""))
+    
+    ws_skus.column_dimensions["A"].width = 25
+    ws_skus.column_dimensions["B"].width = 40
+    
     # Save to buffer
     output = io.BytesIO()
     wb.save(output)
@@ -1851,8 +1843,9 @@ async def download_production_plan_template():
 async def upload_production_plan_excel(file: UploadFile = File(...)):
     """
     Bulk upload production plans from Excel.
-    Creates production schedules linked to forecasts.
-    Validates: forecast exists, branch valid, capacity available, qty doesn't exceed remaining.
+    Creates production schedules directly from Buyer SKU IDs (no forecast linking).
+    Format: Branch ID | Date | Buyer SKU ID | Quantity
+    Validates: SKU exists, branch valid, capacity available.
     """
     if not pd:
         raise HTTPException(status_code=500, detail="pandas not installed")
@@ -1869,18 +1862,13 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     # Normalize column names
     df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
     
-    # Map columns
+    # Map columns - new simplified format
     col_map = {}
-    forecast_opts = ["forecast_code", "forecast", "forecast_id"]
     branch_opts = ["branch_id", "branch", "branch_name", "unit"]
-    date_opts = ["target_date", "date", "target_date_yyyy_mm_dd"]
+    date_opts = ["date", "target_date", "date_yyyy_mm_dd"]
+    sku_opts = ["buyer_sku_id", "sku_id", "sku", "buyer_sku"]
     qty_opts = ["quantity", "qty", "plan_qty"]
-    priority_opts = ["priority"]
     
-    for opt in forecast_opts:
-        if opt in df.columns:
-            col_map["forecast"] = opt
-            break
     for opt in branch_opts:
         if opt in df.columns:
             col_map["branch"] = opt
@@ -1889,49 +1877,32 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
         if opt in df.columns:
             col_map["date"] = opt
             break
+    for opt in sku_opts:
+        if opt in df.columns:
+            col_map["sku"] = opt
+            break
     for opt in qty_opts:
         if opt in df.columns:
             col_map["qty"] = opt
             break
-    for opt in priority_opts:
-        if opt in df.columns:
-            col_map["priority"] = opt
-            break
     
-    required = ["forecast", "branch", "date", "qty"]
+    required = ["branch", "date", "sku", "qty"]
     missing = [r for r in required if r not in col_map]
     if missing:
-        raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}. Found: {list(df.columns)}")
+        raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}. Found: {list(df.columns)}. Expected: Branch ID, Date, Buyer SKU ID, Quantity")
     
     # Load lookup data
-    forecasts = await db.forecasts.find(
-        {"status": {"$in": ["CONFIRMED", "CONVERTED"]}},
-        {"_id": 0, "id": 1, "forecast_code": 1, "sku_id": 1, "quantity": 1}
-    ).to_list(5000)
-    forecast_map = {f["forecast_code"]: f for f in forecasts}
-    
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
-    # Map by both branch_id and name for backwards compatibility
     branch_id_to_name = {b.get("branch_id", ""): b["name"] for b in branches if b.get("branch_id")}
     branch_name_to_name = {b["name"]: b["name"] for b in branches}
     valid_branches = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
     
-    # Get existing schedules to calculate remaining qty
-    all_schedules = await db.production_schedules.find(
-        {"forecast_id": {"$exists": True, "$ne": None}, "status": {"$ne": "CANCELLED"}},
-        {"_id": 0, "forecast_id": 1, "target_quantity": 1}
+    # Get all Buyer SKUs
+    buyer_skus = await db.buyer_skus.find(
+        {"status": "ACTIVE"},
+        {"_id": 0, "buyer_sku_id": 1, "name": 1, "description": 1}
     ).to_list(10000)
-    
-    scheduled_by_forecast = {}
-    for s in all_schedules:
-        fid = s.get("forecast_id")
-        if fid:
-            scheduled_by_forecast[fid] = scheduled_by_forecast.get(fid, 0) + s.get("target_quantity", 0)
-    
-    # Get SKU info
-    sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1}).to_list(5000)
-    sku_map = {s["sku_id"]: s for s in skus}
+    sku_map = {s["buyer_sku_id"]: s for s in buyer_skus}
     
     # Track capacity usage for validation
     date_branch_usage = {}  # {date|branch: allocated_qty}
@@ -1941,11 +1912,10 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     
     for idx, row in df.iterrows():
         try:
-            forecast_code = str(row[col_map["forecast"]]).strip()
-            branch = str(row[col_map["branch"]]).strip()
+            branch_value = str(row[col_map["branch"]]).strip()
             date_val = row[col_map["date"]]
+            sku_id = str(row[col_map["sku"]]).strip()
             qty = int(row[col_map["qty"]])
-            priority = str(row.get(col_map.get("priority"), "MEDIUM")).strip().upper() if "priority" in col_map else "MEDIUM"
             
             # Parse date
             if isinstance(date_val, str):
@@ -1959,40 +1929,25 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             
             date_str = target_date.strftime("%Y-%m-%d")
             
-            # Validate forecast
-            if forecast_code not in forecast_map:
-                results["errors"].append(f"Row {idx+2}: Forecast '{forecast_code}' not found")
-                continue
-            
-            forecast = forecast_map[forecast_code]
-            forecast_id = forecast["id"]
-            forecast_qty = forecast.get("quantity", 0)
-            sku_id = forecast.get("sku_id")
-            
             # Resolve branch ID to name (supports both branch_id and branch_name)
-            branch_value = str(row[col_map["branch"]]).strip()
             branch_name = branch_id_to_name.get(branch_value) or branch_name_to_name.get(branch_value)
             
             # Validate branch
             if not branch_name or branch_name not in valid_branches:
-                results["errors"].append(f"Row {idx+2}: Branch '{branch_value}' not found. Use Branch ID (e.g., BR_001) or exact Branch Name")
+                results["errors"].append(f"Row {idx+2}: Branch '{branch_value}' not found. Use Branch ID (e.g., BR_001)")
                 continue
+            
+            # Validate SKU exists
+            if sku_id not in sku_map:
+                results["errors"].append(f"Row {idx+2}: Buyer SKU '{sku_id}' not found")
+                continue
+            
+            sku = sku_map[sku_id]
             
             # Validate qty > 0
             if qty <= 0:
                 results["errors"].append(f"Row {idx+2}: Invalid quantity {qty}")
                 continue
-            
-            # Check remaining qty
-            already_scheduled = scheduled_by_forecast.get(forecast_id, 0)
-            remaining = forecast_qty - already_scheduled
-            if qty > remaining:
-                results["errors"].append(f"Row {idx+2}: Qty {qty} exceeds remaining {remaining} for {forecast_code}")
-                continue
-            
-            # Validate priority
-            if priority not in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
-                priority = "MEDIUM"
             
             # Check branch capacity (considering other rows in this upload)
             usage_key = f"{date_str}|{branch_name}"
@@ -2029,37 +1984,34 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             count = await db.production_schedules.count_documents({})
             schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
             
-            sku = sku_map.get(sku_id, {})
-            
             schedule = {
                 "id": str(uuid.uuid4()),
                 "schedule_code": schedule_code,
-                "forecast_id": forecast_id,
+                "forecast_id": None,  # No forecast linking
                 "dispatch_lot_id": None,
                 "branch": branch_name,
                 "sku_id": sku_id,
-                "sku_description": sku.get("description", ""),
+                "sku_description": sku.get("name", "") or sku.get("description", ""),
                 "target_quantity": qty,
-                "allocated_quantity": qty,  # Fully allocated since branch is assigned
+                "allocated_quantity": qty,
                 "completed_quantity": 0,
                 "target_date": target_date,
-                "priority": priority,
-                "status": "SCHEDULED",  # SCHEDULED (not DRAFT) since branch is assigned
-                "notes": f"Bulk upload from {forecast_code}",
+                "priority": "MEDIUM",  # Default priority
+                "status": "SCHEDULED",
+                "notes": f"Bulk upload",
                 "created_at": datetime.now(timezone.utc)
             }
             
             await db.production_schedules.insert_one(schedule)
             
             # Update tracking
-            scheduled_by_forecast[forecast_id] = scheduled_by_forecast.get(forecast_id, 0) + qty
             date_branch_usage[usage_key] = current_usage + qty
             
             results["created"] += 1
             results["schedules"].append({
                 "schedule_code": schedule_code,
-                "forecast_code": forecast_code,
-                "branch": branch,
+                "sku_id": sku_id,
+                "branch": branch_name,
                 "date": date_str,
                 "qty": qty
             })

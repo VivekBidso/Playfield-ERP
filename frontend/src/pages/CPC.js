@@ -284,76 +284,20 @@ const CPC = () => {
 
         {/* ==================== PRODUCTION PLANNING TAB ==================== */}
         <TabsContent value="planning" data-testid="planning-content">
-          {/* Summary Cards */}
-          {forecastSummary && (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Total Forecasts</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-black">{forecastSummary.total_forecasts}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Forecast Qty</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-black text-blue-600">{forecastSummary.total_forecast_qty?.toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Inventory</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-black text-purple-600">{(forecastSummary.total_inventory || 0).toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Scheduled</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-black text-green-600">{forecastSummary.total_scheduled_qty?.toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-mono uppercase text-muted-foreground">Schedule Pending</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-black text-orange-600">{forecastSummary.remaining_to_schedule?.toLocaleString()}</div>
-                  <Progress value={forecastSummary.scheduling_percent || 0} className="h-2 mt-2" />
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Forecasts Table */}
-          <Card>
+          {/* Upload Section */}
+          <Card className="mb-6">
             <CardHeader>
               <div className="flex justify-between items-start">
                 <div>
                   <CardTitle className="text-lg font-bold flex items-center gap-2">
                     <ClipboardList className="w-5 h-5" />
-                    Demand Forecasts
+                    Production Planning
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Plan production from confirmed forecasts. Schedule Pending = Forecast - Inventory - Scheduled
+                    Upload production schedules. Format: Branch ID | Date | Buyer SKU ID | Quantity
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => window.open(`${API}/cpc/demand-forecasts/download`, '_blank')}
-                    className="uppercase text-xs tracking-wide"
-                    data-testid="download-forecasts-btn"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </Button>
                   <Button 
                     variant="outline"
                     onClick={() => window.open(`${API}/cpc/production-plan/template`, '_blank')}
@@ -361,7 +305,7 @@ const CPC = () => {
                     data-testid="download-plan-template-btn"
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Plan Template
+                    Download Template
                   </Button>
                   <Button 
                     variant="default"
@@ -391,6 +335,9 @@ const CPC = () => {
                         
                         if (res.data.total_errors > 0) {
                           toast.warning(`Created ${res.data.created} schedules with ${res.data.total_errors} errors`);
+                          if (res.data.errors?.length > 0) {
+                            res.data.errors.slice(0, 5).forEach(err => toast.error(err));
+                          }
                         } else {
                           toast.success(`Successfully created ${res.data.created} production schedules`);
                         }
@@ -405,96 +352,35 @@ const CPC = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-sm overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-zinc-50">
-                    <tr>
-                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Forecast ID</th>
-                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Buyer</th>
-                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU</th>
-                      <th className="h-10 px-4 text-left font-mono text-xs uppercase">Month</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Forecast Qty</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Inventory</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Scheduled</th>
-                      <th className="h-10 px-4 text-right font-mono text-xs uppercase">Pending</th>
-                      <th className="h-10 px-4 text-center font-mono text-xs uppercase">Status</th>
-                      <th className="h-10 px-4 text-center font-mono text-xs uppercase">Action</th>
+              <div className="bg-zinc-50 p-4 rounded border">
+                <h4 className="font-bold text-sm mb-2">Upload Format:</h4>
+                <table className="text-xs font-mono">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="pr-4 pb-1">Branch ID</th>
+                      <th className="pr-4 pb-1">Date (YYYY-MM-DD)</th>
+                      <th className="pr-4 pb-1">Buyer SKU ID</th>
+                      <th className="pr-4 pb-1">Quantity</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {demandForecasts.map((f) => (
-                      <tr key={f.id} className={`border-t hover:bg-zinc-50/50 ${f.is_fully_scheduled ? 'opacity-50' : ''}`}>
-                        <td className="p-4">
-                          <button 
-                            className="font-mono text-sm font-bold text-primary hover:underline cursor-pointer flex items-center gap-1"
-                            onClick={() => fetchForecastDispatchLots(f)}
-                            title="Click to view dispatch lots"
-                          >
-                            {f.forecast_code}
-                            <ExternalLink className="w-3 h-3 opacity-50" />
-                          </button>
-                        </td>
-                        <td className="p-4 text-sm">{f.buyer_name || '-'}</td>
-                        <td className="p-4">
-                          <div className="font-mono text-sm font-bold">{f.sku_id || f.vertical_name}</div>
-                          <div className="text-xs text-zinc-500 truncate max-w-[200px]">{f.sku_description}</div>
-                        </td>
-                        <td className="p-4 font-mono text-sm">{f.forecast_month?.slice(0, 7)}</td>
-                        <td className="p-4 font-mono font-bold text-right">{f.forecast_qty?.toLocaleString()}</td>
-                        <td className="p-4 font-mono text-right text-purple-600">{(f.inventory_qty || 0).toLocaleString()}</td>
-                        <td className="p-4 font-mono text-right text-green-600">{(f.scheduled_qty || 0).toLocaleString()}</td>
-                        <td className="p-4 font-mono font-bold text-right">
-                          <span className={f.schedule_pending > 0 ? 'text-orange-600' : 'text-green-600'}>
-                            {(f.schedule_pending || 0).toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          {f.is_fully_scheduled ? (
-                            <Badge className="bg-green-100 text-green-700">Fully Planned</Badge>
-                          ) : (
-                            <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>
-                          )}
-                        </td>
-                        <td className="p-4 text-center">
-                          {!f.is_fully_scheduled && f.sku_id && (
-                            <Button
-                              size="sm"
-                              onClick={async () => {
-                                setForecastScheduleForm({
-                                  forecast_id: f.id,
-                                  forecast_code: f.forecast_code,
-                                  sku_id: f.sku_id,
-                                  remaining_qty: f.schedule_pending || 0,
-                                  inventory_qty: f.inventory_qty || 0,
-                                  quantity: f.schedule_pending || 0,
-                                  target_date: "",
-                                  branch: "",
-                                  priority: f.priority || "MEDIUM"
-                                });
-                                setBranchCapacityInfo(null);
-                                await fetchAvailableBranches(f.sku_id);
-                                setShowScheduleFromForecastDialog(true);
-                              }}
-                              className="uppercase text-xs"
-                              data-testid={`schedule-forecast-${f.forecast_code}`}
-                            >
-                              <Factory className="w-3 h-3 mr-1" />
-                              Plan
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {demandForecasts.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="p-8 text-center text-muted-foreground">
-                          <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
-                          No pending demand forecasts. Production planning starts when Demand team confirms forecasts.
-                        </td>
-                      </tr>
-                    )}
+                  <tbody className="text-zinc-600">
+                    <tr>
+                      <td className="pr-4">BR_001</td>
+                      <td className="pr-4">2026-04-10</td>
+                      <td className="pr-4">KM_SC_BN_001</td>
+                      <td className="pr-4">100</td>
+                    </tr>
+                    <tr>
+                      <td className="pr-4">BR_002</td>
+                      <td className="pr-4">2026-04-10</td>
+                      <td className="pr-4">KM_RO_BT_002</td>
+                      <td className="pr-4">50</td>
+                    </tr>
                   </tbody>
                 </table>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Download the template for a list of valid Branch IDs and Buyer SKU IDs.
+                </p>
               </div>
             </CardContent>
           </Card>

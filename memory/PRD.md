@@ -2144,3 +2144,72 @@ BS                      -> 5%
 
 *Completed: April 4, 2026*
 
+---
+
+## 28. CPC MODULE MVP SIMPLIFICATION (April 4, 2026)
+
+### COMPLETE ✅
+
+**Purpose**: Simplified CPC (Central Production Control) module for MVP. Removed forecast dependencies and MRP module as per user's request to focus on core production planning functionality.
+
+### Changes Implemented
+
+#### 1. Dashboard - Transfer SKU Button Removed ✅
+- **What**: Removed the "Transfer SKU" button from the main dashboard
+- **Why**: User requested removal; not needed at dashboard level
+- **File**: `/app/frontend/src/pages/Dashboard.js`
+
+#### 2. Production Schedule Upload Simplified ✅
+- **Old Format**: Forecast Code | Branch ID | Target Date | Quantity | Priority
+- **New Format**: Branch ID | Date | Buyer SKU ID | Quantity (4 columns)
+- **Changes**:
+  - Backend template updated to provide new format with reference sheets
+  - Upload endpoint now creates schedules directly from Buyer SKU IDs (no forecast linking)
+  - Priority defaults to "MEDIUM"
+- **Files Modified**:
+  - `/app/backend/routes/cpc_routes.py` (Template and Upload endpoints)
+  - `/app/frontend/src/pages/CPC.js` (UI simplified)
+
+#### 3. MRP Module Rolled Back ✅
+- **Sidebar**: Removed "MRP Planning" from sidebar navigation
+- **Routes**: Removed `/mrp` route from App.js
+- **Documentation**: MRP requirements preserved at `/app/memory/MRP_V1_REQUIREMENTS.md` for future implementation
+- **Files Modified**:
+  - `/app/frontend/src/components/Layout.js` (removed sidebar item)
+  - `/app/frontend/src/App.js` (removed route and import)
+
+#### 4. RM Stock View Enhanced ✅
+- **Branch Filter**: Added explicit branch dropdown filter (not just global store)
+- **Export Logic**:
+  - If branch filtered: Export only that branch's stock
+  - If no filter (all branches): Each row includes Branch ID column
+- **Pagination**: 100 rows per page (server-side)
+- **Download**: Works across ALL pages, not just current view
+- **Files Modified**:
+  - `/app/frontend/src/pages/RawMaterials.js`
+  - `/app/backend/routes/rm_routes.py`
+
+### Upload Template Format (New)
+| Branch ID | Date (YYYY-MM-DD) | Buyer SKU ID | Quantity |
+|-----------|-------------------|--------------|----------|
+| BR_001 | 2026-04-10 | KM_SC_BN_001 | 100 |
+| BR_002 | 2026-04-10 | KM_RO_BT_002 | 50 |
+
+### Files Changed
+- `/app/backend/routes/cpc_routes.py` - Simplified upload template and endpoint
+- `/app/backend/routes/rm_routes.py` - Enhanced export with branch columns
+- `/app/frontend/src/pages/CPC.js` - Simplified Production Planning tab
+- `/app/frontend/src/pages/Dashboard.js` - Removed Transfer SKU button
+- `/app/frontend/src/pages/RawMaterials.js` - Added branch filter dropdown
+- `/app/frontend/src/components/Layout.js` - Removed MRP Planning link
+- `/app/frontend/src/App.js` - Removed MRP route
+
+### MRP Documentation (Saved for Future)
+- `/app/memory/MRP_V1_REQUIREMENTS.md` - Complete MRP v1 specification
+- `/app/memory/MRP_IMPLEMENTATION_PLAN.md` - Implementation plan
+
+---
+
+*Completed: April 4, 2026*
+
+

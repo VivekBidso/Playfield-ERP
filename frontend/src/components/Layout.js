@@ -25,7 +25,6 @@ import {
   Shield,
   PlusCircle,
   List,
-  Calculator,
   Palette
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
@@ -70,7 +69,6 @@ const Layout = () => {
     { path: "/color-development", label: "Color Development", icon: Palette, show: isAdmin || hasRole('DEMAND_PLANNER') },
     { path: "/dispatch-lots", label: "Dispatch Lots", icon: Package, show: isAdmin || hasRole('DEMAND_PLANNER') || hasRole('LOGISTICS_COORDINATOR') },
     { path: "/cpc", label: "CPC", icon: Workflow, show: isAdmin || hasRole('CPC_PLANNER') },
-    { path: "/mrp", label: "MRP Planning", icon: Calculator, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('PROCUREMENT_OFFICER') },
     { path: "/branch-ops", label: "Branch Ops", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/sku-subscription", label: "SKU Subscription", icon: PackageCheck, show: isAdmin || hasRole('CPC_PLANNER') || hasRole('BRANCH_OPS_USER') },
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },

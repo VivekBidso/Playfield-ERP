@@ -1,27 +1,13 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Package, Box, AlertTriangle, TrendingUp, ArrowRightLeft, Filter, X, Calendar, Target } from "lucide-react";
+import { Package, Box, AlertTriangle, TrendingUp, Calendar, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import useBranchStore from "@/store/branchStore";
 import useAuthStore from "@/store/authStore";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
-
-const BRANCHES = [
-  "Unit 1 Vedica",
-  "Unit 2 Trikes",
-  "Unit 3 TM",
-  "Unit 4 Goa",
-  "Unit 5 Baabus",
-  "Unit 6 Emox",
-  "BHDG WH"
-];
 
 const Dashboard = () => {
   const { selectedBranch } = useBranchStore();
@@ -38,26 +24,6 @@ const Dashboard = () => {
   const [demandStats, setDemandStats] = useState(null);
   const [forecasts, setForecasts] = useState([]);
   const [dispatchLots, setDispatchLots] = useState([]);
-  
-  // Transfer dialog state
-  const [showTransferDialog, setShowTransferDialog] = useState(false);
-  const [skus, setSkus] = useState([]);
-  const [filteredSkus, setFilteredSkus] = useState([]);
-  
-  // Filter states for SKU selection
-  const [verticals, setVerticals] = useState([]);
-  const [models, setModels] = useState([]);
-  const [selectedVertical, setSelectedVertical] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  const [transferData, setTransferData] = useState({
-    sku_id: "",
-    from_branch: "",
-    to_branch: "",
-    quantity: 0,
-    notes: ""
-  });
 
   useEffect(() => {
     if (isDemandPlanner) {
@@ -66,26 +32,6 @@ const Dashboard = () => {
       fetchDashboardData();
     }
   }, [selectedBranch, isDemandPlanner]);
-
-  // Set from_branch when selected branch changes
-  useEffect(() => {
-    setTransferData(prev => ({ ...prev, from_branch: selectedBranch }));
-  }, [selectedBranch]);
-
-  // Fetch models when vertical changes
-  useEffect(() => {
-    if (selectedVertical) {
-      fetchModelsByVertical(selectedVertical);
-    } else {
-      setModels([]);
-      setSelectedModel("");
-    }
-  }, [selectedVertical]);
-
-  // Apply filters
-  useEffect(() => {
-    applyFilters();
-  }, [selectedVertical, selectedModel, searchQuery, skus]);
 
   const fetchDemandDashboardData = async () => {
     try {
@@ -184,88 +130,6 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch SKUs", error);
     }
-  };
-
-  const fetchModelsByVertical = async (vertical) => {
-    try {
-      const response = await axios.get(`${API}/skus/models-by-vertical?vertical=${encodeURIComponent(vertical)}`);
-      setModels(response.data.models);
-      setSelectedModel("");
-    } catch (error) {
-      console.error("Failed to fetch models", error);
-    }
-  };
-
-  const applyFilters = () => {
-    let filtered = skus;
-    
-    if (selectedVertical) {
-      filtered = filtered.filter(s => s.vertical === selectedVertical);
-    }
-    if (selectedModel) {
-      filtered = filtered.filter(s => s.model === selectedModel);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(s => 
-        s.sku_id?.toLowerCase().includes(q) ||
-        s.buyer_sku_id?.toLowerCase().includes(q) ||
-        s.description?.toLowerCase().includes(q)
-      );
-    }
-    
-    setFilteredSkus(filtered);
-  };
-
-  const clearFilters = () => {
-    setSelectedVertical("");
-    setSelectedModel("");
-    setSearchQuery("");
-    setFilteredSkus(skus);
-  };
-
-  const handleOpenTransferDialog = () => {
-    fetchSKUsForTransfer();
-    setTransferData({
-      sku_id: "",
-      from_branch: selectedBranch,
-      to_branch: "",
-      quantity: 0,
-      notes: ""
-    });
-    setSelectedVertical("");
-    setSelectedModel("");
-    setSearchQuery("");
-    setShowTransferDialog(true);
-  };
-
-  const handleTransfer = async () => {
-    if (!transferData.sku_id) {
-      toast.error("Please select a SKU");
-      return;
-    }
-    if (!transferData.to_branch) {
-      toast.error("Please select destination branch");
-      return;
-    }
-    if (transferData.quantity <= 0) {
-      toast.error("Please enter a valid quantity");
-      return;
-    }
-    
-    try {
-      const response = await axios.post(`${API}/sku-transfers`, transferData);
-      toast.success(response.data.message);
-      setShowTransferDialog(false);
-      fetchDashboardData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Transfer failed");
-    }
-  };
-
-  const getSelectedSKUStock = () => {
-    const sku = skus.find(s => s.sku_id === transferData.sku_id);
-    return sku?.current_stock || 0;
   };
 
   if (!stats) {
@@ -441,8 +305,6 @@ const Dashboard = () => {
     { label: "Today's Production", value: stats.today_production || 0, icon: TrendingUp, color: "text-primary" },
   ];
 
-  const hasActiveFilters = selectedVertical || selectedModel || searchQuery;
-
   return (
     <div className="p-6 md:p-8" data-testid="dashboard-page">
       <div className="mb-8 flex items-center justify-between">
@@ -450,185 +312,6 @@ const Dashboard = () => {
           <h1 className="text-4xl font-black tracking-tight uppercase">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">Manufacturing overview for {selectedBranch}</p>
         </div>
-        
-        {/* Transfer Button */}
-        <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
-          <DialogTrigger asChild>
-            <Button 
-              onClick={handleOpenTransferDialog}
-              className="uppercase text-xs tracking-wide"
-              data-testid="transfer-sku-btn"
-            >
-              <ArrowRightLeft className="w-4 h-4 mr-2" strokeWidth={1.5} />
-              Transfer SKU
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="font-bold uppercase">Inter-Branch SKU Transfer</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-6">
-              <p className="text-sm text-zinc-600">
-                Transfer physical SKU inventory between branches. This does <span className="font-bold">NOT</span> consume raw materials.
-              </p>
-              
-              {/* SKU Filter Section */}
-              <div className="bg-zinc-50 p-4 rounded-sm border border-zinc-200">
-                <div className="flex items-center gap-2 mb-4">
-                  <Filter className="w-4 h-4 text-zinc-500" strokeWidth={1.5} />
-                  <span className="text-xs uppercase tracking-widest font-bold text-zinc-600">
-                    Filter SKUs
-                  </span>
-                  {hasActiveFilters && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={clearFilters}
-                      className="ml-auto text-xs"
-                    >
-                      <X className="w-3 h-3 mr-1" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-zinc-500">Vertical</Label>
-                    <select 
-                      className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono"
-                      value={selectedVertical}
-                      onChange={(e) => setSelectedVertical(e.target.value)}
-                      data-testid="transfer-vertical-filter"
-                    >
-                      <option value="">All Verticals</option>
-                      {verticals.map(v => (
-                        <option key={v} value={v}>{v}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <Label className="text-xs text-zinc-500">Model</Label>
-                    <select 
-                      className="flex h-9 w-full rounded-sm border border-input bg-white px-3 py-1 text-sm font-mono disabled:opacity-50"
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                      disabled={!selectedVertical}
-                      data-testid="transfer-model-filter"
-                    >
-                      <option value="">All Models</option>
-                      {models.map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="mt-3">
-                  <Input 
-                    placeholder="Search SKU ID, description..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="font-mono text-sm"
-                    data-testid="transfer-sku-search"
-                  />
-                </div>
-                
-                <div className="mt-2 text-xs text-zinc-500 font-mono">
-                  {filteredSkus.length} SKUs available in {selectedBranch}
-                </div>
-              </div>
-              
-              {/* Transfer Form */}
-              <div className="space-y-4">
-                <div>
-                  <Label>SKU to Transfer *</Label>
-                  <select 
-                    className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
-                    value={transferData.sku_id}
-                    onChange={(e) => setTransferData({...transferData, sku_id: e.target.value})}
-                    data-testid="transfer-sku-select"
-                  >
-                    <option value="">Select SKU ({filteredSkus.length} available)</option>
-                    {filteredSkus.map(s => (
-                      <option key={s.sku_id} value={s.sku_id}>
-                        {s.sku_id} (Stock: {s.current_stock || 0})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                {transferData.sku_id && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-sm">
-                    <div className="text-xs text-blue-600 font-bold mb-1">Selected SKU</div>
-                    <div className="font-mono text-sm">
-                      Available Stock: <span className="font-bold text-blue-700">{getSelectedSKUStock()}</span>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>From Branch</Label>
-                    <Input 
-                      value={transferData.from_branch}
-                      disabled
-                      className="font-mono bg-zinc-100"
-                      data-testid="transfer-from-branch"
-                    />
-                  </div>
-                  <div>
-                    <Label>To Branch *</Label>
-                    <select 
-                      className="flex h-10 w-full rounded-sm border border-input bg-transparent px-3 py-2 text-sm font-mono"
-                      value={transferData.to_branch}
-                      onChange={(e) => setTransferData({...transferData, to_branch: e.target.value})}
-                      data-testid="transfer-to-branch"
-                    >
-                      <option value="">Select Destination</option>
-                      {BRANCHES.filter(b => b !== selectedBranch).map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Quantity *</Label>
-                    <Input 
-                      type="number" 
-                      value={transferData.quantity} 
-                      onChange={(e) => setTransferData({...transferData, quantity: parseFloat(e.target.value) || 0})}
-                      max={getSelectedSKUStock()}
-                      className="font-mono"
-                      data-testid="transfer-quantity"
-                    />
-                  </div>
-                  <div>
-                    <Label>Notes</Label>
-                    <Input 
-                      value={transferData.notes} 
-                      onChange={(e) => setTransferData({...transferData, notes: e.target.value})}
-                      placeholder="Optional transfer notes"
-                      data-testid="transfer-notes"
-                    />
-                  </div>
-                </div>
-                
-                <Button 
-                  onClick={handleTransfer} 
-                  className="w-full uppercase text-xs tracking-wide"
-                  data-testid="confirm-transfer-btn"
-                >
-                  <ArrowRightLeft className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                  Transfer SKU
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Stats Grid */}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Upload, Plus, Search, Trash2, Download, Filter, X, ChevronDown, Database, ArrowUpDown } from "lucide-react";
+import { Upload, Plus, Search, Trash2, Download, Filter, X, ChevronDown, Database, ArrowUpDown, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -8,6 +8,13 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import useBranchStore from "@/store/branchStore";
 import useAuthStore from "@/store/authStore";
 
@@ -42,6 +49,10 @@ const RawMaterials = () => {
   const fileInputRef = useRef(null);
   const migrateFileInputRef = useRef(null);
 
+  // Branch filter - explicit dropdown
+  const [branches, setBranches] = useState([]);
+  const [branchFilter, setBranchFilter] = useState(selectedBranch || "");
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -71,15 +82,33 @@ const RawMaterials = () => {
 
   useEffect(() => {
     fetchFilterOptions();
+    fetchBranches();
   }, []);
 
   useEffect(() => {
+    // Initialize branch filter from store if available
+    if (selectedBranch && !branchFilter) {
+      setBranchFilter(selectedBranch);
+    }
+  }, [selectedBranch]);
+
+  useEffect(() => {
     fetchMaterials();
-  }, [currentPage, filters, selectedBranch]);
+  }, [currentPage, filters, branchFilter]);
 
   useEffect(() => {
     fetchBranchInventory();
-  }, [selectedBranch, materials]);
+  }, [branchFilter, materials]);
+
+  const fetchBranches = async () => {
+    try {
+      const response = await axios.get(`${API}/branches`);
+      const activeOnly = (response.data || []).filter(b => b.is_active !== false);
+      setBranches(activeOnly);
+    } catch (error) {
+      console.error("Failed to fetch branches");
+    }
+  };
 
   const fetchFilterOptions = async () => {
     try {
@@ -91,9 +120,9 @@ const RawMaterials = () => {
   };
 
   const fetchBranchInventory = async () => {
-    if (!selectedBranch || materials.length === 0) return;
+    if (!branchFilter || materials.length === 0) return;
     try {
-      const response = await axios.get(`${API}/raw-materials?branch=${encodeURIComponent(selectedBranch)}`);
+      const response = await axios.get(`${API}/raw-materials?branch=${encodeURIComponent(branchFilter)}`);
       const inventoryMap = {};
       response.data.forEach(rm => {
         inventoryMap[rm.rm_id] = rm.current_stock || 0;
@@ -110,7 +139,7 @@ const RawMaterials = () => {
       const params = new URLSearchParams();
       params.append('page', currentPage);
       params.append('page_size', pageSize);
-      if (selectedBranch) params.append('branch', selectedBranch);
+      if (branchFilter) params.append('branch', branchFilter);
       if (filters.search) params.append('search', filters.search);
       if (filters.category) params.append('category', filters.category);
       if (filters.type) params.append('type_filter', filters.type);
@@ -247,7 +276,8 @@ const RawMaterials = () => {
     try {
       toast.info("Preparing export...");
       const params = new URLSearchParams();
-      if (selectedBranch) params.append('branch', selectedBranch);
+      // Pass branch filter - if empty, exports all branches with Branch ID column
+      if (branchFilter) params.append('branch', branchFilter);
       if (filters.search) params.append('search', filters.search);
       if (filters.category) params.append('category', filters.category);
       if (filters.type) params.append('type_filter', filters.type);
@@ -264,7 +294,12 @@ const RawMaterials = () => {
       });
       const filename = response.headers['content-disposition']?.split('filename=')[1] || 'raw_materials_export.xlsx';
       saveAs(blob, filename);
-      toast.success(`Exported ${totalItems} raw materials to Excel`);
+      
+      if (branchFilter) {
+        toast.success(`Exported ${totalItems} RMs for ${branchFilter}`);
+      } else {
+        toast.success(`Exported RMs across all branches`);
+      }
     } catch (error) {
       console.error("Export failed:", error);
       toast.error("Failed to export raw materials");
@@ -422,13 +457,34 @@ const RawMaterials = () => {
         <div>
           <h1 className="text-4xl font-black tracking-tight uppercase">RM Stock View</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            Branch inventory levels • {selectedBranch} • {totalItems} items
+            Branch inventory levels • {branchFilter || "All Branches"} • {totalItems} items
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={handleExport} className="uppercase text-xs tracking-wide">
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Branch Filter Dropdown */}
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-muted-foreground" />
+            <Select 
+              value={branchFilter || "_all"} 
+              onValueChange={(v) => {
+                setBranchFilter(v === "_all" ? "" : v);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[200px]" data-testid="branch-filter">
+                <SelectValue placeholder="All Branches" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Branches</SelectItem>
+                {branches.map(b => (
+                  <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="secondary" onClick={handleExport} className="uppercase text-xs tracking-wide" data-testid="export-btn">
             <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
-            Export
+            Export {branchFilter ? branchFilter : "All"}
           </Button>
         </div>
       </div>

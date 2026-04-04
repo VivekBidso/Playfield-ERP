@@ -515,7 +515,11 @@ async def export_raw_materials(
     colour_filter: Optional[str] = None,
     brand_filter: Optional[str] = None
 ):
-    """Export ALL raw materials matching filters (no pagination) as Excel"""
+    """
+    Export ALL raw materials matching filters (no pagination) as Excel.
+    - If branch is specified: Export only that branch's stock in separate columns
+    - If NO branch filter: Export ALL branches, each row = RM + Branch combo with Branch ID column
+    """
     from fastapi.responses import StreamingResponse
     
     query = {"status": {"$ne": "INACTIVE"}}
@@ -552,58 +556,111 @@ async def export_raw_materials(
     if brand_filter:
         rms = [rm for rm in rms if rm.get("category_data", {}).get("brand") == brand_filter]
     
-    # Add branch inventory if specified
-    if branch:
-        branch_inv = await db.branch_rm_inventory.find(
-            {"branch": branch},
-            {"_id": 0, "rm_id": 1, "current_stock": 1, "is_active": 1}
-        ).to_list(15000)
-        inv_map = {inv["rm_id"]: inv for inv in branch_inv}
-        for rm in rms:
-            inv = inv_map.get(rm["rm_id"])
-            rm["branch_stock"] = inv.get("current_stock", 0.0) if inv else 0.0
-            rm["is_active_in_branch"] = inv.get("is_active", False) if inv else False
+    # Get category fields for column headers
+    all_cat_fields = set()
+    for rm in rms:
+        all_cat_fields.update(rm.get("category_data", {}).keys())
+    cat_field_list = sorted(list(all_cat_fields))
     
     # Create Excel file
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Raw Materials"
     
-    # Headers
-    headers = ["RM ID", "Category", "Description", "Unit", "Threshold"]
-    all_cat_fields = set()
-    for rm in rms:
-        all_cat_fields.update(rm.get("category_data", {}).keys())
-    cat_field_list = sorted(list(all_cat_fields))
-    headers.extend([f.replace("_", " ").title() for f in cat_field_list])
     if branch:
+        # SINGLE BRANCH EXPORT: Add branch inventory columns
+        branch_inv = await db.branch_rm_inventory.find(
+            {"branch": branch},
+            {"_id": 0, "rm_id": 1, "current_stock": 1, "is_active": 1}
+        ).to_list(15000)
+        inv_map = {inv["rm_id"]: inv for inv in branch_inv}
+        
+        # Headers for single branch export
+        headers = ["RM ID", "Category", "Description", "Unit", "Threshold"]
+        headers.extend([f.replace("_", " ").title() for f in cat_field_list])
         headers.extend(["Branch Stock", "Active in Branch"])
+        ws.append(headers)
+        
+        # Data rows
+        for rm in rms:
+            inv = inv_map.get(rm["rm_id"])
+            row = [
+                rm.get("rm_id", ""),
+                rm.get("category", ""),
+                rm.get("description", ""),
+                rm.get("unit", ""),
+                rm.get("low_stock_threshold", "")
+            ]
+            cat_data = rm.get("category_data", {})
+            for field in cat_field_list:
+                row.append(cat_data.get(field, ""))
+            row.append(inv.get("current_stock", 0.0) if inv else 0.0)
+            row.append("Yes" if (inv and inv.get("is_active")) else "No")
+            ws.append(row)
+        
+        filename = f"rm_stock_{branch.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     
-    ws.append(headers)
-    
-    # Data rows
-    for rm in rms:
-        row = [
-            rm.get("rm_id", ""),
-            rm.get("category", ""),
-            rm.get("description", ""),
-            rm.get("unit", ""),
-            rm.get("low_stock_threshold", "")
-        ]
-        cat_data = rm.get("category_data", {})
-        for field in cat_field_list:
-            row.append(cat_data.get(field, ""))
-        if branch:
-            row.append(rm.get("branch_stock", 0))
-            row.append("Yes" if rm.get("is_active_in_branch") else "No")
-        ws.append(row)
+    else:
+        # ALL BRANCHES EXPORT: Each row = RM + Branch combo with Branch ID column
+        # Get all branches and their branch_ids
+        branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "branch_id": 1}).to_list(100)
+        branch_to_id = {b["name"]: b.get("branch_id", "") for b in branches}
+        
+        # Get ALL branch inventory data
+        all_branch_inv = await db.branch_rm_inventory.find(
+            {},
+            {"_id": 0, "rm_id": 1, "branch": 1, "current_stock": 1, "is_active": 1}
+        ).to_list(100000)
+        
+        # Build inventory lookup: {rm_id: {branch: {current_stock, is_active}}}
+        inv_by_rm_branch = {}
+        for inv in all_branch_inv:
+            rm_id = inv.get("rm_id")
+            b = inv.get("branch")
+            if rm_id not in inv_by_rm_branch:
+                inv_by_rm_branch[rm_id] = {}
+            inv_by_rm_branch[rm_id][b] = {
+                "current_stock": inv.get("current_stock", 0.0),
+                "is_active": inv.get("is_active", False)
+            }
+        
+        # Headers for all-branches export (includes Branch ID)
+        headers = ["Branch ID", "Branch", "RM ID", "Category", "Description", "Unit", "Threshold"]
+        headers.extend([f.replace("_", " ").title() for f in cat_field_list])
+        headers.extend(["Current Stock", "Active"])
+        ws.append(headers)
+        
+        # Data rows: One row per RM + Branch combination
+        for rm in rms:
+            rm_id = rm.get("rm_id", "")
+            rm_branch_inv = inv_by_rm_branch.get(rm_id, {})
+            
+            for branch_name in [b["name"] for b in branches]:
+                inv = rm_branch_inv.get(branch_name, {})
+                branch_id = branch_to_id.get(branch_name, "")
+                
+                row = [
+                    branch_id,
+                    branch_name,
+                    rm_id,
+                    rm.get("category", ""),
+                    rm.get("description", ""),
+                    rm.get("unit", ""),
+                    rm.get("low_stock_threshold", "")
+                ]
+                cat_data = rm.get("category_data", {})
+                for field in cat_field_list:
+                    row.append(cat_data.get(field, ""))
+                row.append(inv.get("current_stock", 0.0))
+                row.append("Yes" if inv.get("is_active") else "No")
+                ws.append(row)
+        
+        filename = f"rm_stock_all_branches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     
     # Save to buffer
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-    
-    filename = f"raw_materials_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     
     return StreamingResponse(
         output,
