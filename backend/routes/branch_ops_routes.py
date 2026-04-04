@@ -6,6 +6,8 @@ from database import db
 from services.auth_service import get_current_user
 from models.auth import User
 from routes.sku_management_routes import generate_rm_description
+from services.utils import update_branch_rm_inventory, get_branch_rm_stock
+import uuid
 
 router = APIRouter(tags=["Branch Operations"])
 
@@ -19,6 +21,196 @@ def serialize_doc(doc):
     if doc and 'completed_at' in doc and isinstance(doc['completed_at'], str):
         doc['completed_at'] = datetime.fromisoformat(doc['completed_at'])
     return doc
+
+
+async def get_merged_bom_for_sku(buyer_sku_id: str) -> dict:
+    """
+    Get merged BOM (common_bom + brand_bom) for a buyer SKU.
+    Returns: {rm_id: quantity_per_unit, ...}
+    """
+    # Get buyer SKU to find bidso_sku_id
+    buyer_sku = await db.buyer_skus.find_one(
+        {"buyer_sku_id": buyer_sku_id},
+        {"_id": 0, "bidso_sku_id": 1}
+    )
+    
+    if not buyer_sku:
+        return {}
+    
+    bidso_sku_id = buyer_sku.get("bidso_sku_id")
+    
+    # Get common BOM
+    common_bom = await db.common_bom.find_one(
+        {"bidso_sku_id": bidso_sku_id},
+        {"_id": 0, "items": 1}
+    ) if bidso_sku_id else None
+    
+    # Get brand BOM
+    brand_bom = await db.brand_bom.find_one(
+        {"buyer_sku_id": buyer_sku_id},
+        {"_id": 0, "items": 1}
+    )
+    
+    # Merge BOMs
+    merged = {}
+    
+    if common_bom and common_bom.get("items"):
+        for item in common_bom["items"]:
+            rm_id = item.get("rm_id")
+            if rm_id:
+                merged[rm_id] = item.get("quantity", 0)
+    
+    if brand_bom and brand_bom.get("items"):
+        for item in brand_bom["items"]:
+            rm_id = item.get("rm_id")
+            if rm_id:
+                # Add to existing (brand-specific additions)
+                merged[rm_id] = merged.get(rm_id, 0) + item.get("quantity", 0)
+    
+    return merged
+
+
+async def check_rm_availability_for_production(
+    branch: str, 
+    buyer_sku_id: str, 
+    quantity: int
+) -> dict:
+    """
+    Check if branch has sufficient RM stock for production.
+    
+    Returns:
+        {
+            "sufficient": True/False,
+            "shortages": [
+                {"rm_id": "SP_001", "description": "Screw 8x13", "required": 100, "available": 50, "shortage": 50},
+                ...
+            ],
+            "bom": {rm_id: qty_per_unit, ...}
+        }
+    """
+    bom = await get_merged_bom_for_sku(buyer_sku_id)
+    
+    if not bom:
+        return {"sufficient": True, "shortages": [], "bom": {}, "message": "No BOM defined for this SKU"}
+    
+    shortages = []
+    
+    # Get RM details for descriptions
+    rm_ids = list(bom.keys())
+    rms = await db.raw_materials.find(
+        {"rm_id": {"$in": rm_ids}},
+        {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1, "unit": 1}
+    ).to_list(1000)
+    rm_details = {rm["rm_id"]: rm for rm in rms}
+    
+    for rm_id, qty_per_unit in bom.items():
+        required = qty_per_unit * quantity
+        available = await get_branch_rm_stock(branch, rm_id)
+        
+        if available < required:
+            rm_info = rm_details.get(rm_id, {})
+            description = generate_rm_description(
+                rm_info.get("category", ""),
+                rm_info.get("category_data", {}),
+                rm_info.get("name", "")
+            )
+            shortages.append({
+                "rm_id": rm_id,
+                "description": description,
+                "unit": rm_info.get("unit", ""),
+                "required": round(required, 2),
+                "available": round(available, 2),
+                "shortage": round(required - available, 2)
+            })
+    
+    return {
+        "sufficient": len(shortages) == 0,
+        "shortages": shortages,
+        "bom": bom
+    }
+
+
+async def consume_rm_for_production(
+    branch: str,
+    buyer_sku_id: str,
+    quantity: int,
+    schedule_code: str
+) -> dict:
+    """
+    Deduct RM from branch inventory based on BOM.
+    Should be called AFTER availability check passes.
+    
+    Returns:
+        {"consumed": [{rm_id, qty_consumed}, ...], "total_items": N}
+    """
+    bom = await get_merged_bom_for_sku(buyer_sku_id)
+    consumed = []
+    
+    for rm_id, qty_per_unit in bom.items():
+        qty_to_consume = qty_per_unit * quantity
+        
+        # Deduct from inventory (negative change)
+        await update_branch_rm_inventory(branch, rm_id, -qty_to_consume)
+        
+        # Log the consumption
+        await db.rm_consumption_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "branch": branch,
+            "rm_id": rm_id,
+            "quantity": qty_to_consume,
+            "buyer_sku_id": buyer_sku_id,
+            "schedule_code": schedule_code,
+            "consumed_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        consumed.append({"rm_id": rm_id, "quantity": qty_to_consume})
+    
+    return {"consumed": consumed, "total_items": len(consumed)}
+
+
+async def add_fg_inventory(
+    branch: str,
+    buyer_sku_id: str,
+    quantity: int,
+    schedule_code: str
+) -> dict:
+    """
+    Add finished goods (Buyer SKU) to branch inventory after production completion.
+    """
+    # Check if inventory record exists
+    existing = await db.branch_sku_inventory.find_one(
+        {"branch": branch, "buyer_sku_id": buyer_sku_id}
+    )
+    
+    if existing:
+        new_qty = existing.get("current_stock", 0) + quantity
+        await db.branch_sku_inventory.update_one(
+            {"branch": branch, "buyer_sku_id": buyer_sku_id},
+            {"$set": {
+                "current_stock": new_qty,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    else:
+        await db.branch_sku_inventory.insert_one({
+            "id": str(uuid.uuid4()),
+            "branch": branch,
+            "buyer_sku_id": buyer_sku_id,
+            "current_stock": quantity,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    # Log the production entry
+    await db.fg_production_log.insert_one({
+        "id": str(uuid.uuid4()),
+        "branch": branch,
+        "buyer_sku_id": buyer_sku_id,
+        "quantity": quantity,
+        "schedule_code": schedule_code,
+        "produced_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"buyer_sku_id": buyer_sku_id, "quantity_added": quantity, "branch": branch}
 
 
 @router.get("/branch-ops/my-branches")
@@ -170,16 +362,26 @@ async def complete_schedule(
 ):
     """
     Mark a production schedule as completed.
+    
+    This endpoint:
+    1. Checks RM availability for the completed quantity
+    2. If sufficient: Deducts RM from branch_rm_inventory, adds FG to branch_sku_inventory
+    3. If insufficient: Returns error with list of shortage RMs
+    
     Branch ops user can only complete schedules for their assigned branches.
     """
     schedule = await db.production_schedules.find_one({"id": schedule_id}, {"_id": 0})
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
     
+    branch = schedule.get("branch")
+    buyer_sku_id = schedule.get("sku_id")
+    schedule_code = schedule.get("schedule_code")
+    
     # Check branch access
     is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
     if not is_master:
-        if schedule.get("branch") not in current_user.assigned_branches:
+        if branch not in current_user.assigned_branches:
             raise HTTPException(status_code=403, detail="Access denied. Schedule belongs to different branch.")
     
     if schedule.get("status") == "COMPLETED":
@@ -188,13 +390,56 @@ async def complete_schedule(
     if schedule.get("status") == "CANCELLED":
         raise HTTPException(status_code=400, detail="Cannot complete a cancelled schedule")
     
-    # Update schedule
+    # ========== STEP 1: Check RM Availability ==========
+    availability = await check_rm_availability_for_production(branch, buyer_sku_id, completed_quantity)
+    
+    if not availability["sufficient"]:
+        # Return detailed shortage information
+        shortage_details = []
+        for s in availability["shortages"]:
+            shortage_details.append({
+                "rm_id": s["rm_id"],
+                "description": s["description"],
+                "unit": s["unit"],
+                "required": s["required"],
+                "available": s["available"],
+                "shortage": s["shortage"]
+            })
+        
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INSUFFICIENT_RM_STOCK",
+                "message": f"Cannot complete production. {len(shortage_details)} RM(s) have insufficient stock.",
+                "shortages": shortage_details
+            }
+        )
+    
+    # ========== STEP 2: Consume RM from Inventory ==========
+    consumption_result = await consume_rm_for_production(
+        branch=branch,
+        buyer_sku_id=buyer_sku_id,
+        quantity=completed_quantity,
+        schedule_code=schedule_code
+    )
+    
+    # ========== STEP 3: Add FG to Branch SKU Inventory ==========
+    await add_fg_inventory(
+        branch=branch,
+        buyer_sku_id=buyer_sku_id,
+        quantity=completed_quantity,
+        schedule_code=schedule_code
+    )
+    
+    # ========== STEP 4: Update Schedule Status ==========
     update_data = {
         "status": "COMPLETED",
         "completed_quantity": completed_quantity,
         "completed_at": datetime.now(timezone.utc),
         "completed_by": current_user.id,
-        "completed_by_name": current_user.name
+        "completed_by_name": current_user.name,
+        "rm_consumed": consumption_result["consumed"],
+        "fg_added": True
     }
     
     if notes:
@@ -213,10 +458,58 @@ async def complete_schedule(
         )
     
     return {
-        "message": f"Schedule {schedule.get('schedule_code')} marked as completed",
+        "message": f"Schedule {schedule_code} completed successfully",
         "schedule_id": schedule_id,
         "completed_quantity": completed_quantity,
-        "completed_by": current_user.name
+        "completed_by": current_user.name,
+        "rm_consumed": {
+            "total_items": consumption_result["total_items"],
+            "items": consumption_result["consumed"][:10]  # Show first 10 items
+        },
+        "fg_added": {
+            "buyer_sku_id": buyer_sku_id,
+            "quantity": completed_quantity,
+            "branch": branch
+        }
+    }
+
+
+@router.get("/branch-ops/schedules/{schedule_id}/check-rm")
+async def check_rm_for_schedule(
+    schedule_id: str,
+    quantity: Optional[int] = Query(None, description="Quantity to check (defaults to target quantity)"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Pre-check RM availability for a production schedule before marking complete.
+    Returns availability status and any shortages.
+    """
+    schedule = await db.production_schedules.find_one({"id": schedule_id}, {"_id": 0})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    branch = schedule.get("branch")
+    buyer_sku_id = schedule.get("sku_id")
+    check_qty = quantity or schedule.get("target_quantity", 0)
+    
+    # Check branch access
+    is_master = current_user.role in ["master_admin", "MASTER_ADMIN"]
+    if not is_master:
+        if branch not in current_user.assigned_branches:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    availability = await check_rm_availability_for_production(branch, buyer_sku_id, check_qty)
+    
+    return {
+        "schedule_id": schedule_id,
+        "schedule_code": schedule.get("schedule_code"),
+        "branch": branch,
+        "buyer_sku_id": buyer_sku_id,
+        "quantity_checked": check_qty,
+        "sufficient": availability["sufficient"],
+        "shortages": availability["shortages"],
+        "bom_items": len(availability["bom"]),
+        "message": availability.get("message", "")
     }
 
 

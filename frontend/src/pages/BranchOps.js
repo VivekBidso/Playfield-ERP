@@ -40,6 +40,10 @@ const BranchOps = () => {
   const [completedQty, setCompletedQty] = useState(0);
   const [completionNotes, setCompletionNotes] = useState("");
   const [completing, setCompleting] = useState(false);
+  
+  // RM Shortage state
+  const [rmShortages, setRmShortages] = useState([]);
+  const [showShortageError, setShowShortageError] = useState(false);
 
   const getHeaders = () => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -138,13 +142,24 @@ const BranchOps = () => {
         { headers: getHeaders() }
       );
       
-      toast.success(`Schedule ${selectedSchedule.schedule_code} marked as completed!`);
+      toast.success(`Schedule ${selectedSchedule.schedule_code} completed! RM consumed and FG added to inventory.`);
       setShowCompleteDialog(false);
       setSelectedSchedule(null);
+      setRmShortages([]);
+      setShowShortageError(false);
       fetchSchedules();
       fetchDashboard();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to complete schedule");
+      const errorData = error.response?.data?.detail;
+      
+      // Check if it's an RM shortage error
+      if (errorData?.error === "INSUFFICIENT_RM_STOCK") {
+        setRmShortages(errorData.shortages || []);
+        setShowShortageError(true);
+        toast.error(`Cannot complete: ${errorData.shortages?.length || 0} RM(s) have insufficient stock`);
+      } else {
+        toast.error(typeof errorData === 'string' ? errorData : "Failed to complete schedule");
+      }
     } finally {
       setCompleting(false);
     }
@@ -502,10 +517,54 @@ const BranchOps = () => {
                 />
               </div>
 
+              {/* RM Shortage Error Display */}
+              {showShortageError && rmShortages.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                    <h4 className="font-bold text-red-700">Insufficient RM Stock</h4>
+                  </div>
+                  <p className="text-sm text-red-600 mb-3">
+                    Cannot complete production. The following RMs are short:
+                  </p>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-red-100">
+                        <tr>
+                          <th className="text-left p-2 font-mono">RM ID</th>
+                          <th className="text-left p-2">Description</th>
+                          <th className="text-right p-2">Required</th>
+                          <th className="text-right p-2">Available</th>
+                          <th className="text-right p-2 text-red-700">Shortage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rmShortages.map((s, idx) => (
+                          <tr key={idx} className="border-t border-red-200">
+                            <td className="p-2 font-mono font-bold">{s.rm_id}</td>
+                            <td className="p-2 truncate max-w-[150px]" title={s.description}>{s.description}</td>
+                            <td className="p-2 text-right font-mono">{s.required?.toLocaleString()}</td>
+                            <td className="p-2 text-right font-mono">{s.available?.toLocaleString()}</td>
+                            <td className="p-2 text-right font-mono font-bold text-red-600">-{s.shortage?.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-red-500 mt-2">
+                    Please raise a procurement request or adjust the quantity.
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
-                  onClick={() => setShowCompleteDialog(false)}
+                  onClick={() => {
+                    setShowCompleteDialog(false);
+                    setShowShortageError(false);
+                    setRmShortages([]);
+                  }}
                   className="flex-1"
                 >
                   Cancel
