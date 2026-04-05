@@ -47,6 +47,7 @@ from routes.admin_routes import router as admin_router
 from routes.pantone_routes import router as pantone_router
 from routes.price_master_routes import router as price_master_router
 from routes.dispatch_lots_v2_routes import router as dispatch_lots_v2_router
+from routes.rm_production_routes import router as rm_production_router
 
 # Include all routers
 api_router.include_router(auth_router)
@@ -70,6 +71,7 @@ api_router.include_router(admin_router)
 api_router.include_router(pantone_router)
 api_router.include_router(price_master_router)
 api_router.include_router(dispatch_lots_v2_router)
+api_router.include_router(rm_production_router)
 
 # Register main router
 app.include_router(api_router)

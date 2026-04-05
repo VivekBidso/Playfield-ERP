@@ -2487,3 +2487,68 @@ INITIATED → APPROVED → IN_TRANSIT → COMPLETED
 
 
 
+
+---
+
+## 23. IN-HOUSE PRODUCTION MODULE (April 5, 2026)
+
+### Overview
+This module enables tracking of internally manufactured raw materials (L2/L3) that are produced by consuming other raw materials (L1/L2).
+
+### BOM Levels
+| Level | Description | Source Type | Examples |
+|-------|-------------|-------------|----------|
+| L1 | Raw purchased materials | PURCHASED | Polymers, Master Batches, Pipes, Powder |
+| L2 | First transformation | MANUFACTURED/BOTH | Molded plastic parts, Fabricated metal parts |
+| L3 | Second transformation | MANUFACTURED/BOTH | Powder coated parts |
+
+### Source Types
+| Type | Purchased Inward | Production Inward | Has BOM |
+|------|------------------|-------------------|---------|
+| PURCHASED | ✅ | ❌ | No |
+| MANUFACTURED | ❌ | ✅ | Yes |
+| BOTH | ✅ | ✅ | Yes |
+
+### New Categories Added
+| Code | Name | Level | Default Source |
+|------|------|-------|----------------|
+| POLY | Polymer Grades | L1 | PURCHASED |
+| MB | Master Batches | L1 | PURCHASED |
+| PWD | Powder Coating Materials | L1 | PURCHASED |
+| PIPE | Metal Pipes | L1 | PURCHASED |
+| INM_FAB | Fabricated Metal Parts | L2 | BOTH |
+
+### Database Collections
+- `rm_categories` - Category master with source type defaults
+- `rm_bom` - Bill of Materials for manufactured RMs
+- `rm_production_log` - Production entries with component consumption
+
+### API Endpoints (Backend Complete)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/production/rm-categories` | GET | List all RM categories |
+| `/api/production/rm-categories/{code}` | GET/PUT | Get/Update category |
+| `/api/production/rm-categories` | POST | Create category |
+| `/api/rm-bom` | GET/POST | List/Create BOMs |
+| `/api/rm-bom/{rm_id}` | GET/PUT/DELETE | Manage specific BOM |
+| `/api/rm-production/preview` | POST | Preview production consumption |
+| `/api/rm-production/confirm` | POST | Confirm production & consume |
+| `/api/rm-production/log` | GET | Get production history |
+| `/api/rm-production/summary` | GET | Category-wise summary |
+| `/api/rm-production/consumption-report` | GET | L1 consumption report |
+| `/api/rm-production/manufacturable-rms` | GET | List RMs that can be produced |
+| `/api/rm-production/active-categories` | GET | Categories with active BOMs |
+
+### Status
+- ✅ Backend models created (`/app/backend/models/production.py`)
+- ✅ Backend routes created (`/app/backend/routes/rm_production_routes.py`)
+- ✅ RM Categories seeded (15 categories)
+- ✅ Existing RMs updated with source_type (INP=MANUFACTURED, INM=BOTH, others=PURCHASED)
+- ⏳ Tech Ops - Category Management UI (Pending)
+- ⏳ Tech Ops - RM BOM Management UI (Pending)
+- ⏳ Branch Ops - Production RM Inward page (Pending)
+- ⏳ Branch Ops - Production Reports (Pending)
+
+### Documentation
+See `/app/memory/func/IN_HOUSE_PRODUCTION.md` for full module documentation.
+
