@@ -2,6 +2,41 @@
 
 ## April 5, 2026
 
+### In-House Production Module - Phase 2A/2B Complete
+
+#### Phase 2A - RM Production Inward Page
+- Created new `/rm-production` page for Branch Ops users
+- **Produce RM tab**:
+  - Branch selector for multi-branch operations
+  - Category filter to narrow down manufacturable RMs
+  - RM selection list showing current stock levels
+  - Production quantity input with notes
+  - Preview dialog showing component requirements and stock availability
+  - Confirm production button (disabled if insufficient stock)
+- **Preview functionality**:
+  - Shows all BOM components required
+  - Indicates available stock vs required quantity
+  - Highlights shortages in red
+  - Blocks production if any component is insufficient
+
+#### Phase 2B - Production Reports
+- **Production Log tab**:
+  - History of all RM production entries
+  - Filters: Category, RM ID, Date range
+  - Expandable rows showing consumed components
+  - Export to Excel
+  - Pagination support
+- **Reports tab**:
+  - Date range picker for report period
+  - Summary cards: Total Produced, Production Entries, Categories Active
+  - Production by Category table
+  - Component Consumption Report (L1 materials consumed)
+  - Export consumption report to Excel
+
+#### Navigation & Access
+- Added "RM Production" menu item in sidebar
+- Visible for: Master Admin, Branch Ops users
+
 ### In-House Production Module - Phase 1 Complete
 
 #### Phase 1B/1C - TechOps UI

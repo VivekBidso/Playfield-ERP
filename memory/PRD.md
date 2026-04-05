@@ -2547,12 +2547,15 @@ This module enables tracking of internally manufactured raw materials (L2/L3) th
 - ✅ Tech Ops - Category Management UI (Phase 1B complete)
 - ✅ Tech Ops - RM BOM Management UI (Phase 1C complete)
 - ✅ RM Repository - Source Type & BOM Level columns/filters (Phase 1D complete)
-- ⏳ Branch Ops - Production RM Inward page (Pending - Phase 2A)
-- ⏳ Branch Ops - Production Reports (Pending - Phase 2B)
+- ✅ Branch Ops - Production RM Inward page (Phase 2A complete)
+- ✅ Branch Ops - Production Reports (Phase 2B complete)
 
 ### Files Updated (April 5, 2026)
 - `/app/frontend/src/pages/TechOps.js` - Added RM Categories and RM BOM tabs
 - `/app/frontend/src/pages/RMRepository.js` - Added source_type and bom_level filters/columns
+- `/app/frontend/src/pages/RMProduction.js` - NEW: Production Inward page with 3 tabs
+- `/app/frontend/src/App.js` - Added RMProduction route
+- `/app/frontend/src/components/Layout.js` - Added RM Production nav item
 - `/app/backend/routes/rm_routes.py` - Added source_type and bom_level params to /raw-materials/by-tags
 
 ### Documentation
