@@ -76,7 +76,9 @@ const RMRepository = () => {
     brand_id: "",
     vertical_id: "",
     model_id: "",
-    is_brand_specific: ""
+    is_brand_specific: "",
+    source_type: "",
+    bom_level: ""
   });
   
   // Selection for bulk operations
@@ -151,6 +153,8 @@ const RMRepository = () => {
       if (filters.is_brand_specific === "true") url += `&is_brand_specific=true`;
       if (filters.is_brand_specific === "false") url += `&is_brand_specific=false`;
       if (filters.category) url += `&category=${filters.category}`;
+      if (filters.source_type) url += `&source_type=${filters.source_type}`;
+      if (filters.bom_level) url += `&bom_level=${filters.bom_level}`;
       if (filters.search) url += `&search=${encodeURIComponent(filters.search)}`;
       
       const res = await axios.get(url);
@@ -198,6 +202,8 @@ const RMRepository = () => {
         { key: 'rm_id', header: 'RM ID' },
         { key: 'description', header: 'Description' },
         { key: 'category', header: 'Category' },
+        { key: 'source_type', header: 'Source Type' },
+        { key: 'bom_level', header: 'BOM Level' },
         { key: 'uom', header: 'UOM' },
         { key: 'hsn_code', header: 'HSN Code' },
         { key: 'gst_rate', header: 'GST Rate (%)' },
@@ -231,6 +237,8 @@ const RMRepository = () => {
           { wch: 15 },  // RM ID
           { wch: 50 },  // Description
           { wch: 12 },  // Category
+          { wch: 14 },  // Source Type
+          { wch: 10 },  // BOM Level
           { wch: 8 },   // UOM
           { wch: 12 },  // HSN Code
           { wch: 12 },  // GST Rate
@@ -518,7 +526,9 @@ const RMRepository = () => {
       brand_id: "",
       vertical_id: "",
       model_id: "",
-      is_brand_specific: ""
+      is_brand_specific: "",
+      source_type: "",
+      bom_level: ""
     });
     setCurrentPage(1);
   };
@@ -730,8 +740,38 @@ const RMRepository = () => {
                 </div>
                 
                 <div className="w-[150px]">
+                  <Label className="text-xs text-gray-500">Source Type</Label>
+                  <Select value={filters.source_type || undefined} onValueChange={(v) => handleFilterChange('source_type', v === "all" ? "" : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="PURCHASED">PURCHASED</SelectItem>
+                      <SelectItem value="MANUFACTURED">MANUFACTURED</SelectItem>
+                      <SelectItem value="BOTH">BOTH</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[120px]">
+                  <Label className="text-xs text-gray-500">BOM Level</Label>
+                  <Select value={filters.bom_level || undefined} onValueChange={(v) => handleFilterChange('bom_level', v === "all" ? "" : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Levels" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Levels</SelectItem>
+                      <SelectItem value="1">L1</SelectItem>
+                      <SelectItem value="2">L2</SelectItem>
+                      <SelectItem value="3">L3</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="w-[150px]">
                   <Label className="text-xs text-gray-500">Brand Specific</Label>
-                  <Select value={filters.is_brand_specific} onValueChange={(v) => handleFilterChange('is_brand_specific', v === "all" ? "" : v)}>
+                  <Select value={filters.is_brand_specific || undefined} onValueChange={(v) => handleFilterChange('is_brand_specific', v === "all" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All" />
                     </SelectTrigger>
@@ -791,6 +831,8 @@ const RMRepository = () => {
                     <TableHead>RM ID</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Level</TableHead>
                     <TableHead>Brands</TableHead>
                     <TableHead>Verticals</TableHead>
                     <TableHead>Models</TableHead>
@@ -801,13 +843,13 @@ const RMRepository = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={11} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : materials.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={11} className="text-center py-8 text-gray-500">
                         No raw materials found
                       </TableCell>
                     </TableRow>
@@ -827,7 +869,28 @@ const RMRepository = () => {
                           <Badge variant="outline">{rm.category}</Badge>
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">
-                          {rm.category_data?.name || rm.category_data?.model_name || "-"}
+                          {rm.category_data?.name || rm.category_data?.model_name || rm.description || "-"}
+                        </TableCell>
+                        <TableCell>
+                          {rm.source_type ? (
+                            <Badge 
+                              variant={rm.source_type === 'MANUFACTURED' ? 'default' : rm.source_type === 'BOTH' ? 'secondary' : 'outline'}
+                              className={rm.source_type === 'MANUFACTURED' ? 'bg-orange-500' : rm.source_type === 'BOTH' ? 'bg-blue-100 text-blue-700' : ''}
+                            >
+                              {rm.source_type}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-400 text-xs">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {rm.bom_level ? (
+                            <Badge variant="outline" className="font-mono">
+                              L{rm.bom_level}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-400 text-xs">-</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">

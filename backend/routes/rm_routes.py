@@ -758,6 +758,8 @@ async def get_raw_materials_by_tags(
     model_id: Optional[str] = None,
     is_brand_specific: Optional[bool] = None,
     category: Optional[str] = None,
+    source_type: Optional[str] = None,
+    bom_level: Optional[int] = None,
     search: Optional[str] = None,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page")
@@ -775,6 +777,10 @@ async def get_raw_materials_by_tags(
         query["is_brand_specific"] = is_brand_specific
     if category:
         query["category"] = category
+    if source_type:
+        query["source_type"] = source_type
+    if bom_level is not None:
+        query["bom_level"] = bom_level
     
     # Handle search with pagination
     if search:
