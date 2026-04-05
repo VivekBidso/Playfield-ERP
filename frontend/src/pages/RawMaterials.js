@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
-import { Upload, Plus, Search, Trash2, Download, Filter, X, ChevronDown, Database, ArrowUpDown, Building2 } from "lucide-react";
+import { Search, Download, Filter, X, ChevronDown, ArrowUpDown, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
@@ -21,33 +20,31 @@ import useAuthStore from "@/store/authStore";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const RM_CATEGORIES = {
-  "INP": { name: "In-house Plastic", fields: ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"] },
-  "ACC": { name: "Accessories", fields: ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"] },
-  "ELC": { name: "Electric Components", fields: ["model", "type", "specs", "per_unit_weight", "unit"] },
-  "SP": { name: "Spares", fields: ["type", "specs", "per_unit_weight", "unit"] },
-  "BS": { name: "Brand Assets", fields: ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"] },
-  "PM": { name: "Packaging", fields: ["model", "type", "specs", "brand", "per_unit_weight", "unit"] },
-  "LB": { name: "Labels", fields: ["type", "buyer_sku", "per_unit_weight", "unit"] }
+// Simple category name lookup for display
+const RM_CATEGORY_NAMES = {
+  "INP": "In-house Plastic",
+  "ACC": "Accessories",
+  "ELC": "Electric Components",
+  "SP": "Spares",
+  "BS": "Brand Assets",
+  "PM": "Packaging",
+  "LB": "Labels",
+  "INM": "Input Materials",
+  "STK": "Stickers",
+  "POLY": "Polymer Grades",
+  "MB": "Master Batch",
+  "PWD": "Powder Coating",
+  "PIPE": "Metal Pipes"
 };
 
 const RawMaterials = () => {
   const { selectedBranch } = useBranchStore();
   const { hasRole, isMasterAdmin } = useAuthStore();
   const isAdmin = isMasterAdmin();
-  const canManageRMs = isAdmin || hasRole('TECH_OPS_ENGINEER'); // Only admin/tech ops can add/edit RMs
   
   const [materials, setMaterials] = useState([]);
   const [branchInventory, setBranchInventory] = useState({});
   const [loading, setLoading] = useState(false);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
-  const [showCreatedDialog, setShowCreatedDialog] = useState(false);
-  const [createdRMs, setCreatedRMs] = useState([]);
-  const [migrating, setMigrating] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const fileInputRef = useRef(null);
-  const migrateFileInputRef = useRef(null);
 
   // Branch filter - explicit dropdown
   const [branches, setBranches] = useState([]);
@@ -76,9 +73,6 @@ const RawMaterials = () => {
     brands: []
   });
   const [showFilters, setShowFilters] = useState(false);
-
-  const [categoryData, setCategoryData] = useState({});
-  const [lowStockThreshold, setLowStockThreshold] = useState(10);
 
   useEffect(() => {
     fetchFilterOptions();
@@ -170,108 +164,6 @@ const RawMaterials = () => {
 
   const activeFilterCount = Object.values(filters).filter(v => v).length;
 
-  const handleBulkUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const response = await axios.post(`${API}/raw-materials/bulk-upload`, formData);
-      const { created, skipped, errors, total_errors, total_duplicates, mode, created_rms } = response.data;
-      
-      // Check for duplicates (shown as warning, not error - since some items may have been created)
-      if (total_duplicates > 0) {
-        if (created > 0) {
-          toast.success(`Created ${created} RMs. ${total_duplicates} duplicates skipped.`, { duration: 4000 });
-          // Show created RMs dialog
-          setCreatedRMs(created_rms || []);
-          setShowCreatedDialog(true);
-        } else {
-          const dupList = response.data.duplicates?.slice(0, 5).map(d => d.rm_id).join(", ") || '';
-          toast.warning(
-            `All ${total_duplicates} RMs already exist. Duplicates: ${dupList}${total_duplicates > 5 ? '...' : ''}`,
-            { duration: 8000 }
-          );
-        }
-      } else if (created > 0) {
-        const modeText = mode === 'import_with_ids' ? ' (with existing codes)' : ' (new codes generated)';
-        toast.success(`Created ${created} raw materials${modeText}`, { duration: 4000 });
-        // Show created RMs dialog
-        setCreatedRMs(created_rms || []);
-        setShowCreatedDialog(true);
-      } else if (total_errors > 0) {
-        // No items created and there were errors
-        const errorMsg = errors?.slice(0, 2).join('; ') || 'Check file format';
-        toast.error(`0 RMs created. ${total_errors} errors: ${errorMsg}`, { duration: 10000 });
-      } else {
-        toast.warning('No data found in file. Ensure file has data rows with RM Code or Category column.');
-      }
-      
-      fetchMaterials();
-      fetchFilterOptions();
-    } catch (error) {
-      const errData = error.response?.data;
-      toast.error(errData?.detail || errData?.message || "Upload failed - check file format", { duration: 8000 });
-    }
-    
-    // Reset file input
-    e.target.value = null;
-  };
-
-  const handleAddRM = async () => {
-    if (!selectedCategory) {
-      toast.error("Please select a category");
-      return;
-    }
-
-    try {
-      await axios.post(`${API}/raw-materials`, {
-        category: selectedCategory,
-        category_data: categoryData,
-        low_stock_threshold: lowStockThreshold
-      });
-      toast.success("Raw material added successfully");
-      setShowAddDialog(false);
-      resetForm();
-      fetchMaterials();
-      fetchFilterOptions();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to add raw material");
-    }
-  };
-
-  const handleDelete = async (rmId) => {
-    if (!window.confirm(`Delete ${rmId}?`)) return;
-    try {
-      await axios.delete(`${API}/raw-materials/${rmId}`);
-      toast.success("Raw material deleted");
-      fetchMaterials();
-    } catch (error) {
-      toast.error("Failed to delete");
-    }
-  };
-
-  const resetForm = () => {
-    setSelectedCategory("");
-    setCategoryData({});
-    setLowStockThreshold(10);
-  };
-
-  const handleCategoryChange = (cat) => {
-    setSelectedCategory(cat);
-    setCategoryData({});
-  };
-
-  const updateCategoryField = (field, value) => {
-    setCategoryData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const formatFieldName = (field) => {
-    return field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  };
-
   const handleExport = async () => {
     try {
       toast.info("Preparing export...");
@@ -304,92 +196,6 @@ const RawMaterials = () => {
       console.error("Export failed:", error);
       toast.error("Failed to export raw materials");
     }
-  };
-
-  // Data Migration Functions
-  const handleMigrateExport = async () => {
-    setMigrating(true);
-    try {
-      toast.info("Preparing migration export...");
-      const response = await axios.get(`${API}/raw-materials/migrate/export`, {
-        responseType: 'blob'
-      });
-      
-      const blob = new Blob([response.data], { type: 'application/json' });
-      const filename = response.headers['content-disposition']?.split('filename=')[1] || 'rm_migration_export.json';
-      saveAs(blob, filename);
-      toast.success(`Migration file downloaded with ${totalItems} raw materials`);
-    } catch (error) {
-      console.error("Migration export failed:", error);
-      toast.error("Failed to export migration data");
-    }
-    setMigrating(false);
-  };
-
-  const handleMigrateImport = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    // Validate file type
-    if (!file.name.endsWith('.json')) {
-      toast.error('Please upload a JSON file (exported from migration)');
-      e.target.value = null;
-      return;
-    }
-    
-    setMigrating(true);
-    toast.info(`Importing ${file.name}... This may take a moment.`);
-    
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await axios.post(`${API}/raw-materials/migrate/import`, formData, {
-        timeout: 120000 // 2 minute timeout for large files
-      });
-      
-      const { results, totals, message, success } = response.data;
-      
-      if (success === false) {
-        toast.error(message || 'Import failed - check file format');
-      } else if (results.raw_materials.imported > 0) {
-        toast.success(
-          `Import complete! ${results.raw_materials.imported} RMs added, ${results.raw_materials.skipped} duplicates skipped. Total: ${totals.raw_materials}`,
-          { duration: 8000 }
-        );
-        fetchMaterials();
-        setShowMigrateDialog(false);
-      } else if (results.raw_materials.skipped > 0) {
-        toast.warning(
-          `All ${results.raw_materials.skipped} RMs already exist in database. No new items imported.`,
-          { duration: 6000 }
-        );
-      } else {
-        toast.warning(message || 'No items were imported. Check the file format.');
-      }
-      
-      // Show any errors
-      if (results.raw_materials.errors?.length > 0) {
-        console.error('Import errors:', results.raw_materials.errors);
-      }
-      
-    } catch (error) {
-      console.error("Migration import failed:", error);
-      const errMsg = error.response?.data?.detail || error.response?.data?.message || error.message || "Failed to import";
-      toast.error(`Import failed: ${errMsg}`, { duration: 8000 });
-    }
-    setMigrating(false);
-    e.target.value = null;
-  };
-
-  const downloadCategoryTemplate = (category) => {
-    const fields = ['Category', ...RM_CATEGORIES[category].fields, 'Low Stock Threshold'];
-    const ws = XLSX.utils.aoa_to_sheet([fields, [category, ...RM_CATEGORIES[category].fields.map(() => ''), 10]]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, category);
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), `${category}_template.xlsx`);
-    toast.success(`Downloaded ${category} template`);
   };
 
   // Filter dropdown component
@@ -487,36 +293,6 @@ const RawMaterials = () => {
             Export {branchFilter ? branchFilter : "All"}
           </Button>
           
-          {/* Add RM & Bulk Upload - Only for Tech Ops / Admin */}
-          {canManageRMs && (
-            <>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleBulkUpload}
-                accept=".xlsx,.xls"
-                className="hidden"
-                data-testid="bulk-upload-input"
-              />
-              <Button 
-                variant="outline" 
-                onClick={() => fileInputRef.current?.click()}
-                className="uppercase text-xs tracking-wide"
-                data-testid="bulk-upload-btn"
-              >
-                <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Bulk Upload
-              </Button>
-              <Button 
-                onClick={() => setShowAddDialog(true)}
-                className="uppercase text-xs tracking-wide"
-                data-testid="add-rm-btn"
-              >
-                <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
-                Add RM
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -602,7 +378,6 @@ const RawMaterials = () => {
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Colour</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Branch Inventory</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Safety Stock</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -616,7 +391,7 @@ const RawMaterials = () => {
                     </td>
                     <td className="p-4 align-middle">
                       <div className="text-xs font-mono text-primary font-bold">{material.category}</div>
-                      <div className="text-xs text-muted-foreground">{RM_CATEGORIES[material.category]?.name}</div>
+                      <div className="text-xs text-muted-foreground">{RM_CATEGORY_NAMES[material.category] || material.category}</div>
                     </td>
                     <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
                       {material.category_data?.type || '-'}
@@ -631,11 +406,6 @@ const RawMaterials = () => {
                       {currentStock}
                     </td>
                     <td className="p-4 align-middle font-mono text-zinc-700">{material.low_stock_threshold}</td>
-                    <td className="p-4 align-middle">
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(material.rm_id)}>
-                        <Trash2 className="w-4 h-4 text-red-600" strokeWidth={1.5} />
-                      </Button>
-                    </td>
                   </tr>
                 );
               })}
@@ -678,146 +448,6 @@ const RawMaterials = () => {
           </div>
         )}
       </div>
-
-      {/* Add RM Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add New Raw Material</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Category *</Label>
-              <Select 
-                value={selectedCategory || undefined} 
-                onValueChange={setSelectedCategory}
-              >
-                <SelectTrigger data-testid="category-select">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(RM_CATEGORIES).map(([code, cat]) => (
-                    <SelectItem key={code} value={code}>{code} - {cat.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {selectedCategory && (
-              <>
-                <div className="p-3 bg-zinc-50 border rounded-sm">
-                  <p className="text-sm font-medium mb-2">Required fields for {selectedCategory}:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {RM_CATEGORIES[selectedCategory]?.fields.map(field => (
-                      <span key={field} className="text-xs bg-zinc-200 px-2 py-1 rounded">{field}</span>
-                    ))}
-                  </div>
-                </div>
-                
-                {RM_CATEGORIES[selectedCategory]?.fields.map(field => (
-                  <div key={field}>
-                    <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
-                    <Input
-                      placeholder={`Enter ${field.replace(/_/g, ' ')}`}
-                      value={categoryData[field] || ''}
-                      onChange={(e) => setCategoryData({...categoryData, [field]: e.target.value})}
-                    />
-                  </div>
-                ))}
-                
-                <div className="flex justify-between pt-4">
-                  <Button variant="outline" onClick={() => downloadCategoryTemplate(selectedCategory)}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Template
-                  </Button>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => { setShowAddDialog(false); setSelectedCategory(''); setCategoryData({}); }}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAddRM} data-testid="save-rm-btn">
-                      Create RM
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Created RMs Dialog - Shows after successful bulk upload */}
-      <Dialog open={showCreatedDialog} onOpenChange={setShowCreatedDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
-          <DialogHeader>
-            <DialogTitle>Created Raw Materials</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {createdRMs.length} new RMs created successfully
-            </p>
-            <div className="border rounded-sm overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-zinc-50">
-                  <tr>
-                    <th className="p-2 text-left font-bold">RM ID</th>
-                    <th className="p-2 text-left font-bold">Category</th>
-                    <th className="p-2 text-left font-bold">Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {createdRMs.map((rm, idx) => (
-                    <tr key={idx} className="border-t">
-                      <td className="p-2 font-mono">{rm.rm_id}</td>
-                      <td className="p-2">{rm.category}</td>
-                      <td className="p-2 text-muted-foreground">
-                        {Object.entries(rm.category_data || {}).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(', ')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end">
-              <Button onClick={() => setShowCreatedDialog(false)}>Close</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Migration Dialog */}
-      <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Migrate RM Data</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Import RM data from a JSON export file. This is used for migrating data between environments.
-            </p>
-            <input
-              type="file"
-              ref={migrateFileInputRef}
-              onChange={handleMigrateImport}
-              accept=".json"
-              className="hidden"
-            />
-            <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                onClick={() => migrateFileInputRef.current?.click()}
-                disabled={migrating}
-                className="flex-1"
-              >
-                <Database className="w-4 h-4 mr-2" />
-                {migrating ? "Importing..." : "Select JSON File"}
-              </Button>
-              <Button variant="outline" onClick={() => setShowMigrateDialog(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
