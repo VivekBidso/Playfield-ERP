@@ -23,6 +23,19 @@ class BOMLevel(int, Enum):
     L4 = 4
 
 
+# ============ RM Category Description Column ============
+
+class DescriptionColumn(BaseModel):
+    """Defines a column/field for category_data when creating RMs"""
+    key: str = Field(..., description="Field key e.g. mould_code, colour")
+    label: str = Field(..., description="Display label e.g. Mould Code, Colour")
+    type: str = Field("text", description="Field type: text, number, select")
+    required: bool = Field(False, description="Is this field required?")
+    options: Optional[List[str]] = Field(None, description="Options for select type")
+    include_in_name: bool = Field(False, description="Include this value in auto-generated RM name")
+    order: int = Field(0, description="Display order")
+
+
 # ============ RM Categories ============
 
 class RMCategoryBase(BaseModel):
@@ -31,6 +44,10 @@ class RMCategoryBase(BaseModel):
     description: Optional[str] = None
     default_source_type: SourceType = SourceType.PURCHASED
     default_bom_level: int = Field(1, ge=1, le=4)
+    default_uom: str = Field("PCS", description="Default unit of measurement")
+    rm_id_prefix: Optional[str] = Field(None, description="Prefix for auto-generating RM IDs (defaults to code)")
+    description_columns: List[DescriptionColumn] = Field([], description="Column definitions for category_data")
+    next_sequence: int = Field(1, description="Next sequence number for RM ID generation")
     is_active: bool = True
 
 
@@ -43,6 +60,9 @@ class RMCategoryUpdate(BaseModel):
     description: Optional[str] = None
     default_source_type: Optional[SourceType] = None
     default_bom_level: Optional[int] = Field(None, ge=1, le=4)
+    default_uom: Optional[str] = None
+    rm_id_prefix: Optional[str] = None
+    description_columns: Optional[List[DescriptionColumn]] = None
     is_active: Optional[bool] = None
 
 

@@ -49,7 +49,8 @@ const TechOps = () => {
   const [buyerForm, setBuyerForm] = useState({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
   const [categoryForm, setCategoryForm] = useState({ 
     code: "", name: "", description: "", 
-    default_source_type: "PURCHASED", default_bom_level: 1 
+    default_source_type: "PURCHASED", default_bom_level: 1,
+    default_uom: "PCS", rm_id_prefix: "", description_columns: []
   });
   const [bomForm, setBomForm] = useState({
     rm_id: "", category: "", bom_level: 2, output_qty: 1, output_uom: "PCS",
@@ -292,15 +293,25 @@ const TechOps = () => {
   // RM Category CRUD
   const handleSaveCategory = async () => {
     try {
+      const payload = {
+        ...categoryForm,
+        rm_id_prefix: categoryForm.rm_id_prefix || categoryForm.code.toUpperCase(),
+        description_columns: categoryForm.description_columns || []
+      };
+      
       if (editingItem) {
-        await axios.put(`${API}/production/rm-categories/${editingItem.code}`, categoryForm);
+        await axios.put(`${API}/production/rm-categories/${editingItem.code}`, payload);
         toast.success("Category updated");
       } else {
-        await axios.post(`${API}/production/rm-categories`, categoryForm);
+        await axios.post(`${API}/production/rm-categories`, payload);
         toast.success("Category created");
       }
       setShowCategoryDialog(false);
-      setCategoryForm({ code: "", name: "", description: "", default_source_type: "PURCHASED", default_bom_level: 1 });
+      setCategoryForm({ 
+        code: "", name: "", description: "", 
+        default_source_type: "PURCHASED", default_bom_level: 1,
+        default_uom: "PCS", rm_id_prefix: "", description_columns: []
+      });
       setEditingItem(null);
       fetchAllData();
     } catch (error) {
@@ -315,9 +326,36 @@ const TechOps = () => {
       name: cat.name,
       description: cat.description || "",
       default_source_type: cat.default_source_type,
-      default_bom_level: cat.default_bom_level
+      default_bom_level: cat.default_bom_level,
+      default_uom: cat.default_uom || "PCS",
+      rm_id_prefix: cat.rm_id_prefix || cat.code,
+      description_columns: cat.description_columns || []
     });
     setShowCategoryDialog(true);
+  };
+
+  // Add/Remove description column
+  const addDescriptionColumn = () => {
+    setCategoryForm({
+      ...categoryForm,
+      description_columns: [
+        ...categoryForm.description_columns,
+        { key: "", label: "", type: "text", required: false, options: [], include_in_name: false, order: categoryForm.description_columns.length }
+      ]
+    });
+  };
+
+  const updateDescriptionColumn = (index, field, value) => {
+    const updated = [...categoryForm.description_columns];
+    updated[index] = { ...updated[index], [field]: value };
+    setCategoryForm({ ...categoryForm, description_columns: updated });
+  };
+
+  const removeDescriptionColumn = (index) => {
+    setCategoryForm({
+      ...categoryForm,
+      description_columns: categoryForm.description_columns.filter((_, i) => i !== index)
+    });
   };
 
   // RM BOM CRUD
@@ -678,7 +716,7 @@ const TechOps = () => {
           <div className="flex justify-between items-center mb-4">
             <div>
               <h2 className="text-lg font-bold">RM Categories</h2>
-              <p className="text-sm text-muted-foreground">Define source types and BOM levels for raw material categories</p>
+              <p className="text-sm text-muted-foreground">Define source types, BOM levels, UOM, and description columns for raw material categories</p>
             </div>
             <Button onClick={() => openAddDialog('category')} className="uppercase text-xs tracking-wide" data-testid="add-category-btn">
               <Plus className="w-4 h-4 mr-2" />
@@ -691,9 +729,11 @@ const TechOps = () => {
                 <tr>
                   <th className="text-left p-3 text-xs uppercase font-bold">Code</th>
                   <th className="text-left p-3 text-xs uppercase font-bold">Name</th>
-                  <th className="text-left p-3 text-xs uppercase font-bold">Description</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">UOM</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">ID Prefix</th>
                   <th className="text-center p-3 text-xs uppercase font-bold">Source Type</th>
-                  <th className="text-center p-3 text-xs uppercase font-bold">BOM Level</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Level</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Columns</th>
                   <th className="text-center p-3 text-xs uppercase font-bold">Status</th>
                   <th className="text-right p-3 text-xs uppercase font-bold">Actions</th>
                 </tr>
@@ -703,13 +743,19 @@ const TechOps = () => {
                   <tr key={cat.code} className="hover:bg-gray-50" data-testid={`category-row-${cat.code}`}>
                     <td className="p-3 font-mono font-bold">{cat.code}</td>
                     <td className="p-3">{cat.name}</td>
-                    <td className="p-3 text-sm text-muted-foreground">{cat.description || '-'}</td>
+                    <td className="p-3 text-center font-mono text-sm">{cat.default_uom || 'PCS'}</td>
+                    <td className="p-3 text-center font-mono text-sm">{cat.rm_id_prefix || cat.code}_###</td>
                     <td className="p-3 text-center">
                       <Badge variant={cat.default_source_type === 'MANUFACTURED' ? 'default' : cat.default_source_type === 'BOTH' ? 'secondary' : 'outline'}>
                         {cat.default_source_type}
                       </Badge>
                     </td>
                     <td className="p-3 text-center font-mono">L{cat.default_bom_level}</td>
+                    <td className="p-3 text-center">
+                      <Badge variant="outline" className="text-xs">
+                        {cat.description_columns?.length || 0} cols
+                      </Badge>
+                    </td>
                     <td className="p-3 text-center">
                       <Badge variant={cat.is_active ? 'default' : 'destructive'}>
                         {cat.is_active ? 'Active' : 'Inactive'}
@@ -723,7 +769,7 @@ const TechOps = () => {
                   </tr>
                 ))}
                 {rmCategories.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No categories defined</td></tr>
+                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">No categories defined</td></tr>
                 )}
               </tbody>
             </table>
@@ -1038,30 +1084,33 @@ const TechOps = () => {
 
       {/* RM Category Dialog */}
       <Dialog open={showCategoryDialog} onOpenChange={(open) => { setShowCategoryDialog(open); if (!open) setEditingItem(null); }}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit RM Category' : 'Create RM Category'}</DialogTitle>
-            <DialogDescription>Define source type and BOM level defaults for this category</DialogDescription>
+            <DialogDescription>Define source type, BOM level, UOM, and description columns for this category</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Category Code</Label>
-              <Input 
-                value={categoryForm.code}
-                onChange={(e) => setCategoryForm({...categoryForm, code: e.target.value.toUpperCase()})}
-                placeholder="e.g., POLY, MB, INP"
-                className="font-mono uppercase"
-                disabled={!!editingItem}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Category Code *</Label>
+                <Input 
+                  value={categoryForm.code}
+                  onChange={(e) => setCategoryForm({...categoryForm, code: e.target.value.toUpperCase()})}
+                  placeholder="e.g., POLY, MB, INP"
+                  className="font-mono uppercase"
+                  disabled={!!editingItem}
+                />
+              </div>
+              <div>
+                <Label>Name *</Label>
+                <Input 
+                  value={categoryForm.name}
+                  onChange={(e) => setCategoryForm({...categoryForm, name: e.target.value})}
+                  placeholder="e.g., Polymer Grades"
+                />
+              </div>
             </div>
-            <div>
-              <Label>Name</Label>
-              <Input 
-                value={categoryForm.name}
-                onChange={(e) => setCategoryForm({...categoryForm, name: e.target.value})}
-                placeholder="e.g., Polymer Grades"
-              />
-            </div>
+            
             <div>
               <Label>Description</Label>
               <Textarea 
@@ -1071,41 +1120,161 @@ const TechOps = () => {
                 rows={2}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            
+            <div className="grid grid-cols-4 gap-4">
               <div>
-                <Label>Default Source Type</Label>
+                <Label>Default UOM</Label>
                 <Select 
-                  value={categoryForm.default_source_type || undefined}
+                  value={categoryForm.default_uom || "PCS"}
+                  onValueChange={(v) => setCategoryForm({...categoryForm, default_uom: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select UOM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PCS">PCS (Pieces)</SelectItem>
+                    <SelectItem value="KG">KG (Kilograms)</SelectItem>
+                    <SelectItem value="GM">GM (Grams)</SelectItem>
+                    <SelectItem value="MTR">MTR (Meters)</SelectItem>
+                    <SelectItem value="LTR">LTR (Liters)</SelectItem>
+                    <SelectItem value="SET">SET</SelectItem>
+                    <SelectItem value="BOX">BOX</SelectItem>
+                    <SelectItem value="ROLL">ROLL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>RM ID Prefix</Label>
+                <Input 
+                  value={categoryForm.rm_id_prefix}
+                  onChange={(e) => setCategoryForm({...categoryForm, rm_id_prefix: e.target.value.toUpperCase()})}
+                  placeholder={categoryForm.code || "PREFIX"}
+                  className="font-mono uppercase"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  IDs: {categoryForm.rm_id_prefix || categoryForm.code || 'XXX'}_001, _002...
+                </p>
+              </div>
+              <div>
+                <Label>Source Type</Label>
+                <Select 
+                  value={categoryForm.default_source_type || "PURCHASED"}
                   onValueChange={(v) => setCategoryForm({...categoryForm, default_source_type: v})}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PURCHASED">PURCHASED (Buy only)</SelectItem>
-                    <SelectItem value="MANUFACTURED">MANUFACTURED (Make only)</SelectItem>
-                    <SelectItem value="BOTH">BOTH (Buy or Make)</SelectItem>
+                    <SelectItem value="PURCHASED">PURCHASED</SelectItem>
+                    <SelectItem value="MANUFACTURED">MANUFACTURED</SelectItem>
+                    <SelectItem value="BOTH">BOTH</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Default BOM Level</Label>
+                <Label>BOM Level</Label>
                 <Select 
-                  value={String(categoryForm.default_bom_level) || undefined}
+                  value={String(categoryForm.default_bom_level) || "1"}
                   onValueChange={(v) => setCategoryForm({...categoryForm, default_bom_level: parseInt(v)})}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select level" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">L1 - Raw Material</SelectItem>
-                    <SelectItem value="2">L2 - First Transformation</SelectItem>
-                    <SelectItem value="3">L3 - Second Transformation</SelectItem>
-                    <SelectItem value="4">L4 - Third Transformation</SelectItem>
+                    <SelectItem value="1">L1 - Raw</SelectItem>
+                    <SelectItem value="2">L2 - Transform 1</SelectItem>
+                    <SelectItem value="3">L3 - Transform 2</SelectItem>
+                    <SelectItem value="4">L4 - Transform 3</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            
+            {/* Description Columns Section */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <Label className="text-sm font-bold">Description Columns</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Define fields for category_data when creating RMs via upload
+                  </p>
+                </div>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={addDescriptionColumn}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Add Column
+                </Button>
+              </div>
+              
+              {categoryForm.description_columns?.length > 0 ? (
+                <div className="space-y-2">
+                  {categoryForm.description_columns.map((col, idx) => (
+                    <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded border">
+                      <Input 
+                        value={col.key}
+                        onChange={(e) => updateDescriptionColumn(idx, 'key', e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                        placeholder="field_key"
+                        className="w-[120px] font-mono text-xs"
+                      />
+                      <Input 
+                        value={col.label}
+                        onChange={(e) => updateDescriptionColumn(idx, 'label', e.target.value)}
+                        placeholder="Display Label"
+                        className="flex-1"
+                      />
+                      <Select 
+                        value={col.type || "text"}
+                        onValueChange={(v) => updateDescriptionColumn(idx, 'type', v)}
+                      >
+                        <SelectTrigger className="w-[100px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="text">Text</SelectItem>
+                          <SelectItem value="number">Number</SelectItem>
+                          <SelectItem value="select">Select</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <label className="flex items-center gap-1 text-xs">
+                        <input 
+                          type="checkbox" 
+                          checked={col.required} 
+                          onChange={(e) => updateDescriptionColumn(idx, 'required', e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                        Req
+                      </label>
+                      <label className="flex items-center gap-1 text-xs">
+                        <input 
+                          type="checkbox" 
+                          checked={col.include_in_name} 
+                          onChange={(e) => updateDescriptionColumn(idx, 'include_in_name', e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                        In Name
+                      </label>
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => removeDescriptionColumn(idx)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No columns defined. Add columns to configure the RM upload template.
+                </p>
+              )}
+            </div>
+            
             <div className="flex justify-end gap-2 mt-4">
               <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>Cancel</Button>
               <Button onClick={handleSaveCategory} data-testid="save-category-btn">

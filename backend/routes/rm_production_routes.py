@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import uuid
 
 from models.production import (
-    RMCategory, RMCategoryCreate, RMCategoryUpdate,
+    RMCategory, RMCategoryCreate, RMCategoryUpdate, DescriptionColumn,
     RMBOM, RMBOMCreate, RMBOMUpdate, BOMComponent,
     ProductionLog, ProductionLogCreate,
     ProductionPreviewRequest, ProductionPreviewResponse, ComponentConsumptionPreview,
@@ -71,6 +71,10 @@ async def create_rm_category(
         "description": category.description,
         "default_source_type": category.default_source_type,
         "default_bom_level": category.default_bom_level,
+        "default_uom": category.default_uom,
+        "rm_id_prefix": category.rm_id_prefix or category.code.upper(),
+        "description_columns": [col.dict() for col in category.description_columns] if category.description_columns else [],
+        "next_sequence": category.next_sequence,
         "is_active": category.is_active,
         "created_at": now,
         "updated_at": now
@@ -92,7 +96,17 @@ async def update_rm_category(
     if not existing:
         raise HTTPException(status_code=404, detail="Category not found")
     
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    update_data = {}
+    update_dict = update.dict()
+    
+    for k, v in update_dict.items():
+        if v is not None:
+            if k == "description_columns" and v:
+                # Convert DescriptionColumn objects to dicts
+                update_data[k] = [col if isinstance(col, dict) else col.dict() for col in v]
+            else:
+                update_data[k] = v
+    
     if not update_data:
         raise HTTPException(status_code=400, detail="No update data provided")
     
@@ -102,6 +116,31 @@ async def update_rm_category(
     
     updated = await db.rm_categories.find_one({"code": code.upper()}, {"_id": 0})
     return {"message": "Category updated", "category": updated}
+
+
+@router.post("/production/rm-categories/{code}/generate-rm-id")
+async def generate_rm_id(
+    code: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate the next RM ID for a category"""
+    category = await db.rm_categories.find_one({"code": code.upper()})
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    prefix = category.get("rm_id_prefix", code.upper())
+    seq = category.get("next_sequence", 1)
+    
+    # Generate RM ID
+    rm_id = f"{prefix}_{seq:03d}"
+    
+    # Increment sequence
+    await db.rm_categories.update_one(
+        {"code": code.upper()},
+        {"$inc": {"next_sequence": 1}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"rm_id": rm_id, "next_sequence": seq + 1}
 
 
 # ============ RM BOM ============
