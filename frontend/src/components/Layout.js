@@ -76,6 +76,7 @@ const Layout = () => {
     { path: "/procurement", label: "Procurement", icon: ShoppingCart, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     { path: "/raw-materials", label: "RM Stock View", icon: Package, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('CPC_PLANNER') || hasRole('FINANCE_VIEWER') },
     { path: "/rm-inward", label: "RM Inward Entry", icon: PackagePlus, show: isAdmin || hasRole('BRANCH_OPS_USER') || hasRole('PROCUREMENT_OFFICER') || hasRole('FINANCE_VIEWER') },
+    { path: "/rm-production", label: "RM Production", icon: Factory, show: isAdmin || hasRole('BRANCH_OPS_USER') },
     { path: "/vendors", label: "Vendor Management", icon: Building2, show: isAdmin || hasRole('PROCUREMENT_OFFICER') },
     // SKUs Legacy page removed - use SKU Management instead
     // RM-SKU Mapping removed - use SKU Management BOM instead

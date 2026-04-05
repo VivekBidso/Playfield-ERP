@@ -31,6 +31,7 @@ import DemandHub from "@/pages/DemandHub";
 import DemandSKUView from "@/pages/DemandSKUView";
 import ColorDevelopment from "@/pages/ColorDevelopment";
 import RMShortage from "@/pages/RMShortage";
+import RMProduction from "@/pages/RMProduction";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -108,6 +109,7 @@ function App() {
             <Route path="events" element={<Events />} />
             <Route path="branch-ops" element={<BranchOps />} />
             <Route path="rm-shortage" element={<RMShortage />} />
+            <Route path="rm-production" element={<RMProduction />} />
             <Route path="rm-repository" element={<RMRepository />} />
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
