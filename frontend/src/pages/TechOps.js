@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette } from "lucide-react";
+import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette, Factory, FileText } from "lucide-react";
 import PantoneLibrary from "../components/PantoneLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -24,11 +25,18 @@ const TechOps = () => {
   const [brands, setBrands] = useState([]);
   const [buyers, setBuyers] = useState([]);
   
+  // RM Categories & BOM
+  const [rmCategories, setRmCategories] = useState([]);
+  const [rmBoms, setRmBoms] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
+  
   // Dialogs
   const [showVerticalDialog, setShowVerticalDialog] = useState(false);
   const [showModelDialog, setShowModelDialog] = useState(false);
   const [showBrandDialog, setShowBrandDialog] = useState(false);
   const [showBuyerDialog, setShowBuyerDialog] = useState(false);
+  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
+  const [showBomDialog, setShowBomDialog] = useState(false);
   
   // Edit mode
   const [editingItem, setEditingItem] = useState(null);
@@ -39,6 +47,18 @@ const TechOps = () => {
   const [modelForm, setModelForm] = useState({ vertical_id: "", code: "", name: "", description: "" });
   const [brandForm, setBrandForm] = useState({ code: "", name: "" });
   const [buyerForm, setBuyerForm] = useState({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
+  const [categoryForm, setCategoryForm] = useState({ 
+    code: "", name: "", description: "", 
+    default_source_type: "PURCHASED", default_bom_level: 1 
+  });
+  const [bomForm, setBomForm] = useState({
+    rm_id: "", category: "", bom_level: 2, output_qty: 1, output_uom: "PCS",
+    yield_factor: 1.0, components: []
+  });
+  const [bomComponent, setBomComponent] = useState({
+    component_rm_id: "", quantity: 0, uom: "KG", percentage: 0, wastage_factor: 1.0
+  });
+  
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const fileInputRef = useRef(null);
@@ -49,16 +69,22 @@ const TechOps = () => {
 
   const fetchAllData = async () => {
     try {
-      const [verticalsRes, modelsRes, brandsRes, buyersRes] = await Promise.all([
+      const [verticalsRes, modelsRes, brandsRes, buyersRes, categoriesRes, bomsRes, rmsRes] = await Promise.all([
         axios.get(`${API}/verticals`),
         axios.get(`${API}/models`),
         axios.get(`${API}/brands`),
-        axios.get(`${API}/buyers`)
+        axios.get(`${API}/buyers`),
+        axios.get(`${API}/production/rm-categories`).catch(() => ({ data: [] })),
+        axios.get(`${API}/rm-bom`).catch(() => ({ data: [] })),
+        axios.get(`${API}/raw-materials?page_size=5000`).catch(() => ({ data: [] }))
       ]);
       setVerticals(verticalsRes.data.filter(v => v.status === 'ACTIVE'));
       setModels(modelsRes.data.filter(m => m.status === 'ACTIVE'));
       setBrands(brandsRes.data.filter(b => b.status === 'ACTIVE'));
       setBuyers(buyersRes.data.filter(b => b.status === 'ACTIVE'));
+      setRmCategories(categoriesRes.data || []);
+      setRmBoms(bomsRes.data || []);
+      setRawMaterials(rmsRes.data || []);
     } catch (error) {
       toast.error("Failed to fetch data");
     }
@@ -261,6 +287,119 @@ const TechOps = () => {
 
   const getVerticalName = (id) => verticals.find(v => v.id === id)?.name || id;
   const getBuyerName = (id) => buyers.find(b => b.id === id)?.name || id;
+  const getRmName = (rmId) => rawMaterials.find(r => r.rm_id === rmId)?.description || rmId;
+
+  // RM Category CRUD
+  const handleSaveCategory = async () => {
+    try {
+      if (editingItem) {
+        await axios.put(`${API}/production/rm-categories/${editingItem.code}`, categoryForm);
+        toast.success("Category updated");
+      } else {
+        await axios.post(`${API}/production/rm-categories`, categoryForm);
+        toast.success("Category created");
+      }
+      setShowCategoryDialog(false);
+      setCategoryForm({ code: "", name: "", description: "", default_source_type: "PURCHASED", default_bom_level: 1 });
+      setEditingItem(null);
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to save category");
+    }
+  };
+
+  const openEditCategory = (cat) => {
+    setEditingItem(cat);
+    setCategoryForm({
+      code: cat.code,
+      name: cat.name,
+      description: cat.description || "",
+      default_source_type: cat.default_source_type,
+      default_bom_level: cat.default_bom_level
+    });
+    setShowCategoryDialog(true);
+  };
+
+  // RM BOM CRUD
+  const handleSaveBom = async () => {
+    try {
+      if (bomForm.components.length === 0) {
+        toast.error("Add at least one component to the BOM");
+        return;
+      }
+      
+      const payload = {
+        ...bomForm,
+        rm_id: bomForm.rm_id.toUpperCase()
+      };
+      
+      if (editingItem) {
+        await axios.put(`${API}/rm-bom/${editingItem.rm_id}`, payload);
+        toast.success("BOM updated");
+      } else {
+        await axios.post(`${API}/rm-bom`, payload);
+        toast.success("BOM created");
+      }
+      setShowBomDialog(false);
+      setBomForm({ rm_id: "", category: "", bom_level: 2, output_qty: 1, output_uom: "PCS", yield_factor: 1.0, components: [] });
+      setEditingItem(null);
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to save BOM");
+    }
+  };
+
+  const handleDeleteBom = async (rmId) => {
+    try {
+      await axios.delete(`${API}/rm-bom/${rmId}`);
+      toast.success("BOM deleted");
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete BOM");
+    }
+  };
+
+  const openEditBom = (bom) => {
+    setEditingItem(bom);
+    setBomForm({
+      rm_id: bom.rm_id,
+      category: bom.category,
+      bom_level: bom.bom_level,
+      output_qty: bom.output_qty,
+      output_uom: bom.output_uom,
+      yield_factor: bom.yield_factor,
+      components: bom.components || []
+    });
+    setShowBomDialog(true);
+  };
+
+  const addBomComponent = () => {
+    if (!bomComponent.component_rm_id) {
+      toast.error("Select a component RM");
+      return;
+    }
+    if (bomForm.components.find(c => c.component_rm_id === bomComponent.component_rm_id.toUpperCase())) {
+      toast.error("Component already added");
+      return;
+    }
+    const rm = rawMaterials.find(r => r.rm_id === bomComponent.component_rm_id.toUpperCase());
+    setBomForm({
+      ...bomForm,
+      components: [...bomForm.components, {
+        ...bomComponent,
+        component_rm_id: bomComponent.component_rm_id.toUpperCase(),
+        component_name: rm?.description || bomComponent.component_rm_id
+      }]
+    });
+    setBomComponent({ component_rm_id: "", quantity: 0, uom: "KG", percentage: 0, wastage_factor: 1.0 });
+  };
+
+  const removeBomComponent = (rmId) => {
+    setBomForm({
+      ...bomForm,
+      components: bomForm.components.filter(c => c.component_rm_id !== rmId)
+    });
+  };
 
   const openAddDialog = (type) => {
     setEditingItem(null);
@@ -276,6 +415,12 @@ const TechOps = () => {
     } else if (type === 'buyer') {
       setBuyerForm({ name: "", gst: "", email: "", phone_no: "", poc_name: "" });
       setShowBuyerDialog(true);
+    } else if (type === 'category') {
+      setCategoryForm({ code: "", name: "", description: "", default_source_type: "PURCHASED", default_bom_level: 1 });
+      setShowCategoryDialog(true);
+    } else if (type === 'bom') {
+      setBomForm({ rm_id: "", category: "", bom_level: 2, output_qty: 1, output_uom: "PCS", yield_factor: 1.0, components: [] });
+      setShowBomDialog(true);
     }
   };
 
@@ -307,6 +452,14 @@ const TechOps = () => {
           <TabsTrigger value="pantone" className="uppercase text-xs tracking-wide">
             <Palette className="w-4 h-4 mr-2" />
             Pantone Library
+          </TabsTrigger>
+          <TabsTrigger value="rm-categories" className="uppercase text-xs tracking-wide">
+            <Factory className="w-4 h-4 mr-2" />
+            RM Categories ({rmCategories.length})
+          </TabsTrigger>
+          <TabsTrigger value="rm-bom" className="uppercase text-xs tracking-wide">
+            <FileText className="w-4 h-4 mr-2" />
+            RM BOM ({rmBoms.length})
           </TabsTrigger>
         </TabsList>
 
@@ -518,6 +671,119 @@ const TechOps = () => {
         {/* Pantone Library Tab */}
         <TabsContent value="pantone">
           <PantoneLibrary />
+        </TabsContent>
+
+        {/* RM Categories Tab */}
+        <TabsContent value="rm-categories">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-lg font-bold">RM Categories</h2>
+              <p className="text-sm text-muted-foreground">Define source types and BOM levels for raw material categories</p>
+            </div>
+            <Button onClick={() => openAddDialog('category')} className="uppercase text-xs tracking-wide" data-testid="add-category-btn">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Category
+            </Button>
+          </div>
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left p-3 text-xs uppercase font-bold">Code</th>
+                  <th className="text-left p-3 text-xs uppercase font-bold">Name</th>
+                  <th className="text-left p-3 text-xs uppercase font-bold">Description</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Source Type</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">BOM Level</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Status</th>
+                  <th className="text-right p-3 text-xs uppercase font-bold">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rmCategories.map(cat => (
+                  <tr key={cat.code} className="hover:bg-gray-50" data-testid={`category-row-${cat.code}`}>
+                    <td className="p-3 font-mono font-bold">{cat.code}</td>
+                    <td className="p-3">{cat.name}</td>
+                    <td className="p-3 text-sm text-muted-foreground">{cat.description || '-'}</td>
+                    <td className="p-3 text-center">
+                      <Badge variant={cat.default_source_type === 'MANUFACTURED' ? 'default' : cat.default_source_type === 'BOTH' ? 'secondary' : 'outline'}>
+                        {cat.default_source_type}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-center font-mono">L{cat.default_bom_level}</td>
+                    <td className="p-3 text-center">
+                      <Badge variant={cat.is_active ? 'default' : 'destructive'}>
+                        {cat.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => openEditCategory(cat)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {rmCategories.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No categories defined</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        {/* RM BOM Tab */}
+        <TabsContent value="rm-bom">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-lg font-bold">RM Bill of Materials</h2>
+              <p className="text-sm text-muted-foreground">Define component recipes for manufactured RMs</p>
+            </div>
+            <Button onClick={() => openAddDialog('bom')} className="uppercase text-xs tracking-wide" data-testid="add-bom-btn">
+              <Plus className="w-4 h-4 mr-2" />
+              Add BOM
+            </Button>
+          </div>
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left p-3 text-xs uppercase font-bold">RM ID</th>
+                  <th className="text-left p-3 text-xs uppercase font-bold">Name</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Category</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Level</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Components</th>
+                  <th className="text-center p-3 text-xs uppercase font-bold">Yield</th>
+                  <th className="text-right p-3 text-xs uppercase font-bold">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rmBoms.map(bom => (
+                  <tr key={bom.rm_id} className="hover:bg-gray-50" data-testid={`bom-row-${bom.rm_id}`}>
+                    <td className="p-3 font-mono font-bold">{bom.rm_id}</td>
+                    <td className="p-3">{bom.rm_name || getRmName(bom.rm_id)}</td>
+                    <td className="p-3 text-center">
+                      <Badge variant="outline">{bom.category}</Badge>
+                    </td>
+                    <td className="p-3 text-center font-mono">L{bom.bom_level}</td>
+                    <td className="p-3 text-center">
+                      <span className="text-sm">{bom.components?.length || 0} items</span>
+                    </td>
+                    <td className="p-3 text-center font-mono">{((bom.yield_factor || 1) * 100).toFixed(0)}%</td>
+                    <td className="p-3 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => openEditBom(bom)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteBom(bom.rm_id)}>
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {rmBoms.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No BOMs defined. Create BOMs for manufactured RMs.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -769,6 +1035,300 @@ const TechOps = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* RM Category Dialog */}
+      <Dialog open={showCategoryDialog} onOpenChange={(open) => { setShowCategoryDialog(open); if (!open) setEditingItem(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingItem ? 'Edit RM Category' : 'Create RM Category'}</DialogTitle>
+            <DialogDescription>Define source type and BOM level defaults for this category</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Category Code</Label>
+              <Input 
+                value={categoryForm.code}
+                onChange={(e) => setCategoryForm({...categoryForm, code: e.target.value.toUpperCase()})}
+                placeholder="e.g., POLY, MB, INP"
+                className="font-mono uppercase"
+                disabled={!!editingItem}
+              />
+            </div>
+            <div>
+              <Label>Name</Label>
+              <Input 
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm({...categoryForm, name: e.target.value})}
+                placeholder="e.g., Polymer Grades"
+              />
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea 
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm({...categoryForm, description: e.target.value})}
+                placeholder="Brief description of this category"
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Default Source Type</Label>
+                <Select 
+                  value={categoryForm.default_source_type || undefined}
+                  onValueChange={(v) => setCategoryForm({...categoryForm, default_source_type: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PURCHASED">PURCHASED (Buy only)</SelectItem>
+                    <SelectItem value="MANUFACTURED">MANUFACTURED (Make only)</SelectItem>
+                    <SelectItem value="BOTH">BOTH (Buy or Make)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Default BOM Level</Label>
+                <Select 
+                  value={String(categoryForm.default_bom_level) || undefined}
+                  onValueChange={(v) => setCategoryForm({...categoryForm, default_bom_level: parseInt(v)})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">L1 - Raw Material</SelectItem>
+                    <SelectItem value="2">L2 - First Transformation</SelectItem>
+                    <SelectItem value="3">L3 - Second Transformation</SelectItem>
+                    <SelectItem value="4">L4 - Third Transformation</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>Cancel</Button>
+              <Button onClick={handleSaveCategory} data-testid="save-category-btn">
+                {editingItem ? 'Update' : 'Create'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* RM BOM Dialog */}
+      <Dialog open={showBomDialog} onOpenChange={(open) => { setShowBomDialog(open); if (!open) setEditingItem(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? 'Edit RM BOM' : 'Create RM BOM'}</DialogTitle>
+            <DialogDescription>Define the components and quantities needed to produce this RM</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>RM ID (Output)</Label>
+                <Input 
+                  value={bomForm.rm_id}
+                  onChange={(e) => setBomForm({...bomForm, rm_id: e.target.value.toUpperCase()})}
+                  placeholder="e.g., INP_654"
+                  className="font-mono uppercase"
+                  disabled={!!editingItem}
+                  list="rm-list"
+                />
+                <datalist id="rm-list">
+                  {rawMaterials.filter(r => r.source_type !== 'PURCHASED').slice(0, 100).map(r => (
+                    <option key={r.rm_id} value={r.rm_id}>{r.description}</option>
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <Label>Category</Label>
+                <Select 
+                  value={bomForm.category || undefined}
+                  onValueChange={(v) => setBomForm({...bomForm, category: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rmCategories.filter(c => c.default_source_type !== 'PURCHASED').map(c => (
+                      <SelectItem key={c.code} value={c.code}>{c.code} - {c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <Label>BOM Level</Label>
+                <Select 
+                  value={String(bomForm.bom_level) || undefined}
+                  onValueChange={(v) => setBomForm({...bomForm, bom_level: parseInt(v)})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">L2</SelectItem>
+                    <SelectItem value="3">L3</SelectItem>
+                    <SelectItem value="4">L4</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Output Qty</Label>
+                <Input 
+                  type="number"
+                  value={bomForm.output_qty}
+                  onChange={(e) => setBomForm({...bomForm, output_qty: parseFloat(e.target.value) || 1})}
+                  min="0.01"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <Label>Output UOM</Label>
+                <Select 
+                  value={bomForm.output_uom || undefined}
+                  onValueChange={(v) => setBomForm({...bomForm, output_uom: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="UOM" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PCS">PCS</SelectItem>
+                    <SelectItem value="KG">KG</SelectItem>
+                    <SelectItem value="MTR">MTR</SelectItem>
+                    <SelectItem value="SET">SET</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Yield Factor</Label>
+                <Input 
+                  type="number"
+                  value={bomForm.yield_factor}
+                  onChange={(e) => setBomForm({...bomForm, yield_factor: parseFloat(e.target.value) || 1})}
+                  min="0.01"
+                  max="1"
+                  step="0.01"
+                />
+              </div>
+            </div>
+
+            {/* Components Section */}
+            <div className="border rounded-lg p-4">
+              <Label className="text-sm font-bold uppercase mb-2 block">Components (Input Materials)</Label>
+              
+              {/* Add Component Form */}
+              <div className="grid grid-cols-6 gap-2 mb-3 items-end">
+                <div className="col-span-2">
+                  <Label className="text-xs">RM ID</Label>
+                  <Input 
+                    value={bomComponent.component_rm_id}
+                    onChange={(e) => setBomComponent({...bomComponent, component_rm_id: e.target.value.toUpperCase()})}
+                    placeholder="e.g., POLY_001"
+                    className="font-mono text-xs"
+                    list="component-rm-list"
+                  />
+                  <datalist id="component-rm-list">
+                    {rawMaterials.filter(r => r.bom_level < bomForm.bom_level).slice(0, 100).map(r => (
+                      <option key={r.rm_id} value={r.rm_id}>{r.description}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <Label className="text-xs">Qty</Label>
+                  <Input 
+                    type="number"
+                    value={bomComponent.quantity}
+                    onChange={(e) => setBomComponent({...bomComponent, quantity: parseFloat(e.target.value) || 0})}
+                    min="0"
+                    step="0.001"
+                    className="text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">UOM</Label>
+                  <Select 
+                    value={bomComponent.uom || undefined}
+                    onValueChange={(v) => setBomComponent({...bomComponent, uom: v})}
+                  >
+                    <SelectTrigger className="text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="KG">KG</SelectItem>
+                      <SelectItem value="PCS">PCS</SelectItem>
+                      <SelectItem value="MTR">MTR</SelectItem>
+                      <SelectItem value="LTR">LTR</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Wastage %</Label>
+                  <Input 
+                    type="number"
+                    value={((bomComponent.wastage_factor - 1) * 100).toFixed(0)}
+                    onChange={(e) => setBomComponent({...bomComponent, wastage_factor: 1 + (parseFloat(e.target.value) || 0) / 100})}
+                    min="0"
+                    max="50"
+                    className="text-xs"
+                  />
+                </div>
+                <div>
+                  <Button size="sm" onClick={addBomComponent} className="w-full">
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Components List */}
+              {bomForm.components.length > 0 && (
+                <div className="border rounded overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-2 text-left">RM ID</th>
+                        <th className="p-2 text-left">Name</th>
+                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-center">UOM</th>
+                        <th className="p-2 text-right">Wastage</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {bomForm.components.map((comp, idx) => (
+                        <tr key={idx}>
+                          <td className="p-2 font-mono">{comp.component_rm_id}</td>
+                          <td className="p-2">{comp.component_name || getRmName(comp.component_rm_id)}</td>
+                          <td className="p-2 text-right">{comp.quantity}</td>
+                          <td className="p-2 text-center">{comp.uom}</td>
+                          <td className="p-2 text-right">{((comp.wastage_factor - 1) * 100).toFixed(0)}%</td>
+                          <td className="p-2 text-center">
+                            <Button variant="ghost" size="sm" onClick={() => removeBomComponent(comp.component_rm_id)}>
+                              <Trash2 className="w-3 h-3 text-red-500" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {bomForm.components.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No components added. Add at least one component.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setShowBomDialog(false)}>Cancel</Button>
+              <Button onClick={handleSaveBom} data-testid="save-bom-btn">
+                {editingItem ? 'Update BOM' : 'Create BOM'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
