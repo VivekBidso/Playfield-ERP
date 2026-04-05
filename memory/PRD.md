@@ -2544,10 +2544,16 @@ This module enables tracking of internally manufactured raw materials (L2/L3) th
 - ✅ Backend routes created (`/app/backend/routes/rm_production_routes.py`)
 - ✅ RM Categories seeded (15 categories)
 - ✅ Existing RMs updated with source_type (INP=MANUFACTURED, INM=BOTH, others=PURCHASED)
-- ⏳ Tech Ops - Category Management UI (Pending)
-- ⏳ Tech Ops - RM BOM Management UI (Pending)
-- ⏳ Branch Ops - Production RM Inward page (Pending)
-- ⏳ Branch Ops - Production Reports (Pending)
+- ✅ Tech Ops - Category Management UI (Phase 1B complete)
+- ✅ Tech Ops - RM BOM Management UI (Phase 1C complete)
+- ✅ RM Repository - Source Type & BOM Level columns/filters (Phase 1D complete)
+- ⏳ Branch Ops - Production RM Inward page (Pending - Phase 2A)
+- ⏳ Branch Ops - Production Reports (Pending - Phase 2B)
+
+### Files Updated (April 5, 2026)
+- `/app/frontend/src/pages/TechOps.js` - Added RM Categories and RM BOM tabs
+- `/app/frontend/src/pages/RMRepository.js` - Added source_type and bom_level filters/columns
+- `/app/backend/routes/rm_routes.py` - Added source_type and bom_level params to /raw-materials/by-tags
 
 ### Documentation
 See `/app/memory/func/IN_HOUSE_PRODUCTION.md` for full module documentation.

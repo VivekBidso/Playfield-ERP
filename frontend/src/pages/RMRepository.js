@@ -741,7 +741,7 @@ const RMRepository = () => {
                 
                 <div className="w-[150px]">
                   <Label className="text-xs text-gray-500">Source Type</Label>
-                  <Select value={filters.source_type || undefined} onValueChange={(v) => handleFilterChange('source_type', v === "all" ? "" : v)}>
+                  <Select value={filters.source_type || "all"} onValueChange={(v) => handleFilterChange('source_type', v === "all" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All Types" />
                     </SelectTrigger>
@@ -756,7 +756,7 @@ const RMRepository = () => {
                 
                 <div className="w-[120px]">
                   <Label className="text-xs text-gray-500">BOM Level</Label>
-                  <Select value={filters.bom_level || undefined} onValueChange={(v) => handleFilterChange('bom_level', v === "all" ? "" : v)}>
+                  <Select value={filters.bom_level || "all"} onValueChange={(v) => handleFilterChange('bom_level', v === "all" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All Levels" />
                     </SelectTrigger>
@@ -771,7 +771,7 @@ const RMRepository = () => {
                 
                 <div className="w-[150px]">
                   <Label className="text-xs text-gray-500">Brand Specific</Label>
-                  <Select value={filters.is_brand_specific || undefined} onValueChange={(v) => handleFilterChange('is_brand_specific', v === "all" ? "" : v)}>
+                  <Select value={filters.is_brand_specific || "all"} onValueChange={(v) => handleFilterChange('is_brand_specific', v === "all" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="All" />
                     </SelectTrigger>
