@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 import { 
   Package, Search, Filter, Tag, Check, X, Edit, 
   ChevronDown, ChevronRight, Bell, Clock, CheckCircle,
-  XCircle, AlertCircle, Layers, Box, Copy, Eye
+  XCircle, AlertCircle, Layers, Box, Copy, Eye, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,6 +163,112 @@ const RMRepository = () => {
       toast.error("Failed to fetch materials");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Export all RMs to Excel with each category as a separate sheet
+  const handleExportRepository = async () => {
+    try {
+      toast.info("Preparing RM Repository export...");
+      
+      // Fetch ALL raw materials (no pagination)
+      const res = await axios.get(`${API}/raw-materials?page_size=50000`);
+      const allRMs = res.data || [];
+      
+      if (allRMs.length === 0) {
+        toast.error("No raw materials to export");
+        return;
+      }
+      
+      // Group RMs by category
+      const categorizedRMs = {};
+      allRMs.forEach(rm => {
+        const category = rm.rm_id?.split('_')[0] || 'OTHER';
+        if (!categorizedRMs[category]) {
+          categorizedRMs[category] = [];
+        }
+        categorizedRMs[category].push(rm);
+      });
+      
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Define columns to export
+      const columns = [
+        { key: 'rm_id', header: 'RM ID' },
+        { key: 'description', header: 'Description' },
+        { key: 'category', header: 'Category' },
+        { key: 'uom', header: 'UOM' },
+        { key: 'hsn_code', header: 'HSN Code' },
+        { key: 'gst_rate', header: 'GST Rate (%)' },
+        { key: 'min_order_qty', header: 'Min Order Qty' },
+        { key: 'lead_time_days', header: 'Lead Time (Days)' },
+        { key: 'status', header: 'Status' },
+        { key: 'created_at', header: 'Created At' }
+      ];
+      
+      // Create a sheet for each category
+      Object.entries(categorizedRMs).sort((a, b) => a[0].localeCompare(b[0])).forEach(([category, rms]) => {
+        // Map data to rows
+        const sheetData = rms.map(rm => {
+          const row = {};
+          columns.forEach(col => {
+            let value = rm[col.key];
+            // Format dates
+            if (col.key === 'created_at' && value) {
+              value = new Date(value).toLocaleDateString();
+            }
+            row[col.header] = value || '';
+          });
+          return row;
+        });
+        
+        // Create worksheet
+        const ws = XLSX.utils.json_to_sheet(sheetData);
+        
+        // Set column widths
+        ws['!cols'] = [
+          { wch: 15 },  // RM ID
+          { wch: 50 },  // Description
+          { wch: 12 },  // Category
+          { wch: 8 },   // UOM
+          { wch: 12 },  // HSN Code
+          { wch: 12 },  // GST Rate
+          { wch: 12 },  // Min Order Qty
+          { wch: 15 },  // Lead Time
+          { wch: 10 },  // Status
+          { wch: 12 }   // Created At
+        ];
+        
+        // Add sheet with category name (max 31 chars for Excel)
+        const sheetName = `${category} - ${RM_CATEGORIES[category] || 'Other'}`.slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      });
+      
+      // Add summary sheet at the beginning
+      const summaryData = Object.entries(categorizedRMs).map(([cat, rms]) => ({
+        'Category Code': cat,
+        'Category Name': RM_CATEGORIES[cat] || 'Other',
+        'Total RMs': rms.length
+      }));
+      summaryData.push({ 'Category Code': '', 'Category Name': 'TOTAL', 'Total RMs': allRMs.length });
+      
+      const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+      summaryWs['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary', true); // Insert at beginning
+      
+      // Generate file
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      
+      // Download
+      const filename = `RM_Repository_${new Date().toISOString().split('T')[0]}.xlsx`;
+      saveAs(blob, filename);
+      
+      toast.success(`Exported ${allRMs.length} RMs across ${Object.keys(categorizedRMs).length} categories`);
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast.error("Failed to export RM repository");
     }
   };
 
@@ -439,6 +547,15 @@ const RMRepository = () => {
           <h1 className="text-2xl font-bold text-gray-900">RM Repository</h1>
           <p className="text-gray-500 mt-1">Manage raw material tags and approve RM requests</p>
         </div>
+        <Button 
+          onClick={handleExportRepository}
+          variant="outline"
+          className="flex items-center gap-2"
+          data-testid="export-rm-repository-btn"
+        >
+          <Download className="h-4 w-4" />
+          Export All RMs
+        </Button>
       </div>
 
       {/* Stats Cards */}
