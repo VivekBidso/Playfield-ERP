@@ -486,6 +486,37 @@ const RawMaterials = () => {
             <Download className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Export {branchFilter ? branchFilter : "All"}
           </Button>
+          
+          {/* Add RM & Bulk Upload - Only for Tech Ops / Admin */}
+          {canManageRMs && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleBulkUpload}
+                accept=".xlsx,.xls"
+                className="hidden"
+                data-testid="bulk-upload-input"
+              />
+              <Button 
+                variant="outline" 
+                onClick={() => fileInputRef.current?.click()}
+                className="uppercase text-xs tracking-wide"
+                data-testid="bulk-upload-btn"
+              >
+                <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                Bulk Upload
+              </Button>
+              <Button 
+                onClick={() => setShowAddDialog(true)}
+                className="uppercase text-xs tracking-wide"
+                data-testid="add-rm-btn"
+              >
+                <Plus className="w-4 h-4 mr-2" strokeWidth={1.5} />
+                Add RM
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -647,6 +678,146 @@ const RawMaterials = () => {
           </div>
         )}
       </div>
+
+      {/* Add RM Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add New Raw Material</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Category *</Label>
+              <Select 
+                value={selectedCategory || undefined} 
+                onValueChange={setSelectedCategory}
+              >
+                <SelectTrigger data-testid="category-select">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(RM_CATEGORIES).map(([code, cat]) => (
+                    <SelectItem key={code} value={code}>{code} - {cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {selectedCategory && (
+              <>
+                <div className="p-3 bg-zinc-50 border rounded-sm">
+                  <p className="text-sm font-medium mb-2">Required fields for {selectedCategory}:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {RM_CATEGORIES[selectedCategory]?.fields.map(field => (
+                      <span key={field} className="text-xs bg-zinc-200 px-2 py-1 rounded">{field}</span>
+                    ))}
+                  </div>
+                </div>
+                
+                {RM_CATEGORIES[selectedCategory]?.fields.map(field => (
+                  <div key={field}>
+                    <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                    <Input
+                      placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                      value={categoryData[field] || ''}
+                      onChange={(e) => setCategoryData({...categoryData, [field]: e.target.value})}
+                    />
+                  </div>
+                ))}
+                
+                <div className="flex justify-between pt-4">
+                  <Button variant="outline" onClick={() => downloadCategoryTemplate(selectedCategory)}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Template
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => { setShowAddDialog(false); setSelectedCategory(''); setCategoryData({}); }}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleAddRM} data-testid="save-rm-btn">
+                      Create RM
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Created RMs Dialog - Shows after successful bulk upload */}
+      <Dialog open={showCreatedDialog} onOpenChange={setShowCreatedDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Created Raw Materials</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {createdRMs.length} new RMs created successfully
+            </p>
+            <div className="border rounded-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-50">
+                  <tr>
+                    <th className="p-2 text-left font-bold">RM ID</th>
+                    <th className="p-2 text-left font-bold">Category</th>
+                    <th className="p-2 text-left font-bold">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {createdRMs.map((rm, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="p-2 font-mono">{rm.rm_id}</td>
+                      <td className="p-2">{rm.category}</td>
+                      <td className="p-2 text-muted-foreground">
+                        {Object.entries(rm.category_data || {}).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => setShowCreatedDialog(false)}>Close</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Migration Dialog */}
+      <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Migrate RM Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Import RM data from a JSON export file. This is used for migrating data between environments.
+            </p>
+            <input
+              type="file"
+              ref={migrateFileInputRef}
+              onChange={handleMigrateImport}
+              accept=".json"
+              className="hidden"
+            />
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => migrateFileInputRef.current?.click()}
+                disabled={migrating}
+                className="flex-1"
+              >
+                <Database className="w-4 h-4 mr-2" />
+                {migrating ? "Importing..." : "Select JSON File"}
+              </Button>
+              <Button variant="outline" onClick={() => setShowMigrateDialog(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
