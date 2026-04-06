@@ -228,23 +228,42 @@ async def bulk_import_rm_inventory(
         "errors": [],
         "mode": mode,
         "collection": "branch_rm_inventory",
-        "success": True
+        "success": True,
+        "branch_mappings_used": {},  # Track which branches were mapped
+        "branches_imported_to": []  # List of branches data was imported to
     }
     
     # Build branch lookup (supports both branch_id and branch name)
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "code": 1}).to_list(100)
     branch_lookup = {}  # Maps various inputs to branch NAME (what branch_rm_inventory uses)
-    for idx, b in enumerate(branches, 1):
+    
+    for b in branches:
         branch_name = b.get("name", "")
-        bid = b.get("branch_id") or f"BR_{idx:03d}"
+        bid = b.get("branch_id", "")
+        code = b.get("code", "")
         
-        # Map branch_id to branch name
-        branch_lookup[bid] = branch_name
-        branch_lookup[bid.lower()] = branch_name
+        if not branch_name:
+            continue
+            
+        # Map branch_id to branch name (e.g., BR_001 -> Unit 2 Trikes)
+        if bid:
+            branch_lookup[bid] = branch_name
+            branch_lookup[bid.lower()] = branch_name
+            branch_lookup[bid.upper()] = branch_name
         
-        # Map branch name to itself
+        # Map branch code to branch name (e.g., UNIT_2_TRIKES -> Unit 2 Trikes)
+        if code:
+            branch_lookup[code] = branch_name
+            branch_lookup[code.lower()] = branch_name
+            branch_lookup[code.upper()] = branch_name
+        
+        # Map branch name to itself (case-insensitive)
         branch_lookup[branch_name] = branch_name
         branch_lookup[branch_name.lower()] = branch_name
+        branch_lookup[branch_name.upper()] = branch_name
+    
+    # Log available branches for debugging
+    results["available_branches"] = [{"id": b.get("branch_id"), "name": b.get("name")} for b in branches]
     
     # Detect column headers
     headers = [str(cell.value).strip().upper() if cell.value else "" for cell in ws[1]]
@@ -281,10 +300,19 @@ async def bulk_import_rm_inventory(
                 continue
             
             # Resolve branch to NAME (what branch_rm_inventory uses)
-            branch_name = branch_lookup.get(branch_value) or branch_lookup.get(branch_value.lower())
+            branch_name = branch_lookup.get(branch_value) or branch_lookup.get(branch_value.lower()) or branch_lookup.get(branch_value.upper())
             if not branch_name:
-                results["errors"].append(f"Row {row_idx}: Invalid branch '{branch_value}'")
+                # List available branch IDs for user reference
+                available_ids = [b.get("branch_id") for b in branches if b.get("branch_id")]
+                results["errors"].append(f"Row {row_idx}: Invalid branch '{branch_value}'. Available: {available_ids}")
                 continue
+            
+            # Track the mapping used
+            if branch_value != branch_name:
+                results["branch_mappings_used"][branch_value] = branch_name
+            
+            if branch_name not in results["branches_imported_to"]:
+                results["branches_imported_to"].append(branch_name)
             
             # Verify RM exists
             rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1})
@@ -591,16 +619,17 @@ async def bulk_import_fg_inventory(
 
 @router.get("/summary")
 async def get_inventory_summary():
-    """Get inventory summary stats"""
-    rm_total = await db.rm_inventory.count_documents({})
+    """Get inventory summary stats - reads from branch_rm_inventory (unified source)"""
+    # Use branch_rm_inventory - the unified collection for all RM inventory
+    rm_total = await db.branch_rm_inventory.count_documents({})
     fg_total = await db.fg_inventory.count_documents({})
     
     # Get unique RMs and SKUs in inventory
-    rm_unique = len(await db.rm_inventory.distinct("rm_id"))
+    rm_unique = len(await db.branch_rm_inventory.distinct("rm_id"))
     fg_unique = len(await db.fg_inventory.distinct("buyer_sku_id"))
     
     # Get branch count
-    branches_with_rm = len(await db.rm_inventory.distinct("branch_id"))
+    branches_with_rm = len(await db.branch_rm_inventory.distinct("branch"))
     branches_with_fg = len(await db.fg_inventory.distinct("branch_id"))
     
     return {
