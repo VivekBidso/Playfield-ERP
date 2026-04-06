@@ -409,6 +409,364 @@ async def suggest_numeric_code(vertical_id: str, model_id: str):
     }
 
 
+# ============ SKU Bulk Import ============
+
+@router.get("/skus/bulk-import/template")
+async def download_sku_bulk_import_template():
+    """Download Excel template for bulk SKU import"""
+    from fastapi.responses import StreamingResponse
+    from openpyxl.styles import Font, PatternFill, Alignment
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "SKUs"
+    
+    # Headers
+    headers = ["Bidso SKU", "Buyer SKU ID", "Description", "Brand", "Vertical", "Model"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Example rows
+    examples = [
+        ["KS_BE_001", "FC_KS_BE_001", "Kids Scooter LED Blue", "Firstcry", "Scooter", "Blaze"],
+        ["KS_BE_002", "BB_KS_BE_002", "Kids Scooter LED Green", "Blush Baby", "Scooter", "Blaze"],
+    ]
+    for row_idx, example in enumerate(examples, 2):
+        for col_idx, value in enumerate(example, 1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+    
+    # Column widths
+    ws.column_dimensions['A'].width = 20
+    ws.column_dimensions['B'].width = 20
+    ws.column_dimensions['C'].width = 40
+    ws.column_dimensions['D'].width = 15
+    ws.column_dimensions['E'].width = 15
+    ws.column_dimensions['F'].width = 20
+    
+    # Add instructions sheet
+    ws2 = wb.create_sheet("Instructions")
+    instructions = [
+        "SKU Bulk Import Instructions",
+        "",
+        "Required Columns:",
+        "- Bidso SKU: The base product SKU code (e.g., KS_BE_001)",
+        "- Buyer SKU ID: The branded variant SKU code (e.g., FC_KS_BE_001)",
+        "- Description: Product description",
+        "- Brand: Brand name (must exist in system)",
+        "- Vertical: Product vertical (must exist in system)",
+        "- Model: Product model (must exist in system)",
+        "",
+        "Notes:",
+        "- Brand, Vertical, and Model names must match exactly what exists in the system",
+        "- Duplicate Buyer SKU IDs will be skipped",
+        "- Invalid references will be reported in the result file"
+    ]
+    for row_idx, text in enumerate(instructions, 1):
+        ws2.cell(row=row_idx, column=1, value=text)
+    ws2.column_dimensions['A'].width = 80
+    
+    # Add reference sheets
+    # Brands reference
+    brands = await db.brands.find({}, {"_id": 0, "name": 1, "code": 1}).to_list(100)
+    ws3 = wb.create_sheet("Brands_Reference")
+    ws3.cell(row=1, column=1, value="Brand Name").font = Font(bold=True)
+    ws3.cell(row=1, column=2, value="Code").font = Font(bold=True)
+    for idx, b in enumerate(brands, 2):
+        ws3.cell(row=idx, column=1, value=b.get("name", ""))
+        ws3.cell(row=idx, column=2, value=b.get("code", ""))
+    
+    # Verticals reference
+    verticals = await db.verticals.find({}, {"_id": 0, "name": 1, "code": 1}).to_list(50)
+    ws4 = wb.create_sheet("Verticals_Reference")
+    ws4.cell(row=1, column=1, value="Vertical Name").font = Font(bold=True)
+    ws4.cell(row=1, column=2, value="Code").font = Font(bold=True)
+    for idx, v in enumerate(verticals, 2):
+        ws4.cell(row=idx, column=1, value=v.get("name", ""))
+        ws4.cell(row=idx, column=2, value=v.get("code", ""))
+    
+    # Models reference
+    models = await db.models.find({}, {"_id": 0, "name": 1, "code": 1}).to_list(200)
+    ws5 = wb.create_sheet("Models_Reference")
+    ws5.cell(row=1, column=1, value="Model Name").font = Font(bold=True)
+    ws5.cell(row=1, column=2, value="Code").font = Font(bold=True)
+    for idx, m in enumerate(models, 2):
+        ws5.cell(row=idx, column=1, value=m.get("name", ""))
+        ws5.cell(row=idx, column=2, value=m.get("code", ""))
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=sku_bulk_import_template.xlsx"}
+    )
+
+
+@router.post("/skus/bulk-import")
+async def bulk_import_skus(file: UploadFile = File(...)):
+    """
+    Bulk import SKUs from Excel file.
+    
+    Creates records in both `skus` collection (legacy) and `buyer_skus` collection.
+    Handles brand/vertical/model resolution automatically.
+    
+    Returns Excel file with import results.
+    """
+    from fastapi.responses import StreamingResponse
+    from openpyxl.styles import Font, PatternFill
+    import pandas as pd
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
+    
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+    
+    # Map columns
+    col_map = {}
+    bidso_opts = ["bidso_sku", "bidso_sku_id", "bidso"]
+    buyer_opts = ["buyer_sku_id", "buyer_sku", "sku_id"]
+    desc_opts = ["description", "desc", "name"]
+    brand_opts = ["brand", "brand_name"]
+    vertical_opts = ["vertical", "vertical_name", "category"]
+    model_opts = ["model", "model_name"]
+    
+    for opt in bidso_opts:
+        if opt in df.columns:
+            col_map["bidso"] = opt
+            break
+    for opt in buyer_opts:
+        if opt in df.columns:
+            col_map["buyer"] = opt
+            break
+    for opt in desc_opts:
+        if opt in df.columns:
+            col_map["desc"] = opt
+            break
+    for opt in brand_opts:
+        if opt in df.columns:
+            col_map["brand"] = opt
+            break
+    for opt in vertical_opts:
+        if opt in df.columns:
+            col_map["vertical"] = opt
+            break
+    for opt in model_opts:
+        if opt in df.columns:
+            col_map["model"] = opt
+            break
+    
+    required = ["bidso", "buyer"]
+    missing = [r for r in required if r not in col_map]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}. Found: {list(df.columns)}")
+    
+    # Load reference data
+    brands = await db.brands.find({}, {"_id": 0}).to_list(100)
+    brand_map = {b["name"].lower(): b for b in brands}
+    brand_code_map = {b.get("code", "").lower(): b for b in brands if b.get("code")}
+    
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(50)
+    vertical_map = {v["name"].lower(): v for v in verticals}
+    vertical_code_map = {v.get("code", "").lower(): v for v in verticals if v.get("code")}
+    
+    models = await db.models.find({}, {"_id": 0}).to_list(200)
+    model_map = {m["name"].lower(): m for m in models}
+    model_code_map = {m.get("code", "").lower(): m for m in models if m.get("code")}
+    
+    # Process rows
+    results = []
+    created_count = 0
+    skipped_count = 0
+    error_count = 0
+    
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        bidso_sku = str(row[col_map["bidso"]]).strip() if pd.notna(row[col_map["bidso"]]) else ""
+        buyer_sku_id = str(row[col_map["buyer"]]).strip() if pd.notna(row[col_map["buyer"]]) else ""
+        description = str(row[col_map.get("desc", "")]).strip() if col_map.get("desc") and pd.notna(row.get(col_map.get("desc"))) else ""
+        brand_name = str(row[col_map.get("brand", "")]).strip() if col_map.get("brand") and pd.notna(row.get(col_map.get("brand"))) else ""
+        vertical_name = str(row[col_map.get("vertical", "")]).strip() if col_map.get("vertical") and pd.notna(row.get(col_map.get("vertical"))) else ""
+        model_name = str(row[col_map.get("model", "")]).strip() if col_map.get("model") and pd.notna(row.get(col_map.get("model"))) else ""
+        
+        result = {
+            "row": row_num,
+            "bidso_sku": bidso_sku,
+            "buyer_sku_id": buyer_sku_id,
+            "description": description,
+            "brand": brand_name,
+            "vertical": vertical_name,
+            "model": model_name,
+            "status": "PENDING",
+            "remarks": ""
+        }
+        
+        # Validate required fields
+        if not bidso_sku or not buyer_sku_id:
+            result["status"] = "ERROR"
+            result["remarks"] = "Bidso SKU and Buyer SKU ID are required"
+            error_count += 1
+            results.append(result)
+            continue
+        
+        # Check if already exists
+        existing = await db.skus.find_one({"buyer_sku_id": buyer_sku_id})
+        if existing:
+            result["status"] = "SKIPPED"
+            result["remarks"] = "Buyer SKU ID already exists"
+            skipped_count += 1
+            results.append(result)
+            continue
+        
+        # Resolve brand
+        brand = None
+        brand_id = None
+        if brand_name:
+            brand = brand_map.get(brand_name.lower()) or brand_code_map.get(brand_name.lower())
+            if brand:
+                brand_id = brand.get("id")
+                brand_name = brand.get("name", brand_name)
+        
+        # Resolve vertical
+        vertical = None
+        vertical_id = None
+        if vertical_name:
+            vertical = vertical_map.get(vertical_name.lower()) or vertical_code_map.get(vertical_name.lower())
+            if vertical:
+                vertical_id = vertical.get("id")
+                vertical_name = vertical.get("name", vertical_name)
+        
+        # Resolve model
+        model = None
+        model_id = None
+        if model_name:
+            model = model_map.get(model_name.lower()) or model_code_map.get(model_name.lower())
+            if model:
+                model_id = model.get("id")
+                model_name = model.get("name", model_name)
+        
+        # Create SKU document (for skus collection - legacy)
+        sku_doc = {
+            "id": str(uuid.uuid4()),
+            "sku_id": buyer_sku_id,
+            "bidso_sku": bidso_sku,
+            "buyer_sku_id": buyer_sku_id,
+            "description": description,
+            "brand": brand_name,
+            "brand_id": brand_id,
+            "vertical": vertical_name,
+            "vertical_id": vertical_id,
+            "model": model_name,
+            "model_id": model_id,
+            "low_stock_threshold": 5.0,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Insert into skus collection
+        try:
+            await db.skus.insert_one(sku_doc)
+            del sku_doc["_id"]
+            
+            # Also insert into buyer_skus collection if brand exists
+            if brand_id:
+                buyer_sku_doc = {
+                    "id": str(uuid.uuid4()),
+                    "buyer_sku_id": buyer_sku_id,
+                    "bidso_sku_id": bidso_sku,
+                    "brand_id": brand_id,
+                    "brand_name": brand_name,
+                    "name": description,
+                    "status": "ACTIVE",
+                    "created_at": datetime.now(timezone.utc)
+                }
+                await db.buyer_skus.insert_one(buyer_sku_doc)
+            
+            result["status"] = "CREATED"
+            result["remarks"] = "Successfully imported"
+            created_count += 1
+        except Exception as e:
+            result["status"] = "ERROR"
+            result["remarks"] = str(e)
+            error_count += 1
+        
+        results.append(result)
+    
+    # Generate result Excel
+    result_data = [{
+        "Row": r["row"],
+        "Bidso SKU": r["bidso_sku"],
+        "Buyer SKU ID": r["buyer_sku_id"],
+        "Description": r["description"],
+        "Brand": r["brand"],
+        "Vertical": r["vertical"],
+        "Model": r["model"],
+        "Status": r["status"],
+        "Remarks": r["remarks"]
+    } for r in results]
+    
+    result_df = pd.DataFrame(result_data)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        result_df.to_excel(writer, index=False, sheet_name='Import Results')
+        
+        ws = writer.sheets['Import Results']
+        
+        # Header styling
+        header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        # Status color coding
+        status_colors = {
+            "CREATED": "C6EFCE",
+            "SKIPPED": "FFEB9C",
+            "ERROR": "FFC7CE"
+        }
+        for row_num in range(2, len(result_data) + 2):
+            status_cell = ws.cell(row=row_num, column=8)
+            if status_cell.value in status_colors:
+                status_cell.fill = PatternFill(start_color=status_colors[status_cell.value], end_color=status_colors[status_cell.value], fill_type="solid")
+        
+        # Column widths
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 20
+        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['D'].width = 40
+        ws.column_dimensions['E'].width = 15
+        ws.column_dimensions['F'].width = 15
+        ws.column_dimensions['G'].width = 20
+        ws.column_dimensions['H'].width = 12
+        ws.column_dimensions['I'].width = 40
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=sku_import_result.xlsx",
+            "X-Import-Summary": f'{{"total": {len(df)}, "created": {created_count}, "skipped": {skipped_count}, "errors": {error_count}}}'
+        }
+    )
+
+
 # ============ Buyer SKU CRUD ============
 
 @router.get("/buyer-skus")

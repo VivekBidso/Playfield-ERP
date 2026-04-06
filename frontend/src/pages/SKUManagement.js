@@ -130,6 +130,10 @@ const SKUManagement = () => {
   const [bomUploadResult, setBomUploadResult] = useState(null);
   const bomFileInputRef = useRef(null);
 
+  // Bulk SKU Import
+  const [skuImportLoading, setSkuImportLoading] = useState(false);
+  const skuImportFileRef = useRef(null);
+
   // Pagination state for Bidso SKUs
   const [bidsoPage, setBidsoPage] = useState(1);
   const [bidsoPageSize, setBidsoPageSize] = useState(50);
@@ -755,6 +759,77 @@ const SKUManagement = () => {
           <p className="text-gray-500 mt-1">Manage Bidso SKUs (base products) and Buyer SKUs (branded variants)</p>
         </div>
         <div className="flex gap-2">
+          {/* SKU Bulk Import */}
+          <Button 
+            variant="outline" 
+            onClick={() => window.open(`${API}/sku-management/skus/bulk-import/template`, '_blank')}
+            data-testid="sku-import-template-btn"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            SKU Template
+          </Button>
+          <div className="relative">
+            <Button 
+              variant="default"
+              onClick={() => skuImportFileRef.current?.click()}
+              disabled={skuImportLoading}
+              data-testid="sku-import-btn"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {skuImportLoading ? "Importing..." : "Import SKUs"}
+            </Button>
+            <input
+              ref={skuImportFileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                
+                setSkuImportLoading(true);
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                try {
+                  const res = await axios.post(`${API}/sku-management/skus/bulk-import`, formData, {
+                    headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' },
+                    responseType: 'blob'
+                  });
+                  
+                  // Parse summary from header
+                  const summary = JSON.parse(res.headers['x-import-summary'] || '{}');
+                  
+                  // Download result file
+                  const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'sku_import_result.xlsx';
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                  
+                  // Show summary
+                  if (summary.created > 0) {
+                    toast.success(`Imported ${summary.created} SKUs. ${summary.skipped} skipped, ${summary.errors} errors. Check downloaded file.`);
+                    fetchBidsoSKUs();
+                    fetchBuyerSKUs();
+                    fetchStats();
+                  } else if (summary.skipped > 0) {
+                    toast.warning(`All ${summary.skipped} SKUs already exist. No new imports.`);
+                  } else {
+                    toast.error(`Import failed with ${summary.errors} errors. Check downloaded file.`);
+                  }
+                } catch (error) {
+                  toast.error(error.response?.data?.detail || "Failed to import SKUs");
+                }
+                setSkuImportLoading(false);
+                e.target.value = '';
+              }}
+            />
+          </div>
           <Button variant="outline" onClick={() => setShowBOMUploadDialog(true)} data-testid="bom-upload-btn">
             <Upload className="h-4 w-4 mr-2" />
             BOM Upload
