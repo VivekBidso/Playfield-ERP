@@ -27,8 +27,8 @@ import useAuthStore from "@/store/authStore";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Category definitions with fields for bulk upload template
-const RM_CATEGORIES = {
+// Default fallback categories (used only if API fails)
+const DEFAULT_RM_CATEGORIES = {
   "INP": { name: "In-house Plastic", fields: ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"] },
   "ACC": { name: "Accessories", fields: ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"] },
   "ELC": { name: "Electric Components", fields: ["model", "type", "specs", "per_unit_weight", "unit"] },
@@ -43,22 +43,27 @@ const RM_CATEGORIES = {
   "PIPE": { name: "Metal Pipes", fields: ["material", "diameter", "thickness", "length"] }
 };
 
-// Simple category map for display
-const RM_CATEGORY_NAMES = {
-  "INP": "In-house Plastic",
-  "ACC": "Accessories",
-  "ELC": "Electric Components",
-  "SP": "Spares",
-  "BS": "Brand Assets",
-  "PM": "Packaging",
-  "LB": "Labels",
-  "INM": "Input Materials",
-  "STK": "Stickers",
-  "SPR": "Spares",
-  "POLY": "Polymer Grades",
-  "MB": "Master Batch",
-  "PWD": "Powder Coating",
-  "PIPE": "Metal Pipes"
+// Helper to convert database category to frontend format
+const convertDbCategory = (dbCat) => {
+  const fields = (dbCat.description_columns || []).map(col => col.key);
+  const nameFormat = (dbCat.description_columns || [])
+    .filter(col => col.include_in_name)
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map(col => col.key);
+  
+  return {
+    name: dbCat.name,
+    fields: fields,
+    nameFormat: nameFormat,
+    description_columns: dbCat.description_columns || [],
+    default_uom: dbCat.default_uom,
+    rm_id_prefix: dbCat.rm_id_prefix
+  };
+};
+
+// Helper function to get category display name
+const getCategoryName = (code, rmCategories) => {
+  return rmCategories[code]?.name || code;
 };
 
 const RMRepository = () => {
@@ -66,6 +71,9 @@ const RMRepository = () => {
   const { hasRole, isMasterAdmin } = useAuthStore();
   const isAdmin = isMasterAdmin();
   const canManageRMs = isAdmin || hasRole('TECH_OPS_ENGINEER');
+  
+  // RM Categories from database
+  const [rmCategories, setRmCategories] = useState(DEFAULT_RM_CATEGORIES);
   
   // File input refs for upload
   const fileInputRef = useRef(null);
@@ -150,6 +158,7 @@ const RMRepository = () => {
 
   useEffect(() => {
     fetchMasterData();
+    fetchRmCategories();
     fetchPendingCount();
     fetchPendingSkuCount();
     fetchPendingCloneCount();
@@ -166,6 +175,21 @@ const RMRepository = () => {
       fetchBidsoCloneRequests();
     }
   }, [activeTab, filters, currentPage, pageSize]);
+
+  // Fetch RM Categories from database
+  const fetchRmCategories = async () => {
+    try {
+      const response = await axios.get(`${API}/rm-categories`);
+      const dbCategories = response.data || {};
+      
+      // API already returns in the correct format {code: {name, fields, nameFormat}}
+      // Merge with defaults to ensure all categories are available
+      setRmCategories({ ...DEFAULT_RM_CATEGORIES, ...dbCategories });
+    } catch (error) {
+      console.error("Failed to fetch RM categories, using defaults:", error);
+      setRmCategories(DEFAULT_RM_CATEGORIES);
+    }
+  };
 
   const fetchMasterData = async () => {
     try {
@@ -289,14 +313,14 @@ const RMRepository = () => {
         ];
         
         // Add sheet with category name (max 31 chars for Excel)
-        const sheetName = `${category} - ${RM_CATEGORY_NAMES[category] || 'Other'}`.slice(0, 31);
+        const sheetName = `${category} - ${getCategoryName(category, rmCategories)}`.slice(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
       });
       
       // Add summary sheet at the beginning
       const summaryData = Object.entries(categorizedRMs).map(([cat, rms]) => ({
         'Category Code': cat,
-        'Category Name': RM_CATEGORY_NAMES[cat] || 'Other',
+        'Category Name': getCategoryName(cat, rmCategories),
         'Total RMs': rms.length
       }));
       summaryData.push({ 'Category Code': '', 'Category Name': 'TOTAL', 'Total RMs': allRMs.length });
@@ -664,12 +688,12 @@ const RMRepository = () => {
   };
 
   const downloadCategoryTemplate = (category) => {
-    if (!RM_CATEGORIES[category]) {
+    if (!rmCategories[category]) {
       toast.error("Category not found");
       return;
     }
-    const fields = ['Category', ...RM_CATEGORIES[category].fields, 'Low Stock Threshold'];
-    const ws = XLSX.utils.aoa_to_sheet([fields, [category, ...RM_CATEGORIES[category].fields.map(() => ''), 10]]);
+    const fields = ['Category', ...rmCategories[category].fields, 'Low Stock Threshold'];
+    const ws = XLSX.utils.aoa_to_sheet([fields, [category, ...rmCategories[category].fields.map(() => ''), 10]]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, category);
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -910,8 +934,8 @@ const RMRepository = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      {Object.entries(RM_CATEGORY_NAMES).map(([code, name]) => (
-                        <SelectItem key={code} value={code}>{code} - {name}</SelectItem>
+                      {Object.entries(rmCategories).map(([code, cat]) => (
+                        <SelectItem key={code} value={code}>{code} - {cat.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2096,25 +2120,25 @@ const RMRepository = () => {
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(RM_CATEGORIES).map(([code, cat]) => (
+                  {Object.entries(rmCategories).map(([code, cat]) => (
                     <SelectItem key={code} value={code}>{code} - {cat.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             
-            {selectedAddCategory && RM_CATEGORIES[selectedAddCategory] && (
+            {selectedAddCategory && rmCategories[selectedAddCategory] && (
               <>
                 <div className="p-3 bg-gray-50 border rounded-lg">
                   <p className="text-sm font-medium mb-2">Required fields for {selectedAddCategory}:</p>
                   <div className="flex flex-wrap gap-2">
-                    {RM_CATEGORIES[selectedAddCategory].fields.map(field => (
+                    {rmCategories[selectedAddCategory].fields.map(field => (
                       <span key={field} className="text-xs bg-gray-200 px-2 py-1 rounded">{formatFieldName(field)}</span>
                     ))}
                   </div>
                 </div>
                 
-                {RM_CATEGORIES[selectedAddCategory].fields.map(field => (
+                {rmCategories[selectedAddCategory].fields.map(field => (
                   <div key={field}>
                     <Label>{formatFieldName(field)}</Label>
                     <Input

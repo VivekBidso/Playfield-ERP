@@ -25,12 +25,12 @@ const API = `${BACKEND_URL}/api`;
 // Categories that support artwork file uploads
 const ARTWORK_CATEGORIES = ["LB", "BS", "PM"];
 
-// RM Categories with their required fields and naming nomenclature
-const RM_CATEGORIES = {
+// Default fallback categories (used only if API fails)
+const DEFAULT_RM_CATEGORIES = {
   "LB": { 
     name: "Labels", 
     description: "Product labels and stickers",
-    nameFormat: ["type", "buyer_sku"],  // Type_Buyer SKU
+    nameFormat: ["type", "buyer_sku"],
     fields: [
       { key: "type", label: "Type", required: true, placeholder: "e.g., Main Label, Warning Label" },
       { key: "buyer_sku", label: "Buyer SKU", required: true, placeholder: "e.g., BE_KS_PE_001" },
@@ -41,7 +41,7 @@ const RM_CATEGORIES = {
   "PM": { 
     name: "Packaging", 
     description: "Boxes, cartons, packaging materials",
-    nameFormat: ["model", "type", "specs", "brand"],  // Model_Type_Specs_Brand
+    nameFormat: ["model", "type", "specs", "brand"],
     fields: [
       { key: "model", label: "Model", required: true, placeholder: "e.g., Kids Scooter Box" },
       { key: "type", label: "Type", required: true, placeholder: "e.g., Inner Box, Outer Carton" },
@@ -54,7 +54,7 @@ const RM_CATEGORIES = {
   "BS": { 
     name: "Brand Assets", 
     description: "Brand-specific inserts, manuals, etc.",
-    nameFormat: ["position", "type", "brand", "buyer_sku"],  // Position_Type_Brand_Buyer SKU
+    nameFormat: ["position", "type", "brand", "buyer_sku"],
     fields: [
       { key: "position", label: "Position/Location", required: true, placeholder: "e.g., Inside Box, On Product" },
       { key: "type", label: "Type", required: true, placeholder: "e.g., Manual, Warranty Card, Insert" },
@@ -66,10 +66,35 @@ const RM_CATEGORIES = {
   }
 };
 
+// Helper to convert database category to frontend format
+const convertDbCategoryForDemandHub = (dbCat) => {
+  const fields = (dbCat.description_columns || []).map(col => ({
+    key: col.key,
+    label: col.label || col.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    required: col.required || false,
+    placeholder: col.placeholder || `Enter ${col.label || col.key}`,
+    type: col.type || 'text'
+  }));
+  
+  const nameFormat = (dbCat.description_columns || [])
+    .filter(col => col.include_in_name)
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map(col => col.key);
+  
+  return {
+    name: dbCat.name,
+    description: dbCat.description || "",
+    nameFormat: nameFormat,
+    fields: fields,
+    default_uom: dbCat.default_uom,
+    rm_id_prefix: dbCat.rm_id_prefix
+  };
+};
+
 // Generate RM name from category_data based on nomenclature
-const generateRmName = (category, categoryData) => {
-  const config = RM_CATEGORIES[category];
-  if (!config || !config.nameFormat) return "";
+const generateRmName = (category, categoryData, rmCategories) => {
+  const config = rmCategories[category];
+  if (!config || !config.nameFormat || config.nameFormat.length === 0) return "";
   
   const parts = config.nameFormat
     .map(key => categoryData[key] || "")
@@ -89,7 +114,8 @@ const DemandHub = () => {
   const [brands, setBrands] = useState([]);
   const [verticals, setVerticals] = useState([]);
   const [models, setModels] = useState([]);
-  const [rmCategories, setRmCategories] = useState([]);
+  const [rmCategoriesMap, setRmCategoriesMap] = useState(DEFAULT_RM_CATEGORIES);
+  const [rmCategoriesList, setRmCategoriesList] = useState([]);
   
   // Loading
   const [loading, setLoading] = useState(false);
@@ -157,14 +183,54 @@ const DemandHub = () => {
         axios.get(`${API}/brands`),
         axios.get(`${API}/verticals`),
         axios.get(`${API}/models`),
-        axios.get(`${API}/demand-hub/rm-categories`)
+        axios.get(`${API}/rm-categories`)
       ]);
       setBrands(brandsRes.data.filter(b => b.status === 'ACTIVE'));
       setVerticals(verticalsRes.data.filter(v => v.status === 'ACTIVE'));
       setModels(modelsRes.data.filter(m => m.status === 'ACTIVE'));
-      setRmCategories(categoriesRes.data);
+      
+      // API returns categories in format: {code: {name, fields: string[], nameFormat: string[]}}
+      const dbCategories = categoriesRes.data || {};
+      
+      // Enrich categories with detailed field objects for forms
+      const enrichedCategories = {};
+      Object.entries(dbCategories).forEach(([code, config]) => {
+        enrichedCategories[code] = {
+          name: config.name,
+          nameFormat: config.nameFormat || [],
+          // Convert string fields to field objects
+          fields: (config.fields || []).map(fieldKey => {
+            // Check if we have a detailed definition in defaults
+            const defaultField = DEFAULT_RM_CATEGORIES[code]?.fields?.find(f => f.key === fieldKey);
+            if (defaultField) {
+              return defaultField;
+            }
+            // Create basic field object from string
+            return {
+              key: fieldKey,
+              label: fieldKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+              required: config.nameFormat?.includes(fieldKey) || false,
+              placeholder: `Enter ${fieldKey.replace(/_/g, ' ')}`,
+              type: fieldKey.includes('weight') || fieldKey.includes('qty') ? 'number' : 'text'
+            };
+          })
+        };
+      });
+      
+      // Store as list for dropdowns
+      const categoriesList = Object.entries(enrichedCategories).map(([code, config]) => ({
+        code,
+        name: config.name,
+        fields: config.fields,
+        nameFormat: config.nameFormat
+      }));
+      setRmCategoriesList(categoriesList);
+      
+      // Merge with defaults to ensure critical categories are available
+      setRmCategoriesMap({ ...DEFAULT_RM_CATEGORIES, ...enrichedCategories });
     } catch (error) {
-      console.error("Failed to fetch master data");
+      console.error("Failed to fetch master data:", error);
+      setRmCategoriesMap(DEFAULT_RM_CATEGORIES);
     }
   };
 
@@ -256,7 +322,7 @@ const DemandHub = () => {
 
   const handleCreateRmRequest = async () => {
     // Validate required fields
-    const categoryConfig = RM_CATEGORIES[rmForm.category];
+    const categoryConfig = rmCategoriesMap[rmForm.category];
     const missingFields = [];
     
     if (rmForm.brand_ids.length === 0) missingFields.push("Brands");
@@ -274,7 +340,7 @@ const DemandHub = () => {
     }
     
     // Auto-generate RM name from category_data based on nomenclature
-    const generatedName = generateRmName(rmForm.category, rmForm.category_data);
+    const generatedName = generateRmName(rmForm.category, rmForm.category_data, rmCategoriesMap);
     
     if (!generatedName) {
       toast.error("Could not generate RM name. Please fill all required fields.");
@@ -966,7 +1032,7 @@ const DemandHub = () => {
           <DialogHeader>
             <DialogTitle>Request New Raw Material</DialogTitle>
             <DialogDescription>
-              Request a {RM_CATEGORIES[rmForm.category]?.name || rmForm.category} for Tech Ops to create.
+              Request a {rmCategoriesMap[rmForm.category]?.name || rmForm.category} for Tech Ops to create.
             </DialogDescription>
           </DialogHeader>
           
@@ -979,12 +1045,12 @@ const DemandHub = () => {
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(RM_CATEGORIES).filter(([code]) => code).map(([code, config]) => (
+                  {Object.entries(rmCategoriesMap).filter(([code]) => code).map(([code, config]) => (
                     <SelectItem key={code} value={code}>{code} - {config.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500 mt-1">{RM_CATEGORIES[rmForm.category]?.description}</p>
+              <p className="text-xs text-gray-500 mt-1">{rmCategoriesMap[rmForm.category]?.description}</p>
             </div>
             
             {/* Category-Specific Fields */}
@@ -992,15 +1058,15 @@ const DemandHub = () => {
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  {RM_CATEGORIES[rmForm.category]?.name} Details
+                  {rmCategoriesMap[rmForm.category]?.name} Details
                 </h4>
                 <span className="text-xs text-gray-400">
-                  Naming: {RM_CATEGORIES[rmForm.category]?.nameFormat?.join("_")}
+                  Naming: {rmCategoriesMap[rmForm.category]?.nameFormat?.join("_")}
                 </span>
               </div>
               
               <div className="grid grid-cols-2 gap-3">
-                {RM_CATEGORIES[rmForm.category]?.fields.map(field => (
+                {rmCategoriesMap[rmForm.category]?.fields?.map(field => (
                   <div key={field.key} className={field.key === 'specs' || field.key === 'buyer_sku' ? 'col-span-2' : ''}>
                     <Label className="text-xs">
                       {field.label} {field.required && <span className="text-red-500">*</span>}
@@ -1018,11 +1084,11 @@ const DemandHub = () => {
               </div>
               
               {/* Auto-generated RM Name Preview */}
-              {generateRmName(rmForm.category, rmForm.category_data) && (
+              {generateRmName(rmForm.category, rmForm.category_data, rmCategoriesMap) && (
                 <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-xs text-blue-600 font-medium">Generated RM Name:</p>
                   <p className="font-mono text-sm text-blue-800 mt-1">
-                    {generateRmName(rmForm.category, rmForm.category_data)}
+                    {generateRmName(rmForm.category, rmForm.category_data, rmCategoriesMap)}
                   </p>
                 </div>
               )}

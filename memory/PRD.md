@@ -2660,4 +2660,46 @@ A dedicated page to view and bulk import existing RM and Finished Goods inventor
 - `rm_inventory`: Stores RM stock by branch
 - `fg_inventory`: Stores Finished Goods stock by branch
 
+---
+
+## RM Categories Dynamic Configuration (April 6, 2026)
+
+### Overview
+Synced frontend RM category configurations with the database. Categories are now fetched from the API instead of being hardcoded.
+
+### Changes Made
+
+**Frontend Files Updated:**
+- `/app/frontend/src/pages/RMRepository.js` - Now fetches categories from `/api/rm-categories`
+- `/app/frontend/src/pages/DemandHub.js` - Now fetches categories from `/api/rm-categories`
+
+**How It Works:**
+1. Frontend loads, fetches RM categories from `/api/rm-categories` endpoint
+2. API returns categories with `fields` (string[]) and `nameFormat` (string[])
+3. Frontend enriches the data with labels, placeholders, and required flags
+4. Falls back to `DEFAULT_RM_CATEGORIES` if API fails
+
+**Benefits:**
+- Single source of truth (database)
+- Categories can be updated in TechOps without code changes
+- Name generation uses `nameFormat` from database
+- Backward compatible with fallback defaults
+
+### Database Collection
+`rm_categories` stores:
+```json
+{
+  "code": "INP",
+  "name": "In-house Plastic",
+  "description_columns": [
+    {"key": "mould_code", "label": "Mould Code", "include_in_name": true},
+    {"key": "model_name", "label": "Model Name", "include_in_name": true},
+    ...
+  ],
+  "default_uom": "PCS",
+  "rm_id_prefix": "INP"
+}
+```
+
+
 
