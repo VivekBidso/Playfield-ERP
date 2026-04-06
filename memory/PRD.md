@@ -582,18 +582,59 @@ Example:
 - Real-time dashboard with auto-refresh
 - Multi-month production planning view
 
+### COMPLETED (April 6, 2026)
+- ✅ **Production Plan Excel Upload Overhaul** - Complete rewrite with FIFO allocation, capacity conflict detection, and Excel result report
+  - **Three modes**: `check` (default, returns warning if conflicts), `add` (allocate within remaining), `override` (clear existing and allocate)
+  - **FIFO allocation**: First rows in file get full allocation before later rows
+  - **Conflict dialog**: Frontend shows conflict summary with Override/Add options
+  - **Excel result**: Status (SCHEDULED/PARTIAL/REJECTED/ERROR), Allocated, Not Allocated, Schedule Code, Remarks columns
+  - **Date format**: Standardized to DD-MM-YYYY across all templates
+
 ### COMPLETED (April 4, 2026)
 - ✅ Consolidated IBT routes into procurement_routes.py (removed legacy duplicate routes from report_routes.py)
 - ✅ IBT Module Overhaul - 6 features: inventory validation, transit tracking, variance logging, shortage records
 
 ---
 
-## 11. CPC MODULE STATUS (COMPLETE - March 15, 2026)
+## 11. CPC MODULE STATUS (UPDATED - April 6, 2026)
 
 ### What's Working:
 1. **Production Planning Tab** - Shows confirmed forecasts from Demand team
 2. **Branch Capacity Tab** - Day-wise capacity upload with branch cards
 3. **Production Schedule Tab** - Branch-wise per-day schedule view
+4. **Production Plan Excel Upload (NEW)** - FIFO allocation with capacity conflict detection
+
+### Production Plan Upload (NEW - April 6, 2026):
+The bulk upload feature now supports intelligent capacity management:
+
+**Endpoint:** `POST /api/cpc/production-plan/upload-excel?mode={check|add|override}`
+
+**Modes:**
+| Mode | Description |
+|------|-------------|
+| `check` (default) | Validates and returns conflict info if existing schedules + new demand > capacity |
+| `add` | Keeps existing schedules, allocates only within remaining capacity |
+| `override` | Clears existing schedules for conflicting dates/branches, then allocates fresh |
+
+**Excel Result Columns:**
+| Column | Description |
+|--------|-------------|
+| Status | SCHEDULED / PARTIAL / REJECTED / ERROR |
+| Allocated | Quantity successfully allocated |
+| Not Allocated | Overflow quantity (for PARTIAL/REJECTED) |
+| Schedule Code | Generated code (PS_YYYYMM_XXXX) |
+| Remarks | Details about allocation or error |
+
+**FIFO Allocation Logic:**
+1. Rows are grouped by Date + Branch
+2. For each group, rows are processed in order (first rows in file get priority)
+3. Capacity is reduced after each allocation
+4. Later rows may get PARTIAL or REJECTED status if capacity exhausted
+
+**Frontend Dialog:**
+- When `check` mode detects conflicts, a dialog appears showing conflict summary
+- User can choose "Override Existing" or "Add to Remaining Capacity"
+- Result Excel is automatically downloaded after processing
 
 ### Rules Enforced:
 - **No standalone schedule creation** - All planning starts from forecasts
