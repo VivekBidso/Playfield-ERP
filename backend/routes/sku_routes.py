@@ -11,6 +11,13 @@ from models import User, SKU, SKUCreate, SKUMapping, SKUMappingCreate, ActivateI
 from models.core import SKUBranchAssignment, BranchSKUInventory, BranchRMInventory
 from services.utils import get_current_user, serialize_doc
 from services.rbac_service import require_permission, check_user_permission
+from services.sku_service import (
+    get_sku_by_buyer_id, 
+    get_skus_by_buyer_ids, 
+    get_all_skus,
+    search_skus,
+    sku_exists
+)
 
 router = APIRouter(tags=["SKUs"])
 
@@ -19,8 +26,8 @@ router = APIRouter(tags=["SKUs"])
 @require_permission("BuyerSKU", "CREATE")
 async def create_sku(input: SKUCreate, current_user: User = Depends(get_current_user)):
     """Create a new SKU (MASTER_ADMIN, DEMAND_PLANNER)"""
-    # Check if SKU already exists
-    existing = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
+    # Check if SKU already exists in buyer_skus
+    existing = await db.buyer_skus.find_one({"buyer_sku_id": input.sku_id}, {"_id": 0})
     if existing:
         raise HTTPException(status_code=400, detail=f"SKU {input.sku_id} already exists")
     
@@ -28,7 +35,20 @@ async def create_sku(input: SKUCreate, current_user: User = Depends(get_current_
     doc = sku.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     doc['created_by'] = current_user.id
-    await db.skus.insert_one(doc)
+    
+    # Insert into buyer_skus collection (new model)
+    buyer_sku_doc = {
+        "id": doc.get("id") or str(uuid.uuid4()),
+        "buyer_sku_id": input.sku_id,
+        "bidso_sku_id": input.bidso_sku or "",
+        "brand_id": input.brand_id or "",
+        "name": input.description or "",
+        "description": input.description or "",
+        "status": "ACTIVE",
+        "created_at": datetime.now(timezone.utc),
+        "created_by": current_user.id
+    }
+    await db.buyer_skus.insert_one(buyer_sku_doc)
     
     return sku
 
@@ -40,21 +60,11 @@ async def get_skus(
     include_inactive: bool = False
 ):
     """Get all SKUs with optional filters"""
-    query = {}
-    if not include_inactive:
-        query["status"] = {"$ne": "INACTIVE"}
-    
-    skus = await db.skus.find(query, {"_id": 0}).to_list(10000)
-    
-    # Filter by search
+    # Use SKU service to get from new model
     if search:
-        search_lower = search.lower()
-        skus = [s for s in skus if 
-                search_lower in s.get("sku_id", "").lower() or
-                search_lower in s.get("description", "").lower() or
-                search_lower in s.get("vertical", "").lower() or
-                search_lower in s.get("model", "").lower() or
-                search_lower in s.get("brand", "").lower()]
+        skus = await search_skus(search, limit=10000)
+    else:
+        skus = await get_all_skus(include_inactive=include_inactive)
     
     # Add branch-specific data
     if branch:
@@ -79,11 +89,14 @@ async def get_skus(
 @router.get("/skus/filter-options")
 async def get_sku_filter_options():
     """Get all distinct verticals, models, and brands for filter dropdowns"""
-    all_skus = await db.skus.find({}, {"_id": 0, "vertical": 1, "model": 1, "brand": 1}).to_list(10000)
+    # Get from reference collections directly (more accurate)
+    verticals_docs = await db.verticals.find({}, {"_id": 0, "name": 1}).to_list(100)
+    models_docs = await db.models.find({}, {"_id": 0, "name": 1}).to_list(500)
+    brands_docs = await db.brands.find({}, {"_id": 0, "name": 1}).to_list(200)
     
-    verticals = sorted(list(set(s.get('vertical', '') for s in all_skus if s.get('vertical'))))
-    models = sorted(list(set(s.get('model', '') for s in all_skus if s.get('model'))))
-    brands = sorted(list(set(s.get('brand', '') for s in all_skus if s.get('brand'))))
+    verticals = sorted([v["name"] for v in verticals_docs if v.get("name")])
+    models = sorted([m["name"] for m in models_docs if m.get("name")])
+    brands = sorted([b["name"] for b in brands_docs if b.get("name")])
     
     return {
         "verticals": verticals,
@@ -95,26 +108,68 @@ async def get_sku_filter_options():
 @router.get("/skus/models-by-vertical")
 async def get_models_by_vertical(vertical: str):
     """Get distinct models for a specific vertical"""
-    skus = await db.skus.find({"vertical": vertical}, {"_id": 0, "model": 1}).to_list(10000)
-    models = sorted(list(set(s.get('model', '') for s in skus if s.get('model'))))
+    # Find vertical by name
+    vertical_doc = await db.verticals.find_one({"name": vertical}, {"_id": 0, "id": 1})
+    if not vertical_doc:
+        return {"models": []}
+    
+    # Get models for this vertical
+    models_docs = await db.models.find(
+        {"vertical_id": vertical_doc["id"]},
+        {"_id": 0, "name": 1}
+    ).to_list(500)
+    
+    models = sorted([m["name"] for m in models_docs if m.get("name")])
     return {"models": models}
 
 
 @router.get("/skus/brands-by-vertical-model")
 async def get_brands_by_vertical_model(vertical: str, model: Optional[str] = None):
     """Get distinct brands for a specific vertical and optionally model"""
-    query = {"vertical": vertical}
+    # Build query to find bidso_skus
+    vertical_doc = await db.verticals.find_one({"name": vertical}, {"_id": 0, "id": 1})
+    if not vertical_doc:
+        return {"brands": []}
+    
+    bidso_query = {"vertical_id": vertical_doc["id"]}
+    
     if model:
-        query["model"] = model
-    skus = await db.skus.find(query, {"_id": 0, "brand": 1}).to_list(10000)
-    brands = sorted(list(set(s.get('brand', '') for s in skus if s.get('brand'))))
+        model_doc = await db.models.find_one({"name": model}, {"_id": 0, "id": 1})
+        if model_doc:
+            bidso_query["model_id"] = model_doc["id"]
+    
+    # Get bidso_sku_ids matching the criteria
+    bidso_skus = await db.bidso_skus.find(bidso_query, {"_id": 0, "bidso_sku_id": 1}).to_list(5000)
+    bidso_ids = [b["bidso_sku_id"] for b in bidso_skus]
+    
+    if not bidso_ids:
+        return {"brands": []}
+    
+    # Get brand_ids from buyer_skus linked to these bidso_skus
+    buyer_skus = await db.buyer_skus.find(
+        {"bidso_sku_id": {"$in": bidso_ids}},
+        {"_id": 0, "brand_id": 1}
+    ).to_list(10000)
+    
+    brand_ids = list(set(b["brand_id"] for b in buyer_skus if b.get("brand_id")))
+    
+    # Get brand names
+    brands_docs = await db.brands.find(
+        {"id": {"$in": brand_ids}},
+        {"_id": 0, "name": 1}
+    ).to_list(200)
+    
+    brands = sorted([b["name"] for b in brands_docs if b.get("name")])
     return {"brands": brands}
 
 
 @router.get("/skus/unmapped")
 async def get_skus_without_rm_mapping():
     """Get SKUs that don't have RM mappings"""
-    all_skus = await db.skus.find({"status": {"$ne": "INACTIVE"}}, {"sku_id": 1, "_id": 0}).to_list(10000)
+    all_buyer_skus = await db.buyer_skus.find(
+        {"status": {"$ne": "INACTIVE"}},
+        {"buyer_sku_id": 1, "_id": 0}
+    ).to_list(10000)
     
     # Get all mapped SKUs
     mappings = await db.sku_mappings.find({}, {"sku_id": 1, "_id": 0}).to_list(10000)
@@ -122,7 +177,7 @@ async def get_skus_without_rm_mapping():
     
     mapped_ids = set(m["sku_id"] for m in mappings) | set(m["sku_id"] for m in bom_mappings)
     
-    unmapped = [s["sku_id"] for s in all_skus if s["sku_id"] not in mapped_ids]
+    unmapped = [s["buyer_sku_id"] for s in all_buyer_skus if s["buyer_sku_id"] not in mapped_ids]
     
     return {
         "total": len(unmapped),
@@ -133,7 +188,7 @@ async def get_skus_without_rm_mapping():
 @router.post("/skus/activate")
 async def activate_sku_in_branch(request: ActivateItemRequest):
     """Activate an SKU in a specific branch - also activates all mapped RMs"""
-    sku = await db.skus.find_one({"sku_id": request.item_id}, {"_id": 0})
+    sku = await get_sku_by_buyer_id(request.item_id)
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     
@@ -200,25 +255,31 @@ async def activate_sku_in_branch(request: ActivateItemRequest):
 @require_permission("BuyerSKU", "UPDATE")
 async def update_sku(sku_id: str, input: SKUCreate, current_user: User = Depends(get_current_user)):
     """Update an existing SKU (MASTER_ADMIN, DEMAND_PLANNER, TECH_OPS_ENGINEER)"""
-    existing = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    existing = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="SKU not found")
     
-    update_data = input.model_dump()
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    update_data["updated_by"] = current_user.id
+    update_data = {
+        "name": input.description,
+        "description": input.description,
+        "bidso_sku_id": input.bidso_sku,
+        "brand_id": input.brand_id,
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": current_user.id
+    }
     
-    await db.skus.update_one({"sku_id": sku_id}, {"$set": update_data})
+    await db.buyer_skus.update_one({"buyer_sku_id": sku_id}, {"$set": update_data})
     
-    updated = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
-    return SKU(**updated)
+    # Return in legacy format
+    sku = await get_sku_by_buyer_id(sku_id)
+    return SKU(**sku)
 
 
 @router.delete("/skus/{sku_id}")
 @require_permission("BuyerSKU", "DELETE")
 async def delete_sku(sku_id: str, current_user: User = Depends(get_current_user)):
     """Delete an SKU (MASTER_ADMIN, DEMAND_PLANNER with constraints)"""
-    result = await db.skus.delete_one({"sku_id": sku_id})
+    result = await db.buyer_skus.delete_one({"buyer_sku_id": sku_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="SKU not found")
     return {"message": f"SKU {sku_id} deleted"}
@@ -229,8 +290,8 @@ async def delete_sku(sku_id: str, current_user: User = Depends(get_current_user)
 @router.post("/sku-mappings", response_model=SKUMapping)
 async def create_sku_mapping(input: SKUMappingCreate):
     """Create SKU to RM mapping"""
-    # Verify SKU exists
-    sku = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
+    # Verify SKU exists using new model
+    sku = await get_sku_by_buyer_id(input.sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {input.sku_id} not found")
     
@@ -636,11 +697,8 @@ async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: st
             
             sku_id = str(row[0]).strip()
             
-            # Check if SKU exists (by buyer_sku_id or sku_id)
-            sku = await db.skus.find_one(
-                {"$or": [{"buyer_sku_id": sku_id}, {"sku_id": sku_id}]},
-                {"_id": 0}
-            )
+            # Check if SKU exists using new model
+            sku = await get_sku_by_buyer_id(sku_id)
             
             if not sku:
                 not_found.append(sku_id)
@@ -701,10 +759,14 @@ async def get_sku_branch_assignments(branch: Optional[str] = None):
     
     assignments = await db.sku_branch_assignments.find(query, {"_id": 0}).to_list(5000)
     
-    # Enrich with SKU details
+    # Enrich with SKU details using SKU service
+    sku_ids = [a['sku_id'] for a in assignments]
+    skus_list = await get_skus_by_buyer_ids(sku_ids)
+    skus_map = {s['sku_id']: s for s in skus_list}
+    
     result = []
     for a in assignments:
-        sku = await db.skus.find_one({"sku_id": a['sku_id']}, {"_id": 0})
+        sku = skus_map.get(a['sku_id'])
         if sku:
             result.append({
                 **serialize_doc(a),
@@ -739,17 +801,38 @@ async def bulk_subscribe_skus(
     if not vertical and not model:
         raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
     
-    # Build query for matching SKUs
-    query = {}
+    # Build query for matching SKUs using new model
+    # Need to find via bidso_skus since vertical/model are there
+    bidso_query = {}
     if vertical:
-        query["vertical"] = vertical
+        vertical_doc = await db.verticals.find_one({"name": vertical}, {"_id": 0, "id": 1})
+        if vertical_doc:
+            bidso_query["vertical_id"] = vertical_doc["id"]
     if model:
-        query["model"] = model
+        model_doc = await db.models.find_one({"name": model}, {"_id": 0, "id": 1})
+        if model_doc:
+            bidso_query["model_id"] = model_doc["id"]
     
-    # Find all matching SKUs
-    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
+    # Find matching bidso_skus
+    bidso_skus = await db.bidso_skus.find(bidso_query, {"_id": 0, "bidso_sku_id": 1}).to_list(5000)
+    bidso_ids = [b["bidso_sku_id"] for b in bidso_skus]
     
-    if not matching_skus:
+    if not bidso_ids:
+        return {
+            "assigned": 0,
+            "skipped": 0,
+            "total_matching": 0,
+            "rms_activated": 0,
+            "message": "No SKUs found matching the criteria"
+        }
+    
+    # Find buyer_skus linked to these bidso_skus
+    matching_buyer_skus = await db.buyer_skus.find(
+        {"bidso_sku_id": {"$in": bidso_ids}},
+        {"_id": 0, "buyer_sku_id": 1}
+    ).to_list(10000)
+    
+    if not matching_buyer_skus:
         return {
             "assigned": 0,
             "skipped": 0,
@@ -762,8 +845,8 @@ async def bulk_subscribe_skus(
     skipped_count = 0
     total_rms_activated = 0
     
-    for sku in matching_skus:
-        sku_id = sku['sku_id']
+    for sku in matching_buyer_skus:
+        sku_id = sku['buyer_sku_id']
         
         # Check if already assigned
         existing = await db.sku_branch_assignments.find_one(
@@ -820,16 +903,30 @@ async def bulk_unsubscribe_skus(
     if not vertical and not model:
         raise HTTPException(status_code=400, detail="At least vertical or model must be specified")
     
-    # Build query for matching SKUs
-    query = {}
+    # Build query for matching SKUs using new model
+    bidso_query = {}
     if vertical:
-        query["vertical"] = vertical
+        vertical_doc = await db.verticals.find_one({"name": vertical}, {"_id": 0, "id": 1})
+        if vertical_doc:
+            bidso_query["vertical_id"] = vertical_doc["id"]
     if model:
-        query["model"] = model
+        model_doc = await db.models.find_one({"name": model}, {"_id": 0, "id": 1})
+        if model_doc:
+            bidso_query["model_id"] = model_doc["id"]
     
-    # Find all matching SKUs
-    matching_skus = await db.skus.find(query, {"_id": 0, "sku_id": 1}).to_list(10000)
-    sku_ids = [s['sku_id'] for s in matching_skus]
+    # Find matching bidso_skus
+    bidso_skus = await db.bidso_skus.find(bidso_query, {"_id": 0, "bidso_sku_id": 1}).to_list(5000)
+    bidso_ids = [b["bidso_sku_id"] for b in bidso_skus]
+    
+    if not bidso_ids:
+        return {"removed": 0, "message": "No matching SKUs found"}
+    
+    # Find buyer_skus linked to these bidso_skus
+    matching_buyer_skus = await db.buyer_skus.find(
+        {"bidso_sku_id": {"$in": bidso_ids}},
+        {"_id": 0, "buyer_sku_id": 1}
+    ).to_list(10000)
+    sku_ids = [s['buyer_sku_id'] for s in matching_buyer_skus]
     
     if not sku_ids:
         return {"removed": 0, "message": "No matching SKUs found"}
