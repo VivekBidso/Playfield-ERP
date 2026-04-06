@@ -371,7 +371,7 @@ async def download_daily_capacity_template():
     ws.title = "Daily Capacity"
     
     # Headers
-    headers = ["Branch ID", "Date (YYYY-MM-DD)", "Capacity"]
+    headers = ["Branch ID", "Date (DD-MM-YYYY)", "Capacity"]
     header_fill = PatternFill(start_color="FF6B35", end_color="FF6B35", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -395,7 +395,7 @@ async def download_daily_capacity_template():
     today = datetime.now(timezone.utc)
     for b in branches[:3]:  # First 3 branches as samples
         for i in range(7):  # Next 7 days
-            date_str = (today + timedelta(days=i)).strftime("%Y-%m-%d")
+            date_str = (today + timedelta(days=i)).strftime("%d-%m-%Y")
             ws.cell(row=row, column=1, value=b.get("branch_id", "BR_001"))
             ws.cell(row=row, column=2, value=date_str)
             ws.cell(row=row, column=3, value=b.get("capacity_units_per_day", 100))
@@ -450,7 +450,7 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
     # Map columns
     col_map = {}
     branch_opts = ["branch_id", "branch", "branch_name", "unit", "unit_name"]
-    date_opts = ["date", "date_yyyy_mm_dd", "yyyy_mm_dd"]
+    date_opts = ["date", "date_dd_mm_yyyy", "date_yyyy_mm_dd", "yyyy_mm_dd"]
     capacity_opts = ["capacity", "capacity_qty", "qty", "units"]
     
     for opt in branch_opts:
@@ -487,19 +487,25 @@ async def upload_daily_capacity_excel(file: UploadFile = File(...)):
             # Resolve branch ID to name
             branch_name = branch_id_to_name.get(branch_value) or branch_name_to_name.get(branch_value)
             
-            # Parse date
+            # Parse date - supports DD-MM-YYYY (primary) and other formats
             if isinstance(date_val, str):
                 date_str = date_val.strip()
-                # Try to validate format
                 try:
-                    datetime.strptime(date_str, "%Y-%m-%d")
-                except:
-                    # Try parsing as datetime
-                    parsed = pd.to_datetime(date_val)
+                    # Try DD-MM-YYYY first (primary format)
+                    parsed = datetime.strptime(date_str, "%d-%m-%Y")
                     date_str = parsed.strftime("%Y-%m-%d")
+                except:
+                    try:
+                        # Fallback to YYYY-MM-DD
+                        datetime.strptime(date_str, "%Y-%m-%d")
+                        # Already in correct format
+                    except:
+                        # Try pandas auto-detection with dayfirst
+                        parsed = pd.to_datetime(date_val, dayfirst=True)
+                        date_str = parsed.strftime("%Y-%m-%d")
             else:
                 # It's a datetime object from pandas
-                date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
+                date_str = pd.to_datetime(date_val, dayfirst=True).strftime("%Y-%m-%d")
             
             # Validate branch
             if not branch_name:
@@ -1766,7 +1772,7 @@ async def download_production_plan_template():
     ws.title = "Production Plan"
     
     # Headers - Simplified: Branch ID | Date | Buyer SKU ID | Quantity
-    headers = ["Branch ID", "Date (YYYY-MM-DD)", "Buyer SKU ID", "Quantity"]
+    headers = ["Branch ID", "Date (DD-MM-YYYY)", "Buyer SKU ID", "Quantity"]
     header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -1792,7 +1798,7 @@ async def download_production_plan_template():
     
     # Add sample rows
     row = 2
-    sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%d-%m-%Y")
     for sku in buyer_skus[:5]:
         ws.cell(row=row, column=1, value=branches[0].get("branch_id", "BR_001") if branches else "BR_001")
         ws.cell(row=row, column=2, value=sample_date)
@@ -1881,7 +1887,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     # Map columns - new simplified format
     col_map = {}
     branch_opts = ["branch_id", "branch", "branch_name", "unit"]
-    date_opts = ["date", "target_date", "date_yyyy_mm_dd"]
+    date_opts = ["date", "target_date", "date_dd_mm_yyyy", "date_yyyy_mm_dd"]
     sku_opts = ["buyer_sku_id", "sku_id", "sku", "buyer_sku"]
     qty_opts = ["quantity", "qty", "plan_qty"]
     
@@ -1941,15 +1947,21 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
             sku_id = str(row[col_map["sku"]]).strip()
             qty = int(row[col_map["qty"]])
             
-            # Parse date
+            # Parse date - supports DD-MM-YYYY (primary) and other formats
             if isinstance(date_val, str):
                 date_str = date_val.strip()
                 try:
-                    target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    # Try DD-MM-YYYY first (primary format)
+                    target_date = datetime.strptime(date_str, "%d-%m-%Y").replace(tzinfo=timezone.utc)
                 except:
-                    target_date = pd.to_datetime(date_val).to_pydatetime().replace(tzinfo=timezone.utc)
+                    try:
+                        # Fallback to YYYY-MM-DD
+                        target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    except:
+                        # Fallback to pandas auto-detection
+                        target_date = pd.to_datetime(date_val, dayfirst=True).to_pydatetime().replace(tzinfo=timezone.utc)
             else:
-                target_date = pd.to_datetime(date_val).to_pydatetime().replace(tzinfo=timezone.utc)
+                target_date = pd.to_datetime(date_val, dayfirst=True).to_pydatetime().replace(tzinfo=timezone.utc)
             
             date_str = target_date.strftime("%Y-%m-%d")
             
