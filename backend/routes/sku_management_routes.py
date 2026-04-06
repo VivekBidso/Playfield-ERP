@@ -1241,8 +1241,8 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                         results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
                         continue
                     common_items.append({
-                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                        "rm_name": rm["name"],
+                        "rm_id": rm.get("rm_id", item["rm_id"]),
+                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
@@ -1261,8 +1261,8 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                         results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
                         continue
                     brand_items.append({
-                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                        "rm_name": rm["name"],
+                        "rm_id": rm.get("rm_id", item["rm_id"]),
+                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
@@ -1394,8 +1394,8 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                         results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
                         continue
                     valid_items.append({
-                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                        "rm_name": rm["name"],
+                        "rm_id": rm.get("rm_id", item["rm_id"]),
+                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
