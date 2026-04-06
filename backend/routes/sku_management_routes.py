@@ -1458,7 +1458,10 @@ async def download_bom_template():
 
 
 @router.post("/bom/bulk-upload")
-async def bulk_upload_bom(file: UploadFile = File(...)):
+async def bulk_upload_bom(
+    file: UploadFile = File(...),
+    mode: str = Query(default="merge", description="'merge' to add/update items, 'overwrite' to replace entire BOM")
+):
     """
     Bulk upload BOM data from Excel.
     
@@ -1467,9 +1470,17 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
     
     Only requires: BUYER_SKU_ID, RM_ID, QUANTITY
     RM names are NOT required - only RM ID is used for mapping.
+    
+    Modes:
+    - 'merge' (default): Add new items and update existing quantities. Existing items not in upload are kept.
+    - 'overwrite': Replace the entire BOM with uploaded items. Existing items not in upload are removed.
     """
     import openpyxl
     import traceback
+    
+    # Validate mode
+    if mode not in ["merge", "overwrite"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'merge' or 'overwrite'")
     
     try:
         content = await file.read()
@@ -1482,6 +1493,7 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
         "bidso_sku_processed": 0,
         "common_bom_updated": 0,
         "brand_bom_updated": 0,
+        "mode": mode,
         "errors": [],
         "warnings": [],
         "success": True
@@ -1632,23 +1644,30 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                         results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped common items")
                     else:
                         if existing_common:
-                            # Merge items - add new RMs, update existing quantities
-                            existing_rm_ids = {item["rm_id"] for item in existing_common.get("items", [])}
-                            merged_items = list(existing_common.get("items", []))
-                            for item in common_items:
-                                if item["rm_id"] not in existing_rm_ids:
-                                    merged_items.append(item)
-                                else:
-                                    # Update quantity
-                                    for i, ei in enumerate(merged_items):
-                                        if ei["rm_id"] == item["rm_id"]:
-                                            merged_items[i] = item
-                                            break
-                            
-                            await db.common_bom.update_one(
-                                {"bidso_sku_id": bidso_sku_id},
-                                {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
-                            )
+                            if mode == "overwrite":
+                                # Overwrite mode: Replace entire BOM with uploaded items
+                                await db.common_bom.update_one(
+                                    {"bidso_sku_id": bidso_sku_id},
+                                    {"$set": {"items": common_items, "updated_at": datetime.now(timezone.utc)}}
+                                )
+                            else:
+                                # Merge mode: Add new RMs, update existing quantities
+                                existing_rm_ids = {item["rm_id"] for item in existing_common.get("items", [])}
+                                merged_items = list(existing_common.get("items", []))
+                                for item in common_items:
+                                    if item["rm_id"] not in existing_rm_ids:
+                                        merged_items.append(item)
+                                    else:
+                                        # Update quantity
+                                        for i, ei in enumerate(merged_items):
+                                            if ei["rm_id"] == item["rm_id"]:
+                                                merged_items[i] = item
+                                                break
+                                
+                                await db.common_bom.update_one(
+                                    {"bidso_sku_id": bidso_sku_id},
+                                    {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                                )
                         else:
                             await db.common_bom.insert_one({
                                 "id": str(uuid.uuid4()),
@@ -1667,22 +1686,29 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                     })
                     
                     if existing_brand:
-                        # Merge items
-                        existing_rm_ids = {item["rm_id"] for item in existing_brand.get("items", [])}
-                        merged_items = list(existing_brand.get("items", []))
-                        for item in brand_items:
-                            if item["rm_id"] not in existing_rm_ids:
-                                merged_items.append(item)
-                            else:
-                                for i, ei in enumerate(merged_items):
-                                    if ei["rm_id"] == item["rm_id"]:
-                                        merged_items[i] = item
-                                        break
-                        
-                        await db.brand_specific_bom.update_one(
-                            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
-                            {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
-                        )
+                        if mode == "overwrite":
+                            # Overwrite mode: Replace entire brand BOM with uploaded items
+                            await db.brand_specific_bom.update_one(
+                                {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+                                {"$set": {"items": brand_items, "updated_at": datetime.now(timezone.utc)}}
+                            )
+                        else:
+                            # Merge mode: Add new RMs, update existing quantities
+                            existing_rm_ids = {item["rm_id"] for item in existing_brand.get("items", [])}
+                            merged_items = list(existing_brand.get("items", []))
+                            for item in brand_items:
+                                if item["rm_id"] not in existing_rm_ids:
+                                    merged_items.append(item)
+                                else:
+                                    for i, ei in enumerate(merged_items):
+                                        if ei["rm_id"] == item["rm_id"]:
+                                            merged_items[i] = item
+                                            break
+                            
+                            await db.brand_specific_bom.update_one(
+                                {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+                                {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                            )
                     else:
                         await db.brand_specific_bom.insert_one({
                             "id": str(uuid.uuid4()),
@@ -1762,22 +1788,29 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                 
                 # Update or create Common BOM
                 if existing:
-                    # Merge
-                    existing_rm_ids = {item["rm_id"] for item in existing.get("items", [])}
-                    merged_items = list(existing.get("items", []))
-                    for item in valid_items:
-                        if item["rm_id"] not in existing_rm_ids:
-                            merged_items.append(item)
-                        else:
-                            for i, ei in enumerate(merged_items):
-                                if ei["rm_id"] == item["rm_id"]:
-                                    merged_items[i] = item
-                                    break
-                    
-                    await db.common_bom.update_one(
-                        {"bidso_sku_id": bidso_sku_id},
-                        {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
-                    )
+                    if mode == "overwrite":
+                        # Overwrite mode: Replace entire BOM
+                        await db.common_bom.update_one(
+                            {"bidso_sku_id": bidso_sku_id},
+                            {"$set": {"items": valid_items, "updated_at": datetime.now(timezone.utc)}}
+                        )
+                    else:
+                        # Merge mode
+                        existing_rm_ids = {item["rm_id"] for item in existing.get("items", [])}
+                        merged_items = list(existing.get("items", []))
+                        for item in valid_items:
+                            if item["rm_id"] not in existing_rm_ids:
+                                merged_items.append(item)
+                            else:
+                                for i, ei in enumerate(merged_items):
+                                    if ei["rm_id"] == item["rm_id"]:
+                                        merged_items[i] = item
+                                        break
+                        
+                        await db.common_bom.update_one(
+                            {"bidso_sku_id": bidso_sku_id},
+                            {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                        )
                 else:
                     await db.common_bom.insert_one({
                         "id": str(uuid.uuid4()),

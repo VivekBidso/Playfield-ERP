@@ -128,6 +128,7 @@ const SKUManagement = () => {
   const [showBOMUploadDialog, setShowBOMUploadDialog] = useState(false);
   const [bomUploadLoading, setBomUploadLoading] = useState(false);
   const [bomUploadResult, setBomUploadResult] = useState(null);
+  const [bomUploadMode, setBomUploadMode] = useState("merge");
   const bomFileInputRef = useRef(null);
 
   // Bulk SKU Import
@@ -643,7 +644,7 @@ const SKUManagement = () => {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await axios.post(`${API}/sku-management/bom/bulk-upload`, formData, {
+      const response = await axios.post(`${API}/sku-management/bom/bulk-upload?mode=${bomUploadMode}`, formData, {
         headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' }
       });
       
@@ -655,7 +656,8 @@ const SKUManagement = () => {
       } else if (response.data.errors?.length > 0) {
         toast.warning(`BOM upload completed with ${response.data.errors.length} errors`);
       } else {
-        toast.success('BOM upload completed successfully');
+        const modeLabel = bomUploadMode === 'overwrite' ? 'replaced' : 'merged';
+        toast.success(`BOM upload completed - items ${modeLabel} successfully`);
       }
       
       fetchBidsoSKUs();
@@ -1869,6 +1871,47 @@ const SKUManagement = () => {
                 • Items marked <strong>NOT brand-specific</strong> → Common BOM (Bidso SKU)<br/>
                 • Items marked <strong>brand-specific</strong> → Brand-specific BOM
               </p>
+              
+              {/* Mode Selection */}
+              <div className="mb-3 p-3 bg-white rounded border">
+                <Label className="text-sm font-medium mb-2 block">Upload Mode:</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="bomUploadMode"
+                      value="merge"
+                      checked={bomUploadMode === "merge"}
+                      onChange={() => setBomUploadMode("merge")}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">
+                      <strong>Merge</strong>
+                      <span className="text-gray-500 ml-1">(Add new items, update existing)</span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="bomUploadMode"
+                      value="overwrite"
+                      checked={bomUploadMode === "overwrite"}
+                      onChange={() => setBomUploadMode("overwrite")}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm">
+                      <strong>Overwrite</strong>
+                      <span className="text-gray-500 ml-1">(Replace entire BOM)</span>
+                    </span>
+                  </label>
+                </div>
+                {bomUploadMode === "overwrite" && (
+                  <p className="text-xs text-orange-600 mt-2">
+                    ⚠️ Overwrite mode will completely replace existing BOM items with uploaded data.
+                  </p>
+                )}
+              </div>
+              
               <input
                 type="file"
                 accept=".xlsx,.xls"
