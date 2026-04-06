@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "KS",
+    "name": "Scooter",
+    "description": "Kid scooters",
+    "status": "ACTIVE",
+    "created_at": "2026-03-14T16:23:36.192000"
+  },
+  {
+    "id": "8e3645f4-9e7b-4dc4-8ad4-4abca1ff88de",
+    "code": "EV",
+    "name": "Electric Rideon",
+    "description": "Electric Battery operated Ride Ons",
+    "status": "ACTIVE",
+    "created_at": "2026-03-14T16:43:24.272000"
+  },
+  {
+    "id": "4680b58f-652d-4563-b021-5694319384d7",
+    "code": "SC",
+    "name": "Rideon",
+    "description": "Swing Cars",
+    "status": "ACTIVE",
+    "created_at": "2026-03-14T16:43:24.272000"
+  },
+  {
+    "id": "5decac66-5843-49c0-b9e1-f3004c392812",
+    "code": "SH",
+    "name": "Shakers",
+    "description": "Protein Shakers",
+    "status": "ACTIVE",
+    "created_at": "2026-03-14T16:43:24.273000"
+  },
+  {
+    "id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "KTC",
+    "name": "Tricycle",
+    "description": "Kids Tricycles",
+    "status": "ACTIVE",
+    "created_at": "2026-03-14T16:43:24.274000"
+  },
+  {
+    "id": "7ced5e26-2419-4be6-8f19-d4051d6c51e3",
+    "code": "PR",
+    "name": "Push Rideon",
+    "description": "Push Rideons",
+    "status": "ACTIVE",
+    "created_at": "2026-03-15T09:10:08.777000"
+  }
+]

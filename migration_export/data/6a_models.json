@@ -1,0 +1,218 @@
+[
+  {
+    "id": "9e4a819e-a58a-46fa-8045-71d8e4234646",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "BE",
+    "name": "Blaze",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "0ea1f225-dbde-486f-a31b-bb6f5e4274d4",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "BT",
+    "name": "Bolt",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "6a83bda7-295e-40ec-a46e-ded88b3b512e",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "PE",
+    "name": "Pulse",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "736ee72b-f2cf-4468-8f3d-f4c66b17aa3d",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "SN",
+    "name": "Spartan",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "0157ab8c-4145-4030-a322-b735f47d5415",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "SN_TY",
+    "name": "Sparatan Teddy",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "b14e4875-f19b-4fbe-9dd6-a29af1f8a90d",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "SN_LS",
+    "name": "Spartan Light&Sound",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "efa6377e-d5eb-431f-b309-683963b9eda8",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "TA",
+    "name": "Tesla",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.910000"
+  },
+  {
+    "id": "19e4876f-9136-4c60-a8ec-e688129ddf97",
+    "vertical_id": "ead95105-111e-46ab-b00a-56d851902914",
+    "code": "PL+",
+    "name": "Pulse+",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "ab22a76f-e05e-444b-a7ce-be667258e54a",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "CR_B",
+    "name": "Candor Basic",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "666f3685-de90-4028-a36e-14ce81a8adf0",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "CR_S",
+    "name": "Candor Safety",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "0caccd2a-fb63-4a63-ab1f-40314c28eb3a",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "CR_C",
+    "name": "Candor Canopy",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "541dd52f-b777-40a0-958f-fc09906c7ac3",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "PX_B",
+    "name": "Pixi Basic",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "2eb5e24d-24e0-44ab-9bbe-95c6680e401f",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "PX_S",
+    "name": "Pixi Safety",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "8f76484e-963d-4309-9dd3-c98efa853e85",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "PX_C",
+    "name": "Pixi Canopy",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "8374cdb5-6992-43ca-89ae-9031294f5d0b",
+    "vertical_id": "bf3a8c1c-0f66-4c44-b299-055aaaa20cbd",
+    "code": "NC_C",
+    "name": "Nicole Canopy",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "e946038a-5570-4965-8955-2012f64b8a09",
+    "vertical_id": "4680b58f-652d-4563-b021-5694319384d7",
+    "code": "BN",
+    "name": "Bentley",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "c7183295-0788-4b2d-87fc-17be880e25d0",
+    "vertical_id": "4680b58f-652d-4563-b021-5694319384d7",
+    "code": "BNLS",
+    "name": "Bentley Light & Sound",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "0d486460-7751-487b-a5f9-2dc022d1b5df",
+    "vertical_id": "7ced5e26-2419-4be6-8f19-d4051d6c51e3",
+    "code": "BY",
+    "name": "Baby Bunny",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "fa35fd05-84bc-496d-ac7b-e0bbda2b5606",
+    "vertical_id": "7ced5e26-2419-4be6-8f19-d4051d6c51e3",
+    "code": "BYLS",
+    "name": "Baby Bunny Light & Sound",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "079337fe-3a08-4385-a5ef-50678d335e0f",
+    "vertical_id": "4680b58f-652d-4563-b021-5694319384d7",
+    "code": "WVLS",
+    "name": "Wave Light & Sound",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "12d1dba4-8dca-4766-ab3d-70e2745e74db",
+    "vertical_id": "4680b58f-652d-4563-b021-5694319384d7",
+    "code": "BNLS4",
+    "name": "Bentley Light & Sound Pack of 4",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "367d2ae4-91bb-41e7-a1eb-b29259a1a682",
+    "vertical_id": "5decac66-5843-49c0-b9e1-f3004c392812",
+    "code": "SP",
+    "name": "Spring",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "d3a1c3bb-5400-46df-8ad3-f4b941cd3620",
+    "vertical_id": "9e8e4c11-5918-4071-8ad6-87444f9700a1",
+    "code": "SK",
+    "name": "E-Spark",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  },
+  {
+    "id": "e987ab85-53ee-472d-ab74-3f351c7caf62",
+    "vertical_id": "7ced5e26-2419-4be6-8f19-d4051d6c51e3",
+    "code": "BPLS",
+    "name": "Baby Panda Light & Sound",
+    "description": "",
+    "status": "ACTIVE",
+    "created_at": "2026-03-16T05:07:20.911000"
+  }
+]

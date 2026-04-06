@@ -1,0 +1,128 @@
+[
+  {
+    "id": "c0f9bb18-03d6-4748-b7c4-bb14003cc37a",
+    "code": "BE",
+    "name": "Baybee",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "1693c84b-a002-4719-8897-be7178561b8e",
+    "code": "FK",
+    "name": "Flipkart",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "4234ac52-aef2-469e-ab13-6516b3cee35e",
+    "code": "BR",
+    "name": "Brooks",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "7c634a94-fbf2-4bd8-9ad4-0962c1573c9f",
+    "code": "FC",
+    "name": "Firstcry",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "4d961574-076f-43aa-80aa-5f08342bde26",
+    "code": "WM",
+    "name": "Winmore",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "543e0775-e513-45a1-a199-ef9bfc643122",
+    "code": "LL",
+    "name": "Lifelong",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "f4def6f8-bcde-4a80-b30b-5a383aa902e9",
+    "code": "CC",
+    "name": "Cockatoo",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "49e8b162-3520-4331-8010-d2372a7b15b0",
+    "code": "KM",
+    "name": "Kidsmate",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "9a7380a9-4de0-4fd0-8a57-927b692adcd5",
+    "code": "TB",
+    "name": "TruBikes",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "ed203b21-b6ec-4b10-9291-567f0ab84a63",
+    "code": "SD",
+    "name": "Star & Daisy",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "9e8e6c4a-61ff-4076-b595-f8749aeb4e30",
+    "code": "AD",
+    "name": "Aditi Toys",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "31dd842f-69e4-488c-887a-71fdc6180eae",
+    "code": "VV",
+    "name": "VeeVee",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "f555b5e4-a169-42bf-ace7-48f584839644",
+    "code": "BF",
+    "name": "Boldfit",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "58aac1cc-e3d0-4b34-b8ef-856b7b438441",
+    "code": "GE",
+    "name": "Generic",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "eadd8b60-6f0a-4fe2-bcfe-58f35aa4df49",
+    "code": "CK",
+    "name": "Chanak",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "3343523b-5311-49b4-bf33-9fc4518bcf9a",
+    "code": "OW",
+    "name": "One World Ventures",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "930b94bc-0de9-46c7-af6f-7a2746387c80",
+    "code": "RM",
+    "name": "Real Marketing",
+    "status": "ACTIVE",
+    "buyer_id": null
+  },
+  {
+    "id": "57c2a42f-607a-4f02-bd3c-af08db3aea7a",
+    "code": "KB",
+    "name": "Kamal Baby",
+    "status": "ACTIVE",
+    "buyer_id": null
+  }
+]

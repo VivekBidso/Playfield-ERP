@@ -1,0 +1,1820 @@
+[
+  {
+    "id": "72e895dd-9d00-4713-98e0-5c2025560e1c",
+    "sku_id": "GE_KS_BE_P_203_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.535497+00:00"
+  },
+  {
+    "id": "0f19452a-00e1-417e-8d11-e0b4434d9985",
+    "sku_id": "GE_KS_BE_P_204_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.536950+00:00"
+  },
+  {
+    "id": "ac9ba251-06dc-44df-8014-ae0fc3607f05",
+    "sku_id": "GE_KS_BE_P_205_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.538303+00:00"
+  },
+  {
+    "id": "e4d07572-fec7-4c5d-a5dd-885f017c7fbe",
+    "sku_id": "GE_KS_BE_P_206_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.539567+00:00"
+  },
+  {
+    "id": "af1b0903-d25b-40b8-8886-3f6de9df6a1c",
+    "sku_id": "GE_KS_SR_199_NS",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.540422+00:00"
+  },
+  {
+    "id": "9cd7f4f7-d280-4e64-91e5-a4ddd4aa3d6b",
+    "sku_id": "GE_KS_SR_200_NS",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.541643+00:00"
+  },
+  {
+    "id": "35426c5b-6c98-4734-a234-06286eda1fba",
+    "sku_id": "GE_KS_SR_201_NS",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.542822+00:00"
+  },
+  {
+    "id": "7307ae05-520f-4d72-b987-0de1a012eb94",
+    "sku_id": "GE_KS_SR_202_NS",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.544192+00:00"
+  },
+  {
+    "id": "8b7e55cc-fd6c-4b50-a7b4-a16713501edb",
+    "sku_id": "WM_KS_SR_JP_191",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.545542+00:00"
+  },
+  {
+    "id": "a648b154-d9ff-45e1-a177-1e2a17f4b414",
+    "sku_id": "WM_KS_SR_JP_193",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.546756+00:00"
+  },
+  {
+    "id": "2a440ac5-8be5-4271-9e79-22bb85e13eb8",
+    "sku_id": "WM_KS_SR_JP_195",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.548065+00:00"
+  },
+  {
+    "id": "3c73e3b0-dfcb-4536-a0ce-da0b5166a32e",
+    "sku_id": "WM_KS_SR_JP_197",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.549415+00:00"
+  },
+  {
+    "id": "7ae13413-e0ff-4ccc-9637-7b4e61e30b21",
+    "sku_id": "WM_KS_TA_207",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.551810+00:00"
+  },
+  {
+    "id": "b50fa8e6-666a-4397-afec-e8ec834780da",
+    "sku_id": "FC_KS_BE_208",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.553091+00:00"
+  },
+  {
+    "id": "fd76b217-2d94-442a-b96e-bee65836a6ad",
+    "sku_id": "FC_KS_BE_209",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.554282+00:00"
+  },
+  {
+    "id": "34c1821e-fe82-44d5-a958-c09e96bde61e",
+    "sku_id": "WM_KS_SR_JP_192",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.555439+00:00"
+  },
+  {
+    "id": "5476774b-48df-49fa-9dba-3527cb73e8d1",
+    "sku_id": "WM_KS_SR_JP_210",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.557275+00:00"
+  },
+  {
+    "id": "6ebbe3e3-b171-4d01-9ac6-faf77a490fda",
+    "sku_id": "CK_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.558561+00:00"
+  },
+  {
+    "id": "481eb129-3cf0-42d4-89e6-00b9fdd2cf2e",
+    "sku_id": "VV_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.559770+00:00"
+  },
+  {
+    "id": "4d67947d-08e0-49de-9c78-c08ba48b83c2",
+    "sku_id": "VV_KS_SN_064",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.560945+00:00"
+  },
+  {
+    "id": "3f225099-bce0-42d8-9c0f-6e7bc3e97e81",
+    "sku_id": "VV_KS_SN_065",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.562379+00:00"
+  },
+  {
+    "id": "3e0164ed-f43c-4b75-924a-2f3059ec2764",
+    "sku_id": "KB_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.563426+00:00"
+  },
+  {
+    "id": "593507c9-b362-4a07-8606-ade329061d8b",
+    "sku_id": "KB_KS_SN_056",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.564277+00:00"
+  },
+  {
+    "id": "0ca5540d-d3ec-4b03-99fe-86bc9907eb69",
+    "sku_id": "KB_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.565263+00:00"
+  },
+  {
+    "id": "6693ceb3-6243-4010-80b5-4ee3390d6ca0",
+    "sku_id": "KB_KS_SN_109",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.566195+00:00"
+  },
+  {
+    "id": "5984fe04-2161-4691-92f6-a0acc0628f10",
+    "sku_id": "KB_KS_SN_110",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.567480+00:00"
+  },
+  {
+    "id": "9348dc20-fd83-4cf3-9975-b6f28f672634",
+    "sku_id": "KB_KS_SN_111",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.568737+00:00"
+  },
+  {
+    "id": "8274423c-0ce0-4b3f-9eed-ee41e4b5dd04",
+    "sku_id": "FK_KS_BE_010_SM",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.584343+00:00"
+  },
+  {
+    "id": "0fa2e3f1-1969-4324-8f4a-8f8bea20aa9c",
+    "sku_id": "FK_KS_BE_012_FH",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.589468+00:00"
+  },
+  {
+    "id": "b8fa7682-71fa-4034-8419-75275205f851",
+    "sku_id": "FK_KS_BE_012_WW",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.590543+00:00"
+  },
+  {
+    "id": "3edbd425-f79b-4f1e-9be7-79fa52a091a1",
+    "sku_id": "FK_KS_BE_018_BM",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.612480+00:00"
+  },
+  {
+    "id": "e624088c-59a3-444d-bdce-8f33abf9e3bb",
+    "sku_id": "FK_KS_BT_078",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.693723+00:00"
+  },
+  {
+    "id": "052ee79f-2160-4ec7-bb5c-6f3c8ba7e029",
+    "sku_id": "WM_KS_PE_067",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.694963+00:00"
+  },
+  {
+    "id": "07e6004f-1fbf-46c5-9b60-ffd4cb4b03a0",
+    "sku_id": "WM_KS_PE_068",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.696230+00:00"
+  },
+  {
+    "id": "4bf8af8f-29dc-4033-a3c3-8a7cd841e84b",
+    "sku_id": "WM_KS_PE_069",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.697466+00:00"
+  },
+  {
+    "id": "5f6bd02f-da3d-402d-9de1-569ef30d5974",
+    "sku_id": "WM_KS_PE_070",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.698721+00:00"
+  },
+  {
+    "id": "f3b2dcd8-7d15-4478-9a57-832a044787ff",
+    "sku_id": "WM_KS_PE_072",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.699963+00:00"
+  },
+  {
+    "id": "81d3152f-721c-4c88-b7b9-66bb1300d2f6",
+    "sku_id": "WM_KS_PE_073",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.701219+00:00"
+  },
+  {
+    "id": "23fd1db7-da72-43ea-a731-4f98ebb535f9",
+    "sku_id": "WM_KS_PE_074",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.702807+00:00"
+  },
+  {
+    "id": "b7b97aad-d3eb-4539-b604-60ce061cf738",
+    "sku_id": "BE_KS_PE_088",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.717038+00:00"
+  },
+  {
+    "id": "a230ed77-51cc-4944-9a56-017cbac21f82",
+    "sku_id": "WM_KS_PE_088",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.718296+00:00"
+  },
+  {
+    "id": "54a95aaa-73da-4a06-8e30-8160a1b22eef",
+    "sku_id": "FK_KS_PL+_120",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.723536+00:00"
+  },
+  {
+    "id": "7267382d-85a0-4225-9815-81a11e6c6853",
+    "sku_id": "FK_KS_PL+_121",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.724421+00:00"
+  },
+  {
+    "id": "97efa78e-87f5-4cfd-bdf3-496ca7940ea3",
+    "sku_id": "FK_KS_PL+_122",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.725553+00:00"
+  },
+  {
+    "id": "600a7457-d5ba-489a-8dda-e303650181d1",
+    "sku_id": "FK_KS_PL+_123",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.726986+00:00"
+  },
+  {
+    "id": "69b79249-3f92-4644-a5e5-2562a18fa4d8",
+    "sku_id": "FK_KS_PL+_124",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.728318+00:00"
+  },
+  {
+    "id": "a0a2e8aa-9f73-47f6-8ffd-dd39f75ed7b0",
+    "sku_id": "WM_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.729713+00:00"
+  },
+  {
+    "id": "86084deb-0d95-4470-8e1a-73ff9efccf48",
+    "sku_id": "CC_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.731194+00:00"
+  },
+  {
+    "id": "ff84819f-70ba-484b-836f-5e2a54aec32e",
+    "sku_id": "VV_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.732622+00:00"
+  },
+  {
+    "id": "eb366df0-b1ca-4f78-b84d-fccef7ff9eac",
+    "sku_id": "BE_KS_SN_053",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.733660+00:00"
+  },
+  {
+    "id": "a1b777c4-4a31-437a-a0a3-c9fc0440a061",
+    "sku_id": "CC_KS_SN_053",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.734648+00:00"
+  },
+  {
+    "id": "58b35d65-1e11-453c-a4b3-b259bf55e053",
+    "sku_id": "CC_KS_SN_054",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.735598+00:00"
+  },
+  {
+    "id": "23271a5c-8475-42da-83ef-3efd71b8f165",
+    "sku_id": "VV_KS_SN_054",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.736497+00:00"
+  },
+  {
+    "id": "097a7a09-b3d1-403d-82fd-8086ac8e6a7d",
+    "sku_id": "FC_KS_SN_054",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.737404+00:00"
+  },
+  {
+    "id": "4177c3c9-e8a0-47f4-a1e1-fe189f5935de",
+    "sku_id": "WM_KS_SN_054",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.738366+00:00"
+  },
+  {
+    "id": "f9d5e243-9c5f-4ea0-be15-b487b77aaa47",
+    "sku_id": "FK_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.739653+00:00"
+  },
+  {
+    "id": "23618f3b-3413-4344-a862-87b0c48fdf46",
+    "sku_id": "FC_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.741209+00:00"
+  },
+  {
+    "id": "38c61e95-e483-4d13-bec3-85fa6a6a88ad",
+    "sku_id": "LL_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.744246+00:00"
+  },
+  {
+    "id": "8366ee5f-ee7a-45dc-be7d-64ae580230c9",
+    "sku_id": "WM_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.745576+00:00"
+  },
+  {
+    "id": "95cfff9f-fbec-4564-9a07-b6a0b465225f",
+    "sku_id": "AD_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.746873+00:00"
+  },
+  {
+    "id": "023b8084-0d6d-4b05-99d7-f6306028acbe",
+    "sku_id": "FK_KS_SN_056",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.748173+00:00"
+  },
+  {
+    "id": "de6edf5b-f8d8-4c0e-b292-d0265c5bebc9",
+    "sku_id": "WM_KS_SN_056",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.749498+00:00"
+  },
+  {
+    "id": "83ad7d3f-47d8-4ef3-a7e5-a957e3e893d6",
+    "sku_id": "AD_KS_SN_056",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.756690+00:00"
+  },
+  {
+    "id": "5377aab0-96c3-4634-96c8-4e689796f0c7",
+    "sku_id": "FK_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.758316+00:00"
+  },
+  {
+    "id": "9f544c33-b695-4a6e-93ce-f3b287ff1aaa",
+    "sku_id": "BE_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.759769+00:00"
+  },
+  {
+    "id": "fe48d193-9481-4e91-b1ab-d1f7516d269b",
+    "sku_id": "LL_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.761574+00:00"
+  },
+  {
+    "id": "f041dc69-ea21-44de-8735-d6d3d2dacc2d",
+    "sku_id": "WM_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.763207+00:00"
+  },
+  {
+    "id": "0c6c253f-0094-4eb9-bc7b-791313207f28",
+    "sku_id": "FK_KS_SN_058",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.764645+00:00"
+  },
+  {
+    "id": "9f2cfb81-71b8-4374-ad69-d384ac224824",
+    "sku_id": "BE_KS_SN_058",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.766442+00:00"
+  },
+  {
+    "id": "2a07e969-98db-4ff5-924f-7b956dd53d2d",
+    "sku_id": "FK_KS_SN_059",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.767985+00:00"
+  },
+  {
+    "id": "371296f1-ef22-4068-9338-81e3c46b2f86",
+    "sku_id": "BE_KS_SN_059",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.769583+00:00"
+  },
+  {
+    "id": "5eccef1b-5f50-4d97-be49-9edf1788d0a4",
+    "sku_id": "FK_KS_SN_061_BM",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.771051+00:00"
+  },
+  {
+    "id": "a37ebbdc-d7b5-439b-989a-9b3b743052f8",
+    "sku_id": "FK_KS_SN_062_BS",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.772410+00:00"
+  },
+  {
+    "id": "7762230e-8842-46de-9385-db077d8399be",
+    "sku_id": "FK_KS_SN_063_TJ",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.773396+00:00"
+  },
+  {
+    "id": "9f7cdd95-1115-4749-a54c-86b976335f80",
+    "sku_id": "FK_KS_SN_064_BM",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.774360+00:00"
+  },
+  {
+    "id": "d8e2a9be-6ee4-414b-9257-5cbdf73fa4a1",
+    "sku_id": "FK_KS_SN_065_SM",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.775286+00:00"
+  },
+  {
+    "id": "c1fb5f41-a91b-457b-80d7-ef5b9ffb8a05",
+    "sku_id": "FK_KS_SN_066_WW",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.776667+00:00"
+  },
+  {
+    "id": "357c91ee-351f-4052-9213-d9f0e7921f62",
+    "sku_id": "BE_KS_SN_091",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.777981+00:00"
+  },
+  {
+    "id": "291d01fc-1e20-4883-82c8-b6cd4c298f10",
+    "sku_id": "BE_KS_SN_108",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.779301+00:00"
+  },
+  {
+    "id": "b1bb88d0-660f-48ad-8149-f8125d8d8257",
+    "sku_id": "WM_KS_SN_108",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.780623+00:00"
+  },
+  {
+    "id": "72d8cce0-dd65-4873-b777-28dbdd457181",
+    "sku_id": "FC_KS_SN_108",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.781945+00:00"
+  },
+  {
+    "id": "d29b6a39-4fe8-4439-8c48-72b1a05dba38",
+    "sku_id": "FC_KS_SN_109",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.783513+00:00"
+  },
+  {
+    "id": "1450a636-bc34-4176-98ee-a015d58ada69",
+    "sku_id": "LL_KS_SN_109",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.784897+00:00"
+  },
+  {
+    "id": "93004441-9dec-4b7b-b38e-709ec1dec731",
+    "sku_id": "BE_KS_SN_109",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.785936+00:00"
+  },
+  {
+    "id": "b2f62cd9-2f35-42b2-93e5-527bf6ab46cc",
+    "sku_id": "BE_KS_SN_110",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.786933+00:00"
+  },
+  {
+    "id": "c2bf3bd0-f0d1-4cac-ae60-e8508178c94b",
+    "sku_id": "VV_KS_SN_110",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.787855+00:00"
+  },
+  {
+    "id": "1b2b85bc-8193-4481-b487-a87c666cecce",
+    "sku_id": "FC_KS_SN_110",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.788774+00:00"
+  },
+  {
+    "id": "8fd1cf5a-9b39-4de1-be22-6f12d22f1dd0",
+    "sku_id": "WM_KS_SN_111",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.790120+00:00"
+  },
+  {
+    "id": "e392620b-2bdd-4304-b8ef-619e7fca21a7",
+    "sku_id": "FC_KS_SN_144",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.791432+00:00"
+  },
+  {
+    "id": "58e8c2a3-0410-4c28-ae6b-a131b8d21b9d",
+    "sku_id": "FK_KS_SN_160_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.792748+00:00"
+  },
+  {
+    "id": "b05e2f39-8aa3-4dd0-a3c8-151fb4a86612",
+    "sku_id": "FK_KS_SN_161_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.794240+00:00"
+  },
+  {
+    "id": "0a265afd-7e6c-4cf5-8fb5-8d9ae4ecd56c",
+    "sku_id": "FK_KS_SN_162_TF",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.795568+00:00"
+  },
+  {
+    "id": "2c5517b9-b439-4103-8657-6933fb000933",
+    "sku_id": "FK_KS_SN_163_MLP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.797023+00:00"
+  },
+  {
+    "id": "f1bd6754-14e8-4c8e-998d-4fc0b0ea380d",
+    "sku_id": "WM_KS_SN_LS_103",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.798478+00:00"
+  },
+  {
+    "id": "6d35ea28-db99-450d-954c-5f54fbb1a8db",
+    "sku_id": "WM_KS_SN_LS_104",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.799838+00:00"
+  },
+  {
+    "id": "2598423a-5953-4d42-97bf-9a8d5889173d",
+    "sku_id": "LL_KS_SN_TY_105",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.801223+00:00"
+  },
+  {
+    "id": "0c56e4d8-5a99-47f8-8272-9ef032b40482",
+    "sku_id": "WM_KS_SN_TY_105",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.802832+00:00"
+  },
+  {
+    "id": "d821d98e-026f-466a-801e-4f18ab137548",
+    "sku_id": "VV_KS_SN_TY_105",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.804253+00:00"
+  },
+  {
+    "id": "a486f058-867f-472b-b41f-883cd361615f",
+    "sku_id": "WM_KS_SN_TY_106",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.805628+00:00"
+  },
+  {
+    "id": "911ea424-7248-4364-b565-dba7109390cf",
+    "sku_id": "VV_KS_SN_TY_106",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.806989+00:00"
+  },
+  {
+    "id": "5b29bcd4-2ccb-4807-ab9b-ad2fad7da786",
+    "sku_id": "WM_KS_SN_TY_107",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.808340+00:00"
+  },
+  {
+    "id": "8fa34c82-794c-442a-ad0e-9a7820ceb0f1",
+    "sku_id": "LL_KS_SN_TY_113",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.809714+00:00"
+  },
+  {
+    "id": "cb630ab3-8181-4174-a624-c02433a67bc6",
+    "sku_id": "VV_KS_SN_TY_113",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.811051+00:00"
+  },
+  {
+    "id": "1c025bda-7370-4a33-9c90-7135f1a3832d",
+    "sku_id": "WM_KS_TA_129",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.823560+00:00"
+  },
+  {
+    "id": "b91dcfb1-28ba-4c7e-9c92-6735891d46f0",
+    "sku_id": "WM_KS_TA_130",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.824921+00:00"
+  },
+  {
+    "id": "bed20d26-9252-4ca6-8fc5-2446f6744fde",
+    "sku_id": "WM_KS_TA_145",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.826385+00:00"
+  },
+  {
+    "id": "2a9c6efc-0495-447d-87b4-4859955b6d29",
+    "sku_id": "WM_KS_TA_146",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.827830+00:00"
+  },
+  {
+    "id": "7f50d720-0a2e-4b25-abf1-e303b0993385",
+    "sku_id": "WM_KS_TA_147",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.829237+00:00"
+  },
+  {
+    "id": "febd92a9-e983-4b12-818a-644d4ad18725",
+    "sku_id": "WM_KS_TA_148",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.830690+00:00"
+  },
+  {
+    "id": "4e85b833-3872-4411-822e-6a38f257e528",
+    "sku_id": "LL_KS_TA_155",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.832046+00:00"
+  },
+  {
+    "id": "e6da0149-3e90-4e66-b65e-a34078776c50",
+    "sku_id": "LL_KS_TA_156",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.833434+00:00"
+  },
+  {
+    "id": "e069b746-2f68-4be1-9253-72e7752a02e6",
+    "sku_id": "WM_KS_SN_059",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.834791+00:00"
+  },
+  {
+    "id": "df3c6499-44f7-4dc5-acf8-39f6f67623a3",
+    "sku_id": "VV_KS_SN_111",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.846821+00:00"
+  },
+  {
+    "id": "a74bf707-6332-4788-81bc-f43ba0f5423d",
+    "sku_id": "BR_KS_SN_LS_140",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.848262+00:00"
+  },
+  {
+    "id": "ed3965ff-32f4-46a5-8d04-03b007858a80",
+    "sku_id": "BR_KS_SN_LS_141",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.849875+00:00"
+  },
+  {
+    "id": "04b18d1a-7ff3-4c23-87a2-b319e2adaf6f",
+    "sku_id": "BR_KS_SN_LS_142",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.852091+00:00"
+  },
+  {
+    "id": "a9e769f0-8ce8-4014-9371-2f01d6b3fc0f",
+    "sku_id": "BR_KS_TA_164",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.854972+00:00"
+  },
+  {
+    "id": "ffbbb2bc-5b9d-44c8-88fa-c9569e964c83",
+    "sku_id": "BR_KS_TA_165",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.856770+00:00"
+  },
+  {
+    "id": "553c628c-26c8-4869-91d1-fb0b749643af",
+    "sku_id": "BR_KS_TA_166",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.858526+00:00"
+  },
+  {
+    "id": "39e80c61-2424-4bcc-b209-7d6c235ddae0",
+    "sku_id": "WM_KS_SN_160_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.881908+00:00"
+  },
+  {
+    "id": "9f289274-8145-4c3b-b0f8-e3adf59a8629",
+    "sku_id": "WM_KS_SN_161_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.883324+00:00"
+  },
+  {
+    "id": "1e479e29-db02-48c5-a815-049cec48ac5b",
+    "sku_id": "WM_KS_SN_162_TF",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.884792+00:00"
+  },
+  {
+    "id": "6160a236-bc77-4e71-aa67-c98f243b1dc3",
+    "sku_id": "WM_KS_SN_163_MLP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.886217+00:00"
+  },
+  {
+    "id": "bd10775e-1842-4520-a2e5-ddf9b2edc709",
+    "sku_id": "SD_KS_SN_160_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.912512+00:00"
+  },
+  {
+    "id": "5d99f600-ec8a-48a6-8ffe-7f1b89f163a5",
+    "sku_id": "SD_KS_SN_161_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.914476+00:00"
+  },
+  {
+    "id": "58144939-1c77-4bfc-ad9a-2bdcbd646edf",
+    "sku_id": "SD_KS_SN_163_MLP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.915940+00:00"
+  },
+  {
+    "id": "7a0fd413-97a0-4e61-a099-9f9098bccfd3",
+    "sku_id": "VV_KS_SN_161_PP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.917685+00:00"
+  },
+  {
+    "id": "24efe39b-feec-4d71-8868-8ecc08a2a469",
+    "sku_id": "VV_KS_SN_162_TF",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.919248+00:00"
+  },
+  {
+    "id": "b3da991b-2dd9-4dd6-bc5a-02aa053b50d8",
+    "sku_id": "VV_KS_SN_163_MLP",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.920737+00:00"
+  },
+  {
+    "id": "29a6063d-7d07-4e92-afb0-ed1ecf8c361a",
+    "sku_id": "VV_KS_SN_053",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.922292+00:00"
+  },
+  {
+    "id": "c009a00a-62fb-4212-bee0-565a648fa1a9",
+    "sku_id": "VV_KS_SN_056",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.923766+00:00"
+  },
+  {
+    "id": "5bea5395-8c84-4002-bd6a-9a5f9361ba4f",
+    "sku_id": "VV_KS_SN_091",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.924889+00:00"
+  },
+  {
+    "id": "1144ce77-650d-47f9-beee-2affd140f6bc",
+    "sku_id": "BE_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.930241+00:00"
+  },
+  {
+    "id": "438ce5ec-5a94-4185-aaa9-6a54339671d3",
+    "sku_id": "BE_KS_SN_054",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.931345+00:00"
+  },
+  {
+    "id": "77247903-b1a4-45a3-8bd0-c55c88e2fed2",
+    "sku_id": "CK_KS_SN_052",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.932396+00:00"
+  },
+  {
+    "id": "ec971050-76e1-4e66-9612-b2f83c89a335",
+    "sku_id": "CK_KS_SN_109",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.933817+00:00"
+  },
+  {
+    "id": "ae09277f-3b58-4a41-85e2-e2fa09b6347d",
+    "sku_id": "CK_KS_SN_110",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.935255+00:00"
+  },
+  {
+    "id": "73a82175-f66c-4336-b493-5ce4be46de82",
+    "sku_id": "CK_KS_SN_111",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.936842+00:00"
+  },
+  {
+    "id": "7bb430b2-010c-4b8b-be0c-3efc8126ff92",
+    "sku_id": "OW_KS_SN_055",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.953432+00:00"
+  },
+  {
+    "id": "de63e968-5e3e-414a-9fed-072b9aec1034",
+    "sku_id": "OW_KS_SN_057",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.954609+00:00"
+  },
+  {
+    "id": "73fcdbec-5d27-43d4-98b1-f8662325c2c9",
+    "sku_id": "WM_KS_SR_180",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.955753+00:00"
+  },
+  {
+    "id": "f200ead5-e3e8-4c2b-bdf0-df8e2da35761",
+    "sku_id": "WM_KS_SR_181",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.956918+00:00"
+  },
+  {
+    "id": "54ee978d-d58c-46a9-813a-ab05f727f6d5",
+    "sku_id": "WM_KS_SR_182",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.958033+00:00"
+  },
+  {
+    "id": "fc68439f-c492-4bf1-a11a-e64ace6cd398",
+    "sku_id": "WM_KS_SR_183",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.959147+00:00"
+  },
+  {
+    "id": "a89f22df-06fe-470b-a6f7-814b6008c8f1",
+    "sku_id": "WM_KS_SR_184",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.965130+00:00"
+  },
+  {
+    "id": "eff2f58a-d1b6-4a91-bfd7-cd6be38c4254",
+    "sku_id": "WM_KS_SR_185",
+    "branch": "Unit 1 Vedica",
+    "assigned_at": "2026-03-07T08:28:29.966592+00:00"
+  },
+  {
+    "id": "42ca303e-9e2f-40f7-a4b5-e4ec0863bb87",
+    "sku_id": "TB_KTC_NC_C_021",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.758172+00:00"
+  },
+  {
+    "id": "22c5a463-d0f8-48e1-8dd6-d1fbbb5cf96b",
+    "sku_id": "BE_KTC_PX_PE_B_088",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.762719+00:00"
+  },
+  {
+    "id": "300c79c9-53ce-4687-ae02-e49e29a13013",
+    "sku_id": "BE_KTC_PX_PE_B_089",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.764026+00:00"
+  },
+  {
+    "id": "1e712176-f185-4494-924b-4dce193d460d",
+    "sku_id": "BE_KTC_PX_PE_B_090",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.765299+00:00"
+  },
+  {
+    "id": "676ad68b-b61d-4eb7-919e-e7afdeda4f76",
+    "sku_id": "BE_KTC_PX_PE_B_091",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.766428+00:00"
+  },
+  {
+    "id": "a777f63a-f469-4bb4-97ca-d05c73404382",
+    "sku_id": "TB_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.767581+00:00"
+  },
+  {
+    "id": "7f0b576d-83df-4e92-a6cb-7d98e3df4000",
+    "sku_id": "FK_KTC_PX_PE_P_092_PP",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.768706+00:00"
+  },
+  {
+    "id": "f89257a1-9e73-427f-961c-c2b25d896453",
+    "sku_id": "FK_KTC_PX_PE_P_100_PP",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.769777+00:00"
+  },
+  {
+    "id": "43df2229-fb58-41ea-b780-07e4f22c014e",
+    "sku_id": "SD_KTC_CR_B_054",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.784917+00:00"
+  },
+  {
+    "id": "b81a1731-7866-4fb0-875a-7b2201203aa1",
+    "sku_id": "WM_KTC_CR_C_050",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.788287+00:00"
+  },
+  {
+    "id": "d893d5ee-d497-4730-814b-30d02712a0e6",
+    "sku_id": "WM_KTC_CR_C_051",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.789561+00:00"
+  },
+  {
+    "id": "20588e4a-682a-44df-9da8-3d8021bdf6fd",
+    "sku_id": "FK_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.805168+00:00"
+  },
+  {
+    "id": "1affe1d4-810e-404f-92ee-af7c748af264",
+    "sku_id": "FC_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.806265+00:00"
+  },
+  {
+    "id": "79ad5ca8-31f5-4867-a802-b57da8dcd7b7",
+    "sku_id": "SD_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.807470+00:00"
+  },
+  {
+    "id": "4ea2e7c0-afe8-4885-abac-ae9edd82e119",
+    "sku_id": "LL_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.808592+00:00"
+  },
+  {
+    "id": "50555aa9-9a7e-4dbc-a1a5-e48ec8348839",
+    "sku_id": "WM_KTC_NC_C_018",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.809791+00:00"
+  },
+  {
+    "id": "83f25986-a270-4c8b-ac83-a7452aec13de",
+    "sku_id": "FK_KTC_NC_C_019",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.810918+00:00"
+  },
+  {
+    "id": "ff052f38-3d4e-405c-9a37-22b77b68aa39",
+    "sku_id": "WM_KTC_NC_C_019",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.812141+00:00"
+  },
+  {
+    "id": "55fe018b-e8ff-4dd9-b45d-3fb338357fb5",
+    "sku_id": "FK_KTC_NC_C_020",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.813405+00:00"
+  },
+  {
+    "id": "662aea64-903a-4fc1-9dfc-d0f391d02243",
+    "sku_id": "WM_KTC_NC_C_020",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.814568+00:00"
+  },
+  {
+    "id": "24f801dc-1434-4dd9-8e63-c1f618a1658a",
+    "sku_id": "FK_KTC_NC_C_021",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.815973+00:00"
+  },
+  {
+    "id": "d15eae20-23d2-4d68-bb9c-85d8ff701064",
+    "sku_id": "FC_KTC_NC_C_021",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.817432+00:00"
+  },
+  {
+    "id": "5fadcc10-4e60-4c74-ac4e-3c34cb614b1e",
+    "sku_id": "SD_KTC_NC_C_021",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.818972+00:00"
+  },
+  {
+    "id": "b7414349-1df3-400a-ade9-a558cf77e2dc",
+    "sku_id": "WM_KTC_NC_C_021",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.820613+00:00"
+  },
+  {
+    "id": "2b3ece77-a2e9-4ecb-baf3-2c9d28a22911",
+    "sku_id": "WM_KTC_PX_B_032",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.835353+00:00"
+  },
+  {
+    "id": "4a344388-9079-47c2-8d46-4fa92470b813",
+    "sku_id": "WM_KTC_PX_C_043",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.844438+00:00"
+  },
+  {
+    "id": "ea987c90-0567-4964-bb99-caa4be8e8ec6",
+    "sku_id": "WM_KTC_PX_C_044",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.845777+00:00"
+  },
+  {
+    "id": "1224b2b6-1417-48d2-808c-9ee0855b44d0",
+    "sku_id": "WM_KTC_PX_C_045",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.856040+00:00"
+  },
+  {
+    "id": "8fc83561-9529-4ef1-8bf5-3319568613c9",
+    "sku_id": "WM_KTC_PX_S_040",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.867439+00:00"
+  },
+  {
+    "id": "6dcccf5b-092c-461b-8fc0-b8ced0cf739d",
+    "sku_id": "WM_KTC_PX_S_041",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.868645+00:00"
+  },
+  {
+    "id": "900302a0-4139-43ac-adcb-3da0d6ee70c0",
+    "sku_id": "WM_KTC_PX_S_042",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.869811+00:00"
+  },
+  {
+    "id": "583d166b-338f-4dc0-a367-a0728004ef65",
+    "sku_id": "WM_KTC_CR_S_082",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.956861+00:00"
+  },
+  {
+    "id": "4cb497fc-fe39-4c14-b152-7aa6d7b1757e",
+    "sku_id": "WM_KTC_CR_S_083",
+    "branch": "Unit 2 Trikes",
+    "assigned_at": "2026-03-07T09:34:33.958495+00:00"
+  },
+  {
+    "id": "1c7625a1-063f-4f56-b432-5021bc9970ab",
+    "sku_id": "GE_SC_WVLS_043",
+    "branch": "Unit 3 TM",
+    "assigned_at": "2026-03-07T09:36:23.606837+00:00"
+  },
+  {
+    "id": "f4239844-e715-4e18-9dba-00bc194dd531",
+    "sku_id": "GE_SC_WVLS_096",
+    "branch": "Unit 3 TM",
+    "assigned_at": "2026-03-07T09:36:23.609797+00:00"
+  },
+  {
+    "id": "82923a48-84cb-4426-92e9-a95d6ea693f7",
+    "sku_id": "GE_SC_WVLS_097",
+    "branch": "Unit 3 TM",
+    "assigned_at": "2026-03-07T09:36:23.611036+00:00"
+  },
+  {
+    "id": "39755428-7ae2-4d15-b4eb-218c98efd518",
+    "sku_id": "GE_SC_WVLS_098",
+    "branch": "Unit 3 TM",
+    "assigned_at": "2026-03-07T09:36:23.612355+00:00"
+  },
+  {
+    "id": "3af91f20-a693-431b-b40c-8d38c0c5b629",
+    "sku_id": "WM_SC_WVLS4_037",
+    "branch": "Unit 3 TM",
+    "assigned_at": "2026-03-07T09:36:23.613682+00:00"
+  },
+  {
+    "id": "17f5c361-fdc8-410e-b9e7-b0bedb868171",
+    "sku_id": "FK_SC_BN_002",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.485459+00:00"
+  },
+  {
+    "id": "c1bca613-a2a4-422a-a022-3e12f101ba04",
+    "sku_id": "KM_SC_BN_002",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.487626+00:00"
+  },
+  {
+    "id": "e1fb51b0-a919-4bf3-b5e4-d099c65b6613",
+    "sku_id": "FK_SC_BN_003",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.489787+00:00"
+  },
+  {
+    "id": "03d8cc28-58d8-4e76-936b-03930d211fb6",
+    "sku_id": "KM_SC_BN_003",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.491885+00:00"
+  },
+  {
+    "id": "d87d5399-90d6-4dd2-a48f-a03ce3f82d2a",
+    "sku_id": "FK_SC_BN_004",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.493962+00:00"
+  },
+  {
+    "id": "bb0cef45-8358-475d-ac36-0cd9504c0eb1",
+    "sku_id": "FK_SC_BN_005",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.496126+00:00"
+  },
+  {
+    "id": "c542301c-419a-434b-9390-6f585545db25",
+    "sku_id": "FK_SC_BN_011",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.498051+00:00"
+  },
+  {
+    "id": "3bf09502-9e72-4e21-87ca-a7f5080f5faa",
+    "sku_id": "FK_SC_BN_012",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.500018+00:00"
+  },
+  {
+    "id": "2862bdd4-eb3c-43e7-b4c7-6e8dd6742322",
+    "sku_id": "FK_SC_BN_013",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.502176+00:00"
+  },
+  {
+    "id": "c46705e8-a25a-4fb1-8c29-6b805dbb65ad",
+    "sku_id": "FK_SC_BN_014",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.504299+00:00"
+  },
+  {
+    "id": "1bd42a59-8df3-462f-9ab3-343de46b70ec",
+    "sku_id": "FK_SC_BN_055_PP",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.506637+00:00"
+  },
+  {
+    "id": "51364ff3-0cae-419f-86ed-07aecdd608f1",
+    "sku_id": "FK_SC_BN_056_PP",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:43.508842+00:00"
+  },
+  {
+    "id": "0cdfd468-e7d6-4b18-8a95-8dfa6f0a52bf",
+    "sku_id": "CC_PR_BY_029",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.349962+00:00"
+  },
+  {
+    "id": "7e0fd76a-d802-4764-8d75-0e57a02857c6",
+    "sku_id": "CC_PR_BY_033",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.352284+00:00"
+  },
+  {
+    "id": "773adf25-e59c-4e95-beb2-2329bfc22db3",
+    "sku_id": "WM_PR_BYLS_024",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.354208+00:00"
+  },
+  {
+    "id": "7b9189b4-c988-43ca-8a9e-7515d6a7c77d",
+    "sku_id": "FK_PR_BYLS_024",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.356038+00:00"
+  },
+  {
+    "id": "f0fb986d-6ed6-4f03-b76c-5a0eb68dfd5e",
+    "sku_id": "CC_PR_BYLS_024",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.357821+00:00"
+  },
+  {
+    "id": "b9306e03-c75f-4647-89e9-730e57f07758",
+    "sku_id": "WM_PR_BYLS_025",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.359643+00:00"
+  },
+  {
+    "id": "e8385f2e-f963-4335-9c49-a7084632f872",
+    "sku_id": "FK_PR_BYLS_025",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.361501+00:00"
+  },
+  {
+    "id": "10a84030-6477-4d39-a1d4-11308afe2e8a",
+    "sku_id": "WM_PR_BYLS_026",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.363221+00:00"
+  },
+  {
+    "id": "fb86ad12-3614-4a48-a897-539cc84b9444",
+    "sku_id": "FK_PR_BYLS_026",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.364999+00:00"
+  },
+  {
+    "id": "a2901b98-685c-4108-a4de-c2971cd19a59",
+    "sku_id": "WM_PR_BYLS_027",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.366773+00:00"
+  },
+  {
+    "id": "962647f0-f03c-4051-9ab2-fc72ba564e08",
+    "sku_id": "FK_PR_BYLS_027",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.368555+00:00"
+  },
+  {
+    "id": "91be66d8-b7fb-4c90-92af-7e7bfe7c7ace",
+    "sku_id": "CC_PR_BYLS_028",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:13:53.370379+00:00"
+  },
+  {
+    "id": "8f96399b-d699-4410-8970-5776f7de4f0b",
+    "sku_id": "FC_SC_BNLS_007",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:14:14.924762+00:00"
+  },
+  {
+    "id": "7de19337-e339-43c8-ba0c-26e23fa7e9b6",
+    "sku_id": "FC_SC_BNLS_008",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:14:14.926976+00:00"
+  },
+  {
+    "id": "f6e27a86-5054-49ab-849a-361d72eb4cc3",
+    "sku_id": "FC_SC_BNLS_009",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:14:14.928968+00:00"
+  },
+  {
+    "id": "8974a6b9-424b-4936-a1c1-7c0c273d6f9c",
+    "sku_id": "WM_SC_BNLS4_015",
+    "branch": "Unit 5 Baabus",
+    "assigned_at": "2026-03-07T10:14:14.930754+00:00"
+  },
+  {
+    "id": "088819f8-22e3-4be7-bbb0-9ca575b15a74",
+    "sku_id": "GE_EV_SK_014",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:57:59.452003+00:00"
+  },
+  {
+    "id": "3b10dbbc-839d-4ed3-82bb-118b05bb8a1f",
+    "sku_id": "GE_EV_SK_015",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:57:59.468168+00:00"
+  },
+  {
+    "id": "808c5369-7eab-4ece-a8d9-f95670ca821e",
+    "sku_id": "GE_EV_SK_016",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:57:59.485279+00:00"
+  },
+  {
+    "id": "affee259-e3be-4a98-9d4a-f3a46f407178",
+    "sku_id": "LL_EV_SK_014",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:58:05.912776+00:00"
+  },
+  {
+    "id": "93b09938-e72f-4d90-8985-b6b6d5b0bd14",
+    "sku_id": "LL_EV_SK_015",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:58:05.927139+00:00"
+  },
+  {
+    "id": "5c9b834a-328d-49c9-893f-7f871b00970b",
+    "sku_id": "LL_EV_SK_016",
+    "branch": "Unit 4 Goa",
+    "assigned_at": "2026-03-15T15:58:05.941830+00:00"
+  },
+  {
+    "id": "02b5bd09-d80d-45a1-89d2-0e8100fb6fcc",
+    "sku_id": "CK_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.844892+00:00"
+  },
+  {
+    "id": "efd300a8-6cec-45ca-8af7-bc1e4e0dd86c",
+    "sku_id": "VV_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.860912+00:00"
+  },
+  {
+    "id": "cc5edaf7-9d4c-4cfb-a8b2-cf36efc35dad",
+    "sku_id": "VV_KS_SN_064",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.876615+00:00"
+  },
+  {
+    "id": "cecc53a9-027c-441c-ac12-e9973bfcb10c",
+    "sku_id": "VV_KS_SN_065",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.892444+00:00"
+  },
+  {
+    "id": "e5c88c8e-942b-44f8-ab6f-526dd3a44cf6",
+    "sku_id": "KB_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.907454+00:00"
+  },
+  {
+    "id": "66de079a-1bb4-4035-9f0b-f7e2a39ffdf3",
+    "sku_id": "KB_KS_SN_056",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.922988+00:00"
+  },
+  {
+    "id": "02b0aeca-4e8d-4ba2-bc55-a0fb43bcd581",
+    "sku_id": "KB_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.938269+00:00"
+  },
+  {
+    "id": "95f44919-3ed7-4e7e-a1af-871f986c7757",
+    "sku_id": "KB_KS_SN_109",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.953982+00:00"
+  },
+  {
+    "id": "45d54622-233b-429e-8f85-41e65d90a41d",
+    "sku_id": "KB_KS_SN_110",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.969363+00:00"
+  },
+  {
+    "id": "4f6abb1b-cd8c-4aef-8f9e-80f2d2ddea2f",
+    "sku_id": "KB_KS_SN_111",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:39.984881+00:00"
+  },
+  {
+    "id": "45eaf147-6c4b-4d7c-afbe-95fa1ac62fe8",
+    "sku_id": "WM_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.000286+00:00"
+  },
+  {
+    "id": "9b9d0eae-ccdd-4b68-9c9f-91673e9f57d7",
+    "sku_id": "CC_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.019944+00:00"
+  },
+  {
+    "id": "a7a45d8e-b7db-462a-b3b6-7c5407dcf006",
+    "sku_id": "VV_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.034926+00:00"
+  },
+  {
+    "id": "cc791cf6-5ed1-4d38-81dc-9e8c2bb5e0d5",
+    "sku_id": "BE_KS_SN_053",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.050103+00:00"
+  },
+  {
+    "id": "72d0bea9-066e-481c-9c7e-45bb2abd1e1a",
+    "sku_id": "CC_KS_SN_053",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.066143+00:00"
+  },
+  {
+    "id": "59522034-d9d9-4d67-94bf-33e4685665d6",
+    "sku_id": "CC_KS_SN_054",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.081267+00:00"
+  },
+  {
+    "id": "0d970d82-2be0-40c7-a6ab-8744b3b0c01e",
+    "sku_id": "VV_KS_SN_054",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.096220+00:00"
+  },
+  {
+    "id": "e036ee89-04d8-4590-9100-6c60c766d9d9",
+    "sku_id": "FC_KS_SN_054",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.112593+00:00"
+  },
+  {
+    "id": "307f673d-02b9-4dc0-9922-730231ba1a69",
+    "sku_id": "WM_KS_SN_054",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.128238+00:00"
+  },
+  {
+    "id": "aa65f540-3685-480b-bf7a-ce1a7a334628",
+    "sku_id": "FK_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.143326+00:00"
+  },
+  {
+    "id": "53782bb2-b529-48f9-9210-466fb81a20ed",
+    "sku_id": "FC_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.158586+00:00"
+  },
+  {
+    "id": "455e7ee4-7c9f-465e-ac28-16e9d9123b9c",
+    "sku_id": "LL_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.174902+00:00"
+  },
+  {
+    "id": "4f0c5062-2ae4-4c83-bc41-d11b83410226",
+    "sku_id": "WM_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.190701+00:00"
+  },
+  {
+    "id": "75fac23e-72ab-4e7f-bcca-f5dc72a01621",
+    "sku_id": "AD_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.206196+00:00"
+  },
+  {
+    "id": "2b1d7df8-0a9b-4129-a47b-4ce7a82f0243",
+    "sku_id": "FK_KS_SN_056",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.222100+00:00"
+  },
+  {
+    "id": "b8cd3038-8c4a-4bec-9297-50c78a054504",
+    "sku_id": "WM_KS_SN_056",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.237366+00:00"
+  },
+  {
+    "id": "cdb674fa-c321-416a-9b54-a6020f6abd0c",
+    "sku_id": "AD_KS_SN_056",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.253520+00:00"
+  },
+  {
+    "id": "aa22b621-e7b2-4860-93e3-4b1f77e88356",
+    "sku_id": "FK_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.268947+00:00"
+  },
+  {
+    "id": "868266c4-c8f4-40f8-8825-f3ae6cc91719",
+    "sku_id": "BE_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.284329+00:00"
+  },
+  {
+    "id": "61df27e1-fbaf-4424-8edf-0ef218b62b32",
+    "sku_id": "LL_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.299919+00:00"
+  },
+  {
+    "id": "05adc9af-eb3f-4f30-9049-9d84ad5a9a7f",
+    "sku_id": "WM_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.314925+00:00"
+  },
+  {
+    "id": "23795852-72af-428c-a473-f43695f70f15",
+    "sku_id": "FK_KS_SN_058",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.330065+00:00"
+  },
+  {
+    "id": "0641fe71-5d47-4b2f-9a22-52312cbdfa6c",
+    "sku_id": "BE_KS_SN_058",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.345431+00:00"
+  },
+  {
+    "id": "ad26e148-5293-4241-85a9-44ee19e55b1f",
+    "sku_id": "FK_KS_SN_059",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.360745+00:00"
+  },
+  {
+    "id": "568fb002-9e8d-4f8c-bc2e-ed65225759e8",
+    "sku_id": "BE_KS_SN_059",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.376022+00:00"
+  },
+  {
+    "id": "e5769511-857a-4272-900c-eb1cdc45df5b",
+    "sku_id": "FK_KS_SN_061_BM",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.391375+00:00"
+  },
+  {
+    "id": "5ef60c37-c452-41a9-b242-690cbb73c86d",
+    "sku_id": "FK_KS_SN_062_BS",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.406824+00:00"
+  },
+  {
+    "id": "d8fe443e-d7cd-4b8b-a0cf-487b512c7ee2",
+    "sku_id": "FK_KS_SN_063_TJ",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.422211+00:00"
+  },
+  {
+    "id": "f01cbb27-e5bb-4401-9f3b-2fca20684901",
+    "sku_id": "FK_KS_SN_064_BM",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.437338+00:00"
+  },
+  {
+    "id": "4ba811df-cc70-4ced-b2ac-d00a8a5de9ad",
+    "sku_id": "FK_KS_SN_065_SM",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.452644+00:00"
+  },
+  {
+    "id": "4c033990-89a0-4677-9511-0266e72c2ed2",
+    "sku_id": "FK_KS_SN_066_WW",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.467711+00:00"
+  },
+  {
+    "id": "27e6212c-175f-4dae-99cf-6e76d8935f61",
+    "sku_id": "BE_KS_SN_091",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.482686+00:00"
+  },
+  {
+    "id": "bd731ba2-ec08-4490-af90-5739cbe12479",
+    "sku_id": "BE_KS_SN_108",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.496960+00:00"
+  },
+  {
+    "id": "697474dd-94b8-428c-a088-ff72f87c1281",
+    "sku_id": "WM_KS_SN_108",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.511392+00:00"
+  },
+  {
+    "id": "4e20ad22-31d9-46d4-b948-e7a6e8123c01",
+    "sku_id": "FC_KS_SN_108",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.526611+00:00"
+  },
+  {
+    "id": "15f0665c-9f3e-4138-8965-c4003f50f15b",
+    "sku_id": "FC_KS_SN_109",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.541923+00:00"
+  },
+  {
+    "id": "d555c625-7759-4bb0-93f7-20f563de93d6",
+    "sku_id": "LL_KS_SN_109",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.557073+00:00"
+  },
+  {
+    "id": "c4a59a05-729f-436d-92d1-e6c7b6736a0c",
+    "sku_id": "BE_KS_SN_109",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.571507+00:00"
+  },
+  {
+    "id": "1469767b-7fa0-4c9f-8402-044ae2a9d9c7",
+    "sku_id": "BE_KS_SN_110",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.586631+00:00"
+  },
+  {
+    "id": "b74dccfc-0e98-467b-9034-f344f0654725",
+    "sku_id": "VV_KS_SN_110",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.601221+00:00"
+  },
+  {
+    "id": "b157494e-c590-403e-ade6-34c4ef58d294",
+    "sku_id": "FC_KS_SN_110",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.616165+00:00"
+  },
+  {
+    "id": "382ff309-9851-48bc-b77f-ec8d25b7ec97",
+    "sku_id": "WM_KS_SN_111",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.630962+00:00"
+  },
+  {
+    "id": "b85d92f5-7db6-4a09-90d3-032795c911e7",
+    "sku_id": "FC_KS_SN_144",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.645401+00:00"
+  },
+  {
+    "id": "cab7dfad-6f74-4e04-8c23-39d6ba1d47ab",
+    "sku_id": "FK_KS_SN_160_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.660234+00:00"
+  },
+  {
+    "id": "de2fbddd-0af2-4ee0-9432-b5f6dc945402",
+    "sku_id": "FK_KS_SN_161_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.674798+00:00"
+  },
+  {
+    "id": "7a16cced-f4e6-41e3-9650-1f91c2d97dbc",
+    "sku_id": "FK_KS_SN_162_TF",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.689495+00:00"
+  },
+  {
+    "id": "9643037e-2145-4b74-bac0-dd38929c73b1",
+    "sku_id": "FK_KS_SN_163_MLP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.704301+00:00"
+  },
+  {
+    "id": "e62780d0-6007-41fa-a2ac-01ba00f0ebe3",
+    "sku_id": "WM_KS_SN_LS_103",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.719713+00:00"
+  },
+  {
+    "id": "3fdb0df1-1208-4f74-9e3d-595b7c34ee33",
+    "sku_id": "WM_KS_SN_LS_104",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.735157+00:00"
+  },
+  {
+    "id": "f5efd562-744a-4db6-a800-f7ef1b817005",
+    "sku_id": "WM_KS_SN_059",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.750502+00:00"
+  },
+  {
+    "id": "21aa073c-6311-4a8c-a212-b444f3a04285",
+    "sku_id": "VV_KS_SN_111",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.765974+00:00"
+  },
+  {
+    "id": "c928953a-18cf-4e1b-b197-08ea6519b212",
+    "sku_id": "BR_KS_SN_LS_140",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.781495+00:00"
+  },
+  {
+    "id": "c4edbf63-6892-468d-bd51-c55adddb7c33",
+    "sku_id": "BR_KS_SN_LS_141",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.796204+00:00"
+  },
+  {
+    "id": "33198ec5-e522-4b5b-96f0-572101ef055c",
+    "sku_id": "BR_KS_SN_LS_142",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.811781+00:00"
+  },
+  {
+    "id": "effd20f5-a600-4351-9f6e-6221d2437a00",
+    "sku_id": "WM_KS_SN_160_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.827315+00:00"
+  },
+  {
+    "id": "1d4fea43-77ee-4b5c-9197-61a82f5116a2",
+    "sku_id": "WM_KS_SN_161_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.842881+00:00"
+  },
+  {
+    "id": "7be87e1f-05c1-4e98-ad73-ae3c3a2bfd79",
+    "sku_id": "WM_KS_SN_162_TF",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.858571+00:00"
+  },
+  {
+    "id": "22c2c5cb-2b8c-4b20-ad1e-15324553040a",
+    "sku_id": "WM_KS_SN_163_MLP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.874067+00:00"
+  },
+  {
+    "id": "aa37354e-fdba-4d19-9149-ab0adb7fb2b9",
+    "sku_id": "SD_KS_SN_160_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.889489+00:00"
+  },
+  {
+    "id": "58e3f036-daa9-4415-921c-75c4be14ac2f",
+    "sku_id": "SD_KS_SN_161_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.905102+00:00"
+  },
+  {
+    "id": "16972d6e-e6d4-4db5-8464-ebaa74866886",
+    "sku_id": "SD_KS_SN_163_MLP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.920664+00:00"
+  },
+  {
+    "id": "efae0e99-a371-4426-a3bd-f363f0f2b3e9",
+    "sku_id": "VV_KS_SN_161_PP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.936267+00:00"
+  },
+  {
+    "id": "05fa1c09-4963-44bd-9d7a-d063d4b37df6",
+    "sku_id": "VV_KS_SN_162_TF",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.951824+00:00"
+  },
+  {
+    "id": "a94cd2b5-a364-4f2a-85f8-4c535f1dc0dd",
+    "sku_id": "VV_KS_SN_163_MLP",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.967868+00:00"
+  },
+  {
+    "id": "958bb03f-472c-42aa-8313-fb3ab15ed3b6",
+    "sku_id": "VV_KS_SN_053",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.983892+00:00"
+  },
+  {
+    "id": "5e1cd896-f7eb-468c-a9ca-7a9ab8b3259b",
+    "sku_id": "VV_KS_SN_056",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:40.999983+00:00"
+  },
+  {
+    "id": "d0231d19-67f7-485d-9533-1a65e88d5762",
+    "sku_id": "VV_KS_SN_091",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.017079+00:00"
+  },
+  {
+    "id": "3e81e5cd-6d36-4ec1-a702-5db8707e9f37",
+    "sku_id": "BE_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.032720+00:00"
+  },
+  {
+    "id": "063ac360-a155-44d7-8680-7a13038639c2",
+    "sku_id": "BE_KS_SN_054",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.047923+00:00"
+  },
+  {
+    "id": "0f47d3e0-2efd-4959-9f57-b7f75c960746",
+    "sku_id": "CK_KS_SN_052",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.063252+00:00"
+  },
+  {
+    "id": "c088c43a-13da-4794-aaa3-f6e296fd1e64",
+    "sku_id": "CK_KS_SN_109",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.078208+00:00"
+  },
+  {
+    "id": "ea4d2af0-6a9c-45c4-a6bb-1ce711ef9b6f",
+    "sku_id": "CK_KS_SN_110",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.092942+00:00"
+  },
+  {
+    "id": "d70dd749-de0a-4bf5-a2bf-6f13cbcddac9",
+    "sku_id": "CK_KS_SN_111",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.107317+00:00"
+  },
+  {
+    "id": "be4b3378-6632-43e1-ba3d-c1772e50ab7a",
+    "sku_id": "OW_KS_SN_055",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.122154+00:00"
+  },
+  {
+    "id": "2ba8864f-a4a5-4484-8c24-8da65ecc5585",
+    "sku_id": "OW_KS_SN_057",
+    "branch": "Unit 6 Emox",
+    "assigned_at": "2026-03-15T15:59:41.136997+00:00"
+  }
+]
