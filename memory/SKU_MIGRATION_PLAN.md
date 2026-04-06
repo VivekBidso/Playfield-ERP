@@ -4,7 +4,7 @@
 Migrate all code from legacy `skus` collection to use `bidso_skus` + `buyer_skus` collections.
 
 ## Current State (Updated: April 6, 2026)
-- **Legacy `skus` collection**: 711 records, **7 remaining code references** (all are WRITE operations for legacy sync/import)
+- **Legacy `skus` collection**: 711 records, **1 remaining code reference** (monitoring only)
 - **New `bidso_skus` collection**: 258 records (base products)
 - **New `buyer_skus` collection**: 693 records (branded variants)
 
@@ -15,7 +15,7 @@ Migrate all code from legacy `skus` collection to use `bidso_skus` + `buyer_skus
 | Phase 1 | ✅ COMPLETE | Created `/app/backend/services/sku_service.py` helper service |
 | Phase 2 | ✅ COMPLETE | Migrated all READ operations across 8 route files |
 | Phase 3 | ✅ COMPLETE | Data sync verified - no active transactions use missing SKUs |
-| Phase 4 | 🔲 NOT STARTED | Cleanup legacy import logic + optional drop |
+| Phase 4 | ✅ COMPLETE | Updated legacy import logic to write only to new collections |
 
 ### Phase 3 Verification Results (April 6, 2026)
 - Legacy `skus`: 711 records
@@ -24,7 +24,13 @@ Migrate all code from legacy `skus` collection to use `bidso_skus` + `buyer_skus
 - Extra in new model: 15 SKUs (new additions)
 - **Verdict**: Safe to proceed - all active transactions work with new data model
 
-### Files Migrated (Phase 2)
+### Phase 4 Updates (April 6, 2026)
+- Updated `POST /api/sku-management/skus/bulk-import` to write only to `buyer_skus`
+- Updated `POST /api/demand-hub/sync-buyer-skus` to write only to `buyer_skus`
+- Added `DELETE /api/sku-management/legacy-skus/drop` endpoint to drop legacy collection
+- Only 1 reference remains: `GET /api/sku-management/migration-stats` (for monitoring)
+
+### Files Migrated
 
 | File | Original Refs | Migrated | Status |
 |------|--------------|----------|--------|
@@ -35,17 +41,15 @@ Migrate all code from legacy `skus` collection to use `bidso_skus` + `buyer_skus
 | tech_ops_routes.py | 3 | 3 | ✅ Complete |
 | branch_ops_routes.py | 1 | 1 | ✅ Complete |
 | report_routes.py | 2 | 2 | ✅ Complete |
-| sku_management_routes.py | 3 | 0 | ⏸️ Legacy WRITE ops (Phase 4) |
-| demand_hub_routes.py | 4 | 0 | ⏸️ Legacy WRITE ops (Phase 4) |
+| sku_management_routes.py | 3 | 2 | ✅ Complete (1 monitoring) |
+| demand_hub_routes.py | 4 | 4 | ✅ Complete |
 
-### Remaining References (Phase 4)
+### How to Drop Legacy Collection
+When ready to fully complete migration:
+```bash
+curl -X DELETE "$API_URL/api/sku-management/legacy-skus/drop"
 ```
-/app/backend/routes/sku_management_routes.py:627 - existing = await db.skus.find_one (import check)
-/app/backend/routes/sku_management_routes.py:681 - await db.skus.insert_one (legacy import)
-/app/backend/routes/sku_management_routes.py:2729 - await db.skus.count_documents (migration stats)
-/app/backend/routes/demand_hub_routes.py:93-106 - Legacy sync operations
-```
-These are intentionally kept for backward compatibility with legacy import flows. They will be updated in Phase 4.
+This endpoint has a safety check: it will refuse to drop if `buyer_skus` is empty.
 
 ## Data Model Mapping
 

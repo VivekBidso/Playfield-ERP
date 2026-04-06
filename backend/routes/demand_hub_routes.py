@@ -75,6 +75,7 @@ async def sync_bidso_skus_from_preview():
 async def sync_buyer_skus_from_preview():
     """
     Sync Buyer SKUs from preview environment.
+    Now writes directly to buyer_skus collection (new model).
     """
     try:
         preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/buyer_skus_export.json"
@@ -90,24 +91,45 @@ async def sync_buyer_skus_from_preview():
         if not skus:
             raise HTTPException(status_code=400, detail="No Buyer SKUs found in export")
         
-        existing_count = await db.skus.count_documents({})
+        existing_count = await db.buyer_skus.count_documents({})
         
         imported = 0
         skipped = 0
         
         for sku in skus:
-            existing = await db.skus.find_one({"id": sku.get("id")})
+            # Check by buyer_sku_id (primary key in new model)
+            sku_id = sku.get("buyer_sku_id") or sku.get("sku_id")
+            if not sku_id:
+                skipped += 1
+                continue
+                
+            existing = await db.buyer_skus.find_one({"buyer_sku_id": sku_id})
             if existing:
                 skipped += 1
                 continue
-            await db.skus.insert_one(sku)
+            
+            # Transform to new model format if needed
+            buyer_sku_doc = {
+                "id": sku.get("id") or str(uuid.uuid4()),
+                "buyer_sku_id": sku_id,
+                "bidso_sku_id": sku.get("bidso_sku_id") or sku.get("bidso_sku"),
+                "brand_id": sku.get("brand_id"),
+                "brand_code": sku.get("brand_code"),
+                "name": sku.get("name") or sku.get("description"),
+                "description": sku.get("description") or sku.get("name"),
+                "status": sku.get("status", "ACTIVE"),
+                "gst_rate": sku.get("gst_rate", 18),
+                "hsn_code": sku.get("hsn_code", "87141090"),
+                "created_at": sku.get("created_at") or datetime.now(timezone.utc)
+            }
+            await db.buyer_skus.insert_one(buyer_sku_doc)
             imported += 1
         
-        new_count = await db.skus.count_documents({})
+        new_count = await db.buyer_skus.count_documents({})
         
         return {
             "success": True,
-            "message": f"Sync completed. Imported {imported} new Buyer SKUs, skipped {skipped} existing.",
+            "message": f"Sync completed. Imported {imported} new Buyer SKUs to buyer_skus collection, skipped {skipped} existing.",
             "before_count": existing_count,
             "after_count": new_count,
             "total_in_export": len(skus)

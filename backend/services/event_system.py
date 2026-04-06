@@ -233,9 +233,9 @@ async def handle_bom_finalized(event: Event):
         # Calculate total unique RMs needed
         rm_count = len(bom.get("rm_mappings", []))
         
-        # Update SKU with BOM status
-        await db.skus.update_one(
-            {"sku_id": sku_id},
+        # Update Buyer SKU with BOM status (new model)
+        await db.buyer_skus.update_one(
+            {"buyer_sku_id": sku_id},
             {"$set": {
                 "bom_finalized": True,
                 "bom_rm_count": rm_count,
@@ -253,8 +253,11 @@ async def handle_batch_completed(event: Event):
     
     logger.info(f"Batch Completed: {batch_id}, {produced_quantity} units of {sku_id}")
     
-    # Check if QC is required for this SKU
-    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    # Check if QC is required for this SKU (check buyer_skus first, then bidso_skus)
+    sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0})
+    if not sku:
+        sku = await db.bidso_skus.find_one({"bidso_sku_id": sku_id}, {"_id": 0})
+    
     if sku and sku.get("qc_required", True):
         # Create QC result entry (pending)
         await db.qc_results.insert_one({

@@ -63,7 +63,12 @@ Vertical (e.g., Kids Scooter - KS)
 - ✅ Phase 1: Helper service created (`/app/backend/services/sku_service.py`)
 - ✅ Phase 2: All READ operations migrated to use `bidso_skus` + `buyer_skus`
 - ✅ Phase 3: Data sync verified - no active transactions use missing SKUs
-- 🔲 Phase 4: Cleanup legacy import logic (optional)
+- ✅ Phase 4: All WRITE operations updated + cleanup endpoint added
+
+**To Drop Legacy Collection** (when ready):
+```bash
+curl -X DELETE "$API_URL/api/sku-management/legacy-skus/drop"
+```
 
 See `/app/memory/SKU_MIGRATION_PLAN.md` for full migration details.
 

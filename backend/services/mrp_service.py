@@ -160,7 +160,7 @@ class MRPService:
             return sku_id
         
         # Check if it's a Buyer SKU and get parent Bidso SKU
-        buyer_sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0, "bidso_sku_id": 1})
+        buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0, "bidso_sku_id": 1})
         if buyer_sku and buyer_sku.get("bidso_sku_id"):
             return buyer_sku["bidso_sku_id"]
         

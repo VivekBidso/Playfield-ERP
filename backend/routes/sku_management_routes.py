@@ -623,8 +623,8 @@ async def bulk_import_skus(file: UploadFile = File(...)):
             results.append(result)
             continue
         
-        # Check if already exists
-        existing = await db.skus.find_one({"buyer_sku_id": buyer_sku_id})
+        # Check if already exists in buyer_skus (new model)
+        existing = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id})
         if existing:
             result["status"] = "SKIPPED"
             result["remarks"] = "Buyer SKU ID already exists"
@@ -659,44 +659,25 @@ async def bulk_import_skus(file: UploadFile = File(...)):
                 model_id = model.get("id")
                 model_name = model.get("name", model_name)
         
-        # Create SKU document (for skus collection - legacy)
-        sku_doc = {
-            "id": str(uuid.uuid4()),
-            "sku_id": buyer_sku_id,
-            "bidso_sku": bidso_sku,
-            "buyer_sku_id": buyer_sku_id,
-            "description": description,
-            "brand": brand_name,
-            "brand_id": brand_id,
-            "vertical": vertical_name,
-            "vertical_id": vertical_id,
-            "model": model_name,
-            "model_id": model_id,
-            "low_stock_threshold": 5.0,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        # Insert into skus collection
+        # Insert into buyer_skus collection (new model - primary)
         try:
-            await db.skus.insert_one(sku_doc)
-            del sku_doc["_id"]
-            
-            # Also insert into buyer_skus collection if brand exists
-            if brand_id:
-                buyer_sku_doc = {
-                    "id": str(uuid.uuid4()),
-                    "buyer_sku_id": buyer_sku_id,
-                    "bidso_sku_id": bidso_sku,
-                    "brand_id": brand_id,
-                    "brand_name": brand_name,
-                    "name": description,
-                    "status": "ACTIVE",
-                    "created_at": datetime.now(timezone.utc)
-                }
-                await db.buyer_skus.insert_one(buyer_sku_doc)
+            buyer_sku_doc = {
+                "id": str(uuid.uuid4()),
+                "buyer_sku_id": buyer_sku_id,
+                "bidso_sku_id": bidso_sku,
+                "brand_id": brand_id,
+                "brand_code": brand.get("code") if brand else None,
+                "name": description,
+                "description": description,
+                "status": "ACTIVE",
+                "gst_rate": 18,
+                "hsn_code": "87141090",
+                "created_at": datetime.now(timezone.utc)
+            }
+            await db.buyer_skus.insert_one(buyer_sku_doc)
             
             result["status"] = "CREATED"
-            result["remarks"] = "Successfully imported"
+            result["remarks"] = "Successfully imported to buyer_skus"
             created_count += 1
         except Exception as e:
             result["status"] = "ERROR"
@@ -2726,6 +2707,7 @@ async def get_migration_stats():
     common_bom_count = await db.common_bom.count_documents({})
     brand_bom_count = await db.brand_specific_bom.count_documents({})
     
+    # Legacy collection count (for migration monitoring only)
     old_sku_count = await db.skus.count_documents({})
     
     return {
@@ -2733,9 +2715,40 @@ async def get_migration_stats():
         "buyer_skus": buyer_count,
         "common_boms": common_bom_count,
         "brand_specific_boms": brand_bom_count,
-        "old_skus": old_sku_count,
-        "collections_created": ["bidso_skus", "buyer_skus", "common_bom", "brand_specific_bom"]
+        "legacy_skus_deprecated": old_sku_count,
+        "migration_status": "COMPLETE" if old_sku_count == 0 else "LEGACY_DATA_EXISTS",
+        "collections_created": ["bidso_skus", "buyer_skus", "common_bom", "brand_specific_bom"],
+        "note": "Legacy 'skus' collection is deprecated. All new operations use bidso_skus + buyer_skus."
     }
+
+
+@router.delete("/legacy-skus/drop")
+async def drop_legacy_skus_collection():
+    """
+    DANGER: Permanently drops the legacy 'skus' collection.
+    Only call this after confirming all data is migrated to buyer_skus.
+    """
+    # Safety check: ensure buyer_skus has data
+    buyer_count = await db.buyer_skus.count_documents({})
+    if buyer_count == 0:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot drop legacy collection: buyer_skus is empty. Migration may not be complete."
+        )
+    
+    # Get count before drop
+    legacy_count = await db.skus.count_documents({})
+    
+    # Drop the collection
+    await db.skus.drop()
+    
+    return {
+        "success": True,
+        "message": f"Legacy 'skus' collection dropped. {legacy_count} records removed.",
+        "buyer_skus_count": buyer_count,
+        "migration_status": "COMPLETE"
+    }
+
 
 
 # ============ Clone & Customize Bidso SKU ============
