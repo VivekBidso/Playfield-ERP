@@ -382,7 +382,7 @@ const RawMaterials = () => {
             </thead>
             <tbody>
               {materials.map((material) => {
-                const currentStock = branchInventory[material.rm_id] || 0;
+                const currentStock = material.branch_stock ?? branchInventory[material.rm_id] ?? 0;
                 const isBelowSafety = currentStock < material.low_stock_threshold;
                 return (
                   <tr key={material.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
