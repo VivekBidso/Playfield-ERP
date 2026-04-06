@@ -2561,3 +2561,31 @@ This module enables tracking of internally manufactured raw materials (L2/L3) th
 ### Documentation
 See `/app/memory/func/IN_HOUSE_PRODUCTION.md` for full module documentation.
 
+---
+
+## BUG FIXES LOG
+
+### April 6, 2026 - Excel Template Branch ID Fix
+**Issue:** Production Plan and Model Capacity template downloads were generating Branch Names (e.g., "Unit 2", "Goa") instead of proper Branch IDs (BR_001, BR_002).
+
+**Root Cause:** The `/api/branches/model-capacity/template` endpoint was:
+1. Querying only `{"name": 1}` without `branch_id`
+2. Using branch name in sample data rows
+3. Branches Reference sheet showing only names without IDs
+
+**Fix Applied:**
+- Updated `download_model_capacity_template()` in `/app/backend/routes/cpc_routes.py`
+- Changed header from "Branch" to "Branch ID"
+- Updated query to include `branch_id` field
+- Sample data now uses `branch_id` instead of name
+- Branches Reference sheet now shows both Branch ID and Branch Name columns
+- Upload endpoint updated to accept both `branch_id` and `branch_name` for backward compatibility
+
+**Files Modified:**
+- `/app/backend/routes/cpc_routes.py` (lines ~2596-2790)
+
+**Verified Templates (All using Branch IDs):**
+- `/api/cpc/production-plan/template` ✅
+- `/api/branches/daily-capacity/template` ✅
+- `/api/branches/model-capacity/template` ✅ (FIXED)
+

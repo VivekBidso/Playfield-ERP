@@ -2603,8 +2603,8 @@ async def download_model_capacity_template():
     ws = wb.active
     ws.title = "Model Capacity"
     
-    # Headers
-    headers = ["Branch", "Month (YYYY-MM)", "Day", "Model Name", "Capacity Qty"]
+    # Headers - use Branch ID instead of Branch name
+    headers = ["Branch ID", "Month (YYYY-MM)", "Day", "Model Name", "Capacity Qty"]
     header_fill = PatternFill(start_color="FF6B35", end_color="FF6B35", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -2615,28 +2615,34 @@ async def download_model_capacity_template():
         cell.alignment = Alignment(horizontal="center")
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
     
-    # Get branches and models for reference
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
+    # Get branches and models for reference - include branch_id
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
     models = await db.models.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
     
-    # Add sample rows
-    sample_branch = branches[0]["name"] if branches else "Unit 1"
+    # Add sample rows - use branch_id instead of name
+    sample_branch_id = branches[0].get("branch_id", "BR_001") if branches else "BR_001"
     sample_model = models[0]["name"] if models else "Model A"
     sample_month = datetime.now(timezone.utc).strftime("%Y-%m")
     
-    ws.cell(row=2, column=1, value=sample_branch)
+    ws.cell(row=2, column=1, value=sample_branch_id)
     ws.cell(row=2, column=2, value=sample_month)
     ws.cell(row=2, column=3, value=1)
     ws.cell(row=2, column=4, value=sample_model)
     ws.cell(row=2, column=5, value=100)
     
     # Add reference sheets
-    # Branches reference
+    # Branches reference - show both Branch ID and Name
     ws_branches = wb.create_sheet("Branches Reference")
-    ws_branches.cell(row=1, column=1, value="Available Branches")
+    ws_branches.cell(row=1, column=1, value="Branch ID")
+    ws_branches.cell(row=1, column=2, value="Branch Name")
     ws_branches["A1"].font = Font(bold=True)
+    ws_branches["B1"].font = Font(bold=True)
     for i, b in enumerate(branches, 2):
-        ws_branches.cell(row=i, column=1, value=b["name"])
+        ws_branches.cell(row=i, column=1, value=b.get("branch_id", ""))
+        ws_branches.cell(row=i, column=2, value=b.get("name", ""))
+    
+    ws_branches.column_dimensions["A"].width = 12
+    ws_branches.column_dimensions["B"].width = 25
     
     # Models reference
     ws_models = wb.create_sheet("Models Reference")
@@ -2680,9 +2686,9 @@ async def upload_model_capacity_excel(file: UploadFile = File(...)):
     # Normalize column names
     df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
     
-    # Expected columns (flexible matching)
+    # Expected columns (flexible matching) - support branch_id
     required_cols = {
-        "branch": ["branch", "branch_name", "unit"],
+        "branch": ["branch_id", "branch", "branch_name", "unit"],
         "month": ["month", "month_yyyy_mm", "yyyy_mm"],
         "day": ["day", "day_of_month"],
         "model": ["model", "model_name", "model_id"],
@@ -2706,24 +2712,26 @@ async def upload_model_capacity_excel(file: UploadFile = File(...)):
     model_name_to_id = {m["name"].lower(): m["id"] for m in models}
     model_id_set = {m["id"] for m in models}
     
-    # Validate branches
-    branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1}).to_list(100)
-    valid_branches = {b["name"] for b in branches}
+    # Validate branches - support both branch_id and branch_name
+    branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
+    branch_id_to_name = {b.get("branch_id", ""): b["name"] for b in branches if b.get("branch_id")}
+    valid_branch_names = {b["name"] for b in branches}
     
     # Process rows
     results = {"inserted": 0, "updated": 0, "errors": []}
     
     for idx, row in df.iterrows():
         try:
-            branch = str(row[col_map["branch"]]).strip()
+            branch_value = str(row[col_map["branch"]]).strip()
             month = str(row[col_map["month"]]).strip()
             day = int(row[col_map["day"]])
             model_value = str(row[col_map["model"]]).strip()
             capacity = int(row[col_map["capacity"]])
             
-            # Validate branch
-            if branch not in valid_branches:
-                results["errors"].append(f"Row {idx+2}: Invalid branch '{branch}'")
+            # Resolve branch - support both branch_id and branch_name
+            branch_name = branch_id_to_name.get(branch_value) or (branch_value if branch_value in valid_branch_names else None)
+            if not branch_name:
+                results["errors"].append(f"Row {idx+2}: Invalid branch '{branch_value}'")
                 continue
             
             # Validate month format (YYYY-MM)
@@ -2752,7 +2760,7 @@ async def upload_model_capacity_excel(file: UploadFile = File(...)):
             
             # Upsert capacity record
             record = {
-                "branch": branch,
+                "branch": branch_name,
                 "month": month,
                 "day": day,
                 "model_id": model_id,
@@ -2762,7 +2770,7 @@ async def upload_model_capacity_excel(file: UploadFile = File(...)):
             
             result = await db.branch_model_capacity.update_one(
                 {
-                    "branch": branch,
+                    "branch": branch_name,
                     "month": month,
                     "day": day,
                     "model_id": model_id
