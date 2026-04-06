@@ -385,13 +385,18 @@ async def download_daily_capacity_template():
     # Get branches for reference
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
     
+    # Generate branch_id if missing (BR_001, BR_002, etc.)
+    for idx, b in enumerate(branches, 1):
+        if not b.get("branch_id"):
+            b["branch_id"] = f"BR_{idx:03d}"
+    
     # Add sample rows for each branch for next 7 days
     row = 2
     today = datetime.now(timezone.utc)
     for b in branches[:3]:  # First 3 branches as samples
         for i in range(7):  # Next 7 days
             date_str = (today + timedelta(days=i)).strftime("%Y-%m-%d")
-            ws.cell(row=row, column=1, value=b.get("branch_id", ""))
+            ws.cell(row=row, column=1, value=b.get("branch_id", "BR_001"))
             ws.cell(row=row, column=2, value=date_str)
             ws.cell(row=row, column=3, value=b.get("capacity_units_per_day", 100))
             row += 1
@@ -1780,11 +1785,16 @@ async def download_production_plan_template():
     
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "name": 1, "branch_id": 1}).to_list(100)
     
+    # Generate branch_id if missing (BR_001, BR_002, etc.)
+    for idx, b in enumerate(branches, 1):
+        if not b.get("branch_id"):
+            b["branch_id"] = f"BR_{idx:03d}"
+    
     # Add sample rows
     row = 2
     sample_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     for sku in buyer_skus[:5]:
-        ws.cell(row=row, column=1, value=branches[0].get("branch_id", "") if branches else "BR_001")
+        ws.cell(row=row, column=1, value=branches[0].get("branch_id", "BR_001") if branches else "BR_001")
         ws.cell(row=row, column=2, value=sample_date)
         ws.cell(row=row, column=3, value=sku.get("buyer_sku_id", ""))
         ws.cell(row=row, column=4, value=100)
@@ -1800,6 +1810,12 @@ async def download_production_plan_template():
     ws_branches["C1"].font = Font(bold=True)
     
     all_branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
+    
+    # Generate branch_id if missing for all branches
+    for idx, b in enumerate(all_branches, 1):
+        if not b.get("branch_id"):
+            b["branch_id"] = f"BR_{idx:03d}"
+    
     for i, b in enumerate(all_branches, 2):
         ws_branches.cell(row=i, column=1, value=b.get("branch_id", ""))
         ws_branches.cell(row=i, column=2, value=b.get("name", ""))
@@ -2618,6 +2634,11 @@ async def download_model_capacity_template():
     # Get branches and models for reference - include branch_id
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
     models = await db.models.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    
+    # Generate branch_id if missing (BR_001, BR_002, etc.)
+    for idx, b in enumerate(branches, 1):
+        if not b.get("branch_id"):
+            b["branch_id"] = f"BR_{idx:03d}"
     
     # Add sample rows - use branch_id instead of name
     sample_branch_id = branches[0].get("branch_id", "BR_001") if branches else "BR_001"

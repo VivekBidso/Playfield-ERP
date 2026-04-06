@@ -604,3 +604,34 @@ async def get_branch_names():
 async def get_rm_categories():
     """Get all RM categories"""
     return RM_CATEGORIES
+
+
+
+# --- Branch Migration Endpoint ---
+@router.post("/branches/migrate-ids")
+async def migrate_branch_ids():
+    """
+    One-time migration: Populate branch_id field for all branches that don't have it.
+    Generates BR_001, BR_002, etc. based on existing branch order.
+    """
+    branches = await db.branches.find({}, {"_id": 1, "name": 1, "branch_id": 1}).to_list(1000)
+    
+    updated_count = 0
+    results = []
+    
+    for idx, branch in enumerate(branches, 1):
+        if not branch.get("branch_id"):
+            new_branch_id = f"BR_{idx:03d}"
+            await db.branches.update_one(
+                {"_id": branch["_id"]},
+                {"$set": {"branch_id": new_branch_id}}
+            )
+            updated_count += 1
+            results.append({"name": branch["name"], "branch_id": new_branch_id, "status": "UPDATED"})
+        else:
+            results.append({"name": branch["name"], "branch_id": branch["branch_id"], "status": "EXISTING"})
+    
+    return {
+        "message": f"Migration complete. Updated {updated_count} branches.",
+        "branches": results
+    }

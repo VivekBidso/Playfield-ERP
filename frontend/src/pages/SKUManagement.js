@@ -644,11 +644,24 @@ const SKUManagement = () => {
       });
       
       setBomUploadResult(response.data);
-      toast.success('BOM upload completed');
+      
+      // Show appropriate toast based on success status
+      if (response.data.success === false) {
+        toast.error('BOM upload failed - see errors below');
+      } else if (response.data.errors?.length > 0) {
+        toast.warning(`BOM upload completed with ${response.data.errors.length} errors`);
+      } else {
+        toast.success('BOM upload completed successfully');
+      }
+      
       fetchBidsoSKUs();
       fetchStats();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to upload BOM');
+      // Also set the result if there's error data in the response
+      if (error.response?.data) {
+        setBomUploadResult(error.response.data);
+      }
     }
     
     setBomUploadLoading(false);

@@ -1109,8 +1109,11 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
     """
     import openpyxl
     
-    content = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(content))
+    try:
+        content = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")
     
     results = {
         "buyer_sku_processed": 0,
@@ -1118,12 +1121,61 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
         "common_bom_updated": 0,
         "brand_bom_updated": 0,
         "errors": [],
-        "warnings": []
+        "warnings": [],
+        "success": True
     }
     
     # Process BuyerSKU_BOM sheet
     if "BuyerSKU_BOM" in wb.sheetnames:
         ws = wb["BuyerSKU_BOM"]
+        
+        # First, collect all unique buyer_sku_ids and rm_ids for validation
+        all_buyer_skus = set()
+        all_rm_ids = set()
+        
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row[0]:
+                all_buyer_skus.add(str(row[0]).strip())
+            if row[1]:
+                all_rm_ids.add(str(row[1]).strip())
+        
+        # Pre-validate buyer SKUs
+        existing_buyer_skus = {}
+        for sku_id in all_buyer_skus:
+            buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0})
+            if buyer_sku:
+                existing_buyer_skus[sku_id] = buyer_sku
+        
+        missing_buyer_skus = all_buyer_skus - set(existing_buyer_skus.keys())
+        if missing_buyer_skus:
+            results["errors"].append(f"Missing Buyer SKUs: {', '.join(sorted(missing_buyer_skus)[:10])}" + 
+                                    (f" (and {len(missing_buyer_skus) - 10} more)" if len(missing_buyer_skus) > 10 else ""))
+        
+        # Pre-validate RMs (case-insensitive)
+        existing_rms = {}
+        for rm_id in all_rm_ids:
+            # Exact match first
+            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "name": 1, "rm_id": 1})
+            if not rm:
+                # Case-insensitive match
+                escaped_rm_id = re.escape(rm_id)
+                rm = await db.raw_materials.find_one(
+                    {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                    {"_id": 0, "name": 1, "rm_id": 1}
+                )
+            if rm:
+                existing_rms[rm_id] = rm
+                existing_rms[rm_id.lower()] = rm  # Also store lowercase for lookups
+        
+        missing_rms = [rm for rm in all_rm_ids if rm not in existing_rms and rm.lower() not in existing_rms]
+        if missing_rms:
+            results["errors"].append(f"Missing RM IDs: {', '.join(sorted(missing_rms)[:10])}" + 
+                                    (f" (and {len(missing_rms) - 10} more)" if len(missing_rms) > 10 else ""))
+        
+        # If critical validations fail, return early with detailed errors
+        if missing_buyer_skus or missing_rms:
+            results["success"] = False
+            return results
         
         # Group items by buyer_sku_id
         buyer_sku_boms = {}
@@ -1369,6 +1421,10 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
             
             results["bidso_sku_processed"] += 1
             results["common_bom_updated"] += 1
+    
+    # Mark as failed if there are errors and no successful processing
+    if results["errors"] and results["buyer_sku_processed"] == 0 and results["bidso_sku_processed"] == 0:
+        results["success"] = False
     
     return results
 

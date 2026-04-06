@@ -2568,24 +2568,44 @@ See `/app/memory/func/IN_HOUSE_PRODUCTION.md` for full module documentation.
 ### April 6, 2026 - Excel Template Branch ID Fix
 **Issue:** Production Plan and Model Capacity template downloads were generating Branch Names (e.g., "Unit 2", "Goa") instead of proper Branch IDs (BR_001, BR_002).
 
-**Root Cause:** The `/api/branches/model-capacity/template` endpoint was:
-1. Querying only `{"name": 1}` without `branch_id`
-2. Using branch name in sample data rows
-3. Branches Reference sheet showing only names without IDs
+**Root Cause:** In production, the `branches` collection doesn't have `branch_id` field populated, causing `None` values in the Excel output.
 
 **Fix Applied:**
-- Updated `download_model_capacity_template()` in `/app/backend/routes/cpc_routes.py`
-- Changed header from "Branch" to "Branch ID"
-- Updated query to include `branch_id` field
-- Sample data now uses `branch_id` instead of name
-- Branches Reference sheet now shows both Branch ID and Branch Name columns
-- Upload endpoint updated to accept both `branch_id` and `branch_name` for backward compatibility
+1. Updated all 3 template endpoints to generate `branch_id` dynamically if missing (BR_001, BR_002, etc.)
+2. Added a new migration endpoint `POST /api/branches/migrate-ids` to persist branch_ids in production
+3. Updated Model Capacity upload endpoint to accept both `branch_id` and `branch_name`
 
 **Files Modified:**
-- `/app/backend/routes/cpc_routes.py` (lines ~2596-2790)
+- `/app/backend/routes/cpc_routes.py` - Template generation logic
+- `/app/backend/routes/tech_ops_routes.py` - Added migration endpoint
 
 **Verified Templates (All using Branch IDs):**
-- `/api/cpc/production-plan/template` ✅
-- `/api/branches/daily-capacity/template` ✅
+- `/api/cpc/production-plan/template` ✅ (FIXED)
+- `/api/branches/daily-capacity/template` ✅ (FIXED)
 - `/api/branches/model-capacity/template` ✅ (FIXED)
+
+### April 6, 2026 - BOM Upload Error Handling Enhancement
+**Issue:** BOM bulk upload was showing generic "Failed to upload" without details.
+
+**Fix Applied:**
+1. Enhanced BOM upload to pre-validate all Buyer SKUs and RM IDs before processing
+2. Returns specific list of missing items (e.g., "Missing RM IDs: LB_00564")
+3. Added `success: true/false` field to clearly indicate upload status
+4. Frontend now shows appropriate toast messages based on success/warning/error
+
+**Files Modified:**
+- `/app/backend/routes/sku_management_routes.py` - BOM upload validation
+- `/app/frontend/src/pages/SKUManagement.js` - Error display logic
+
+---
+
+## PRODUCTION DEPLOYMENT INSTRUCTIONS
+
+### For Branch ID Migration (Run Once in Production)
+After deploying, call the migration endpoint to populate branch_id for all branches:
+```bash
+curl -X POST https://your-production-url/api/branches/migrate-ids
+```
+
+This will assign BR_001, BR_002, etc. to branches that don't have a branch_id.
 
