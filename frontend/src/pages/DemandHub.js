@@ -221,6 +221,7 @@ const DemandHub = () => {
       const categoriesList = Object.entries(enrichedCategories).map(([code, config]) => ({
         code,
         name: config.name,
+        description: config.description || DEFAULT_RM_CATEGORIES[code]?.description || '',
         fields: config.fields,
         nameFormat: config.nameFormat
       }));
@@ -231,6 +232,15 @@ const DemandHub = () => {
     } catch (error) {
       console.error("Failed to fetch master data:", error);
       setRmCategoriesMap(DEFAULT_RM_CATEGORIES);
+      // Also set the list from defaults so the UI has data
+      const defaultList = Object.entries(DEFAULT_RM_CATEGORIES).map(([code, config]) => ({
+        code,
+        name: config.name,
+        description: config.description || '',
+        fields: config.fields,
+        nameFormat: config.nameFormat
+      }));
+      setRmCategoriesList(defaultList);
     }
   };
 
@@ -263,9 +273,12 @@ const DemandHub = () => {
       if (skuFilters.search) url += `search=${encodeURIComponent(skuFilters.search)}&`;
       
       const res = await axios.get(url);
-      setBidsoSkus(res.data);
+      // Handle paginated response
+      const data = res.data;
+      setBidsoSkus(data.items || data || []);
     } catch (error) {
       console.error("Failed to fetch Bidso SKUs");
+      setBidsoSkus([]);
     }
   };
 
@@ -737,7 +750,7 @@ const DemandHub = () => {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Category Cards */}
-                {rmCategories.map(cat => (
+                {rmCategoriesList.map(cat => (
                   <Card 
                     key={cat.code} 
                     className={`cursor-pointer transition-all hover:border-primary ${rmForm.category === cat.code ? 'border-primary bg-primary/5' : ''}`}

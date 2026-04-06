@@ -43,17 +43,22 @@ const Dashboard = () => {
         axios.get(`${API}/skus`, { headers })
       ]);
       
-      setForecasts(forecastsRes.data);
-      setDispatchLots(lotsRes.data);
+      // Handle paginated responses - extract items array if present
+      const forecastsData = forecastsRes.data?.items || forecastsRes.data || [];
+      const lotsData = lotsRes.data?.items || lotsRes.data || [];
+      const skusData = skusRes.data?.items || skusRes.data?.skus || skusRes.data || [];
+      
+      setForecasts(forecastsData);
+      setDispatchLots(lotsData);
       
       // Calculate demand-specific stats
-      const draftForecasts = forecastsRes.data.filter(f => f.status === 'DRAFT').length;
-      const confirmedForecasts = forecastsRes.data.filter(f => f.status === 'CONFIRMED').length;
-      const totalForecastQty = forecastsRes.data.reduce((sum, f) => sum + (f.quantity || 0), 0);
-      const pendingLots = lotsRes.data.filter(l => l.status === 'CREATED').length;
-      const inProductionLots = lotsRes.data.filter(l => 
+      const draftForecasts = Array.isArray(forecastsData) ? forecastsData.filter(f => f.status === 'DRAFT').length : 0;
+      const confirmedForecasts = Array.isArray(forecastsData) ? forecastsData.filter(f => f.status === 'CONFIRMED').length : 0;
+      const totalForecastQty = Array.isArray(forecastsData) ? forecastsData.reduce((sum, f) => sum + (f.quantity || 0), 0) : 0;
+      const pendingLots = Array.isArray(lotsData) ? lotsData.filter(l => l.status === 'CREATED').length : 0;
+      const inProductionLots = Array.isArray(lotsData) ? lotsData.filter(l => 
         ['PRODUCTION_ASSIGNED', 'PARTIALLY_PRODUCED'].includes(l.status)
-      ).length;
+      ).length : 0;
       
       setDemandStats({
         draft_forecasts: draftForecasts,
@@ -61,7 +66,7 @@ const Dashboard = () => {
         total_forecast_qty: totalForecastQty,
         pending_lots: pendingLots,
         in_production_lots: inProductionLots,
-        total_skus: skusRes.data.length
+        total_skus: Array.isArray(skusData) ? skusData.length : 0
       });
       
       setStats({ loaded: true }); // Mark as loaded for the loading check
