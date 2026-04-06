@@ -21,49 +21,85 @@ router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 
 # ============ RM INVENTORY ============
+# NOTE: Uses branch_rm_inventory collection (same as RM Stock View, Production, etc.)
 
 @router.get("/rm")
 async def get_rm_inventory(
+    branch: Optional[str] = None,
     branch_id: Optional[str] = None,
     category: Optional[str] = None,
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100
 ):
-    """Get RM inventory with filters"""
+    """
+    Get RM inventory with filters.
+    Uses branch_rm_inventory collection - same source as RM Stock View and Production.
+    
+    Supports both branch name (e.g., "Unit 1 Vedica") and branch_id (e.g., "BR_001").
+    """
     query = {}
     
-    if branch_id:
-        query["branch_id"] = branch_id
-    if category:
-        query["category"] = category
-    if search:
-        query["$or"] = [
-            {"rm_id": {"$regex": search, "$options": "i"}},
-            {"rm_name": {"$regex": search, "$options": "i"}}
-        ]
+    # Resolve branch filter - support both branch name and branch_id
+    branch_filter = branch or branch_id
+    if branch_filter:
+        # Check if it's a branch_id (BR_xxx format)
+        if branch_filter.startswith("BR_"):
+            # Look up branch name from branch_id
+            branch_doc = await db.branches.find_one({"branch_id": branch_filter}, {"_id": 0, "name": 1})
+            if branch_doc:
+                query["branch"] = branch_doc["name"]
+            else:
+                query["branch"] = branch_filter
+        else:
+            query["branch"] = branch_filter
     
-    # Get inventory records
-    cursor = db.rm_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("rm_id", 1)
+    # Get inventory records from branch_rm_inventory
+    cursor = db.branch_rm_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("rm_id", 1)
     items = await cursor.to_list(limit)
     
     # Get total count
-    total = await db.rm_inventory.count_documents(query)
+    total = await db.branch_rm_inventory.count_documents(query)
     
-    # Enrich with RM details if not present
+    # Enrich with RM details
     for item in items:
-        if not item.get("rm_name"):
-            rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "category": 1})
-            if rm:
-                item["rm_name"] = rm.get("name", "")
-                item["category"] = rm.get("category", "")
+        rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "category": 1, "default_unit": 1})
+        if rm:
+            item["rm_name"] = rm.get("name", "")
+            item["category"] = rm.get("category", "")
+            item["unit"] = rm.get("default_unit", "PCS")
+        
+        # Add quantity alias for backward compatibility
+        item["quantity"] = item.get("current_stock", 0)
+        
+        # Add branch_id for display
+        if item.get("branch"):
+            branch_doc = await db.branches.find_one({"name": item["branch"]}, {"_id": 0, "branch_id": 1})
+            if branch_doc:
+                item["branch_id"] = branch_doc.get("branch_id", "")
+    
+    # Apply category filter (post-fetch since it requires RM lookup)
+    if category:
+        items = [item for item in items if item.get("category") == category]
+        total = len(items)
+    
+    # Apply search filter
+    if search:
+        search_lower = search.lower()
+        items = [item for item in items if 
+                 search_lower in item.get("rm_id", "").lower() or 
+                 search_lower in item.get("rm_name", "").lower()]
+        total = len(items)
     
     return {"items": items, "total": total}
 
 
 @router.get("/rm/template")
 async def download_rm_inventory_template():
-    """Download Excel template for RM inventory import"""
+    """
+    Download Excel template for RM inventory import.
+    Uses branch names (same as branch_rm_inventory collection).
+    """
     if not openpyxl:
         raise HTTPException(status_code=500, detail="openpyxl not installed")
     
@@ -71,8 +107,8 @@ async def download_rm_inventory_template():
     ws = wb.active
     ws.title = "RM Inventory"
     
-    # Headers
-    headers = ["RM_ID", "BRANCH_ID", "QUANTITY", "UNIT"]
+    # Headers - use BRANCH (name) to match branch_rm_inventory
+    headers = ["RM_ID", "BRANCH", "QUANTITY"]
     header_fill = PatternFill(start_color="4CAF50", end_color="4CAF50", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     
@@ -81,58 +117,69 @@ async def download_rm_inventory_template():
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
     
     # Get sample data
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
-    rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "default_unit": 1}).to_list(10)
+    rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1}).to_list(10)
     
-    # Generate branch_id if missing
-    for idx, b in enumerate(branches, 1):
-        if not b.get("branch_id"):
-            b["branch_id"] = f"BR_{idx:03d}"
-    
-    # Add sample rows
-    sample_branch = branches[0].get("branch_id", "BR_001") if branches else "BR_001"
+    # Add sample rows using branch NAME
+    sample_branch = branches[0].get("name", "Unit 1 Vedica") if branches else "Unit 1 Vedica"
     for i, rm in enumerate(rms[:5], 2):
         ws.cell(row=i, column=1, value=rm.get("rm_id", ""))
         ws.cell(row=i, column=2, value=sample_branch)
         ws.cell(row=i, column=3, value=100)
-        ws.cell(row=i, column=4, value=rm.get("default_unit", "PCS"))
     
-    # Branches Reference sheet
+    # Branches Reference sheet - show both name and ID
     ws_branches = wb.create_sheet("Branches Reference")
-    ws_branches.cell(row=1, column=1, value="Branch ID")
-    ws_branches.cell(row=1, column=2, value="Branch Name")
+    ws_branches.cell(row=1, column=1, value="Branch Name (use this)")
+    ws_branches.cell(row=1, column=2, value="Branch ID")
     ws_branches["A1"].font = Font(bold=True)
     ws_branches["B1"].font = Font(bold=True)
     for i, b in enumerate(branches, 2):
-        ws_branches.cell(row=i, column=1, value=b.get("branch_id", ""))
-        ws_branches.cell(row=i, column=2, value=b.get("name", ""))
-    ws_branches.column_dimensions["A"].width = 12
-    ws_branches.column_dimensions["B"].width = 25
+        ws_branches.cell(row=i, column=1, value=b.get("name", ""))
+        ws_branches.cell(row=i, column=2, value=b.get("branch_id", ""))
+    ws_branches.column_dimensions["A"].width = 25
+    ws_branches.column_dimensions["B"].width = 12
     
     # RM Reference sheet
     ws_rm = wb.create_sheet("RM Reference")
     ws_rm.cell(row=1, column=1, value="RM ID")
     ws_rm.cell(row=1, column=2, value="RM Name")
     ws_rm.cell(row=1, column=3, value="Category")
-    ws_rm.cell(row=1, column=4, value="Default Unit")
     ws_rm["A1"].font = Font(bold=True)
     ws_rm["B1"].font = Font(bold=True)
     ws_rm["C1"].font = Font(bold=True)
-    ws_rm["D1"].font = Font(bold=True)
     
-    all_rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "default_unit": 1}).to_list(1000)
+    all_rms = await db.raw_materials.find({}, {"_id": 0, "rm_id": 1, "name": 1, "category": 1}).to_list(1000)
     for i, rm in enumerate(all_rms, 2):
         ws_rm.cell(row=i, column=1, value=rm.get("rm_id", ""))
         ws_rm.cell(row=i, column=2, value=rm.get("name", ""))
         ws_rm.cell(row=i, column=3, value=rm.get("category", ""))
-        ws_rm.cell(row=i, column=4, value=rm.get("default_unit", "PCS"))
     ws_rm.column_dimensions["A"].width = 15
-    ws_rm.column_dimensions["B"].width = 30
+    ws_rm.column_dimensions["B"].width = 35
     ws_rm.column_dimensions["C"].width = 15
-    ws_rm.column_dimensions["D"].width = 12
+    
+    # Instructions sheet
+    ws_inst = wb.create_sheet("Instructions")
+    instructions = [
+        "RM Inventory Import Instructions",
+        "",
+        "1. Use the 'RM Inventory' sheet for your data",
+        "2. Required columns: RM_ID, BRANCH, QUANTITY",
+        "3. BRANCH: Use branch NAME (e.g., 'Unit 1 Vedica'), not branch ID",
+        "4. See 'Branches Reference' sheet for valid branch names",
+        "5. See 'RM Reference' sheet for valid RM IDs",
+        "",
+        "Import Modes:",
+        "- ADD: Adds uploaded quantity to existing stock",
+        "- REPLACE: Sets stock to uploaded quantity (overwrites)",
+        "",
+        "Note: This updates the same inventory used by RM Stock View and Production."
+    ]
+    for i, line in enumerate(instructions, 1):
+        ws_inst.cell(row=i, column=1, value=line)
+    ws_inst.column_dimensions["A"].width = 70
     
     # Save to buffer
     buffer = io.BytesIO()
@@ -153,6 +200,11 @@ async def bulk_import_rm_inventory(
 ):
     """
     Bulk import RM inventory from Excel.
+    
+    IMPORTANT: This writes to branch_rm_inventory collection - same source used by:
+    - RM Stock View page
+    - Production shortage calculations
+    - Branch Operations
     
     Mode:
     - 'add': Add uploaded quantities to existing stock
@@ -175,47 +227,72 @@ async def bulk_import_rm_inventory(
         "updated": 0,
         "errors": [],
         "mode": mode,
+        "collection": "branch_rm_inventory",
         "success": True
     }
     
-    # Build branch lookup (branch_id -> branch_id, also support name -> branch_id)
+    # Build branch lookup (supports both branch_id and branch name)
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
-    branch_lookup = {}
+    branch_lookup = {}  # Maps various inputs to branch NAME (what branch_rm_inventory uses)
     for idx, b in enumerate(branches, 1):
+        branch_name = b.get("name", "")
         bid = b.get("branch_id") or f"BR_{idx:03d}"
-        branch_lookup[bid] = bid
-        branch_lookup[bid.lower()] = bid
-        branch_lookup[b["name"]] = bid
-        branch_lookup[b["name"].lower()] = bid
+        
+        # Map branch_id to branch name
+        branch_lookup[bid] = branch_name
+        branch_lookup[bid.lower()] = branch_name
+        
+        # Map branch name to itself
+        branch_lookup[branch_name] = branch_name
+        branch_lookup[branch_name.lower()] = branch_name
+    
+    # Detect column headers
+    headers = [str(cell.value).strip().upper() if cell.value else "" for cell in ws[1]]
+    rm_id_col = None
+    branch_col = None
+    qty_col = None
+    
+    for idx, h in enumerate(headers):
+        if h in ["RM_ID", "RM ID", "RMID"]:
+            rm_id_col = idx
+        elif h in ["BRANCH", "BRANCH_ID", "BRANCH ID", "BRANCHID"]:
+            branch_col = idx
+        elif h in ["QUANTITY", "QTY", "STOCK", "CURRENT_STOCK"]:
+            qty_col = idx
+    
+    if rm_id_col is None or branch_col is None or qty_col is None:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Missing required columns. Found: {headers}. Required: RM_ID, BRANCH, QUANTITY"
+        )
     
     # Process rows
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        if not row[0]:
+        if not row[rm_id_col]:
             continue
         
         try:
-            rm_id = str(row[0]).strip()
-            branch_value = str(row[1]).strip() if row[1] else None
-            quantity = float(row[2]) if row[2] else 0
-            unit = str(row[3]).strip() if row[3] else "PCS"
+            rm_id = str(row[rm_id_col]).strip()
+            branch_value = str(row[branch_col]).strip() if row[branch_col] else None
+            quantity = float(row[qty_col]) if row[qty_col] else 0
             
             if not branch_value:
-                results["errors"].append(f"Row {row_idx}: BRANCH_ID is required")
+                results["errors"].append(f"Row {row_idx}: BRANCH is required")
                 continue
             
-            # Resolve branch
-            branch_id = branch_lookup.get(branch_value) or branch_lookup.get(branch_value.lower())
-            if not branch_id:
+            # Resolve branch to NAME (what branch_rm_inventory uses)
+            branch_name = branch_lookup.get(branch_value) or branch_lookup.get(branch_value.lower())
+            if not branch_name:
                 results["errors"].append(f"Row {row_idx}: Invalid branch '{branch_value}'")
                 continue
             
             # Verify RM exists
-            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1, "name": 1, "category": 1})
+            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1})
             if not rm:
                 # Case-insensitive search
                 rm = await db.raw_materials.find_one(
                     {"rm_id": {"$regex": f"^{re.escape(rm_id)}$", "$options": "i"}},
-                    {"_id": 0, "rm_id": 1, "name": 1, "category": 1}
+                    {"_id": 0, "rm_id": 1}
                 )
             if not rm:
                 results["errors"].append(f"Row {row_idx}: RM '{rm_id}' not found")
@@ -223,39 +300,34 @@ async def bulk_import_rm_inventory(
             
             actual_rm_id = rm.get("rm_id", rm_id)
             
-            # Check existing inventory
-            existing = await db.rm_inventory.find_one({
+            # Check existing inventory in branch_rm_inventory
+            existing = await db.branch_rm_inventory.find_one({
                 "rm_id": actual_rm_id,
-                "branch_id": branch_id
+                "branch": branch_name
             })
             
             if mode == "replace":
                 new_quantity = quantity
             else:  # add
-                new_quantity = (existing.get("quantity", 0) if existing else 0) + quantity
+                new_quantity = (existing.get("current_stock", 0) if existing else 0) + quantity
             
             if existing:
-                await db.rm_inventory.update_one(
-                    {"rm_id": actual_rm_id, "branch_id": branch_id},
+                await db.branch_rm_inventory.update_one(
+                    {"rm_id": actual_rm_id, "branch": branch_name},
                     {"$set": {
-                        "quantity": new_quantity,
-                        "unit": unit,
-                        "rm_name": rm.get("name", ""),
-                        "category": rm.get("category", ""),
-                        "updated_at": datetime.now(timezone.utc)
+                        "current_stock": new_quantity,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
                     }}
                 )
                 results["updated"] += 1
             else:
-                await db.rm_inventory.insert_one({
+                await db.branch_rm_inventory.insert_one({
                     "id": str(uuid.uuid4()),
                     "rm_id": actual_rm_id,
-                    "rm_name": rm.get("name", ""),
-                    "category": rm.get("category", ""),
-                    "branch_id": branch_id,
-                    "quantity": new_quantity,
-                    "unit": unit,
-                    "created_at": datetime.now(timezone.utc)
+                    "branch": branch_name,
+                    "current_stock": new_quantity,
+                    "is_active": True,
+                    "activated_at": datetime.now(timezone.utc).isoformat()
                 })
                 results["added"] += 1
             
