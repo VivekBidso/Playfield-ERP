@@ -32,6 +32,7 @@ import DemandSKUView from "@/pages/DemandSKUView";
 import ColorDevelopment from "@/pages/ColorDevelopment";
 import RMShortage from "@/pages/RMShortage";
 import RMProduction from "@/pages/RMProduction";
+import Inventory from "@/pages/Inventory";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -111,6 +112,7 @@ function App() {
             <Route path="rm-shortage" element={<RMShortage />} />
             <Route path="rm-production" element={<RMProduction />} />
             <Route path="rm-repository" element={<RMRepository />} />
+            <Route path="inventory" element={<Inventory />} />
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
             <Route path="color-development" element={<ColorDevelopment />} />

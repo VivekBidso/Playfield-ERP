@@ -2609,3 +2609,55 @@ curl -X POST https://your-production-url/api/branches/migrate-ids
 
 This will assign BR_001, BR_002, etc. to branches that don't have a branch_id.
 
+---
+
+## NEW FEATURE: Inventory Management Page (April 6, 2026)
+
+### Overview
+A dedicated page to view and bulk import existing RM and Finished Goods inventory data.
+
+### Access
+- URL: `/inventory`
+- Sidebar: "Inventory" (accessible to Admin, Branch Ops, Procurement, Finance)
+
+### Features
+1. **Two Tabs**: Raw Materials | Finished Goods
+2. **View Current Inventory**: Table with filters for branch, category/model, search
+3. **Bulk Import**: Upload Excel files to import inventory data
+4. **Import Modes**:
+   - **Add to Existing**: Quantities added to current stock
+   - **Replace Stock**: Uploaded quantities replace current stock
+
+### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/inventory/rm` | GET | Get RM inventory with filters |
+| `/api/inventory/fg` | GET | Get FG inventory with filters |
+| `/api/inventory/rm/bulk-import?mode=add|replace` | POST | Bulk import RM inventory |
+| `/api/inventory/fg/bulk-import?mode=add|replace` | POST | Bulk import FG inventory |
+| `/api/inventory/rm/template` | GET | Download RM import template |
+| `/api/inventory/fg/template` | GET | Download FG import template |
+| `/api/inventory/summary` | GET | Get inventory summary stats |
+| `/api/inventory/filters` | GET | Get filter options |
+
+### Excel Template Format
+
+**RM Inventory Template:**
+| RM_ID | BRANCH_ID | QUANTITY | UNIT |
+|-------|-----------|----------|------|
+| LB_001 | BR_001 | 500 | KG |
+
+**FG Inventory Template:**
+| BUYER_SKU_ID | BRANCH_ID | QUANTITY |
+|--------------|-----------|----------|
+| AD_KS_BE_010 | BR_001 | 100 |
+
+### Files Created
+- `/app/backend/routes/inventory_routes.py` - Backend API endpoints
+- `/app/frontend/src/pages/Inventory.js` - Frontend page
+
+### Database Collections
+- `rm_inventory`: Stores RM stock by branch
+- `fg_inventory`: Stores Finished Goods stock by branch
+
+
