@@ -1108,6 +1108,7 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
     populate the Common BOM of the linked Bidso SKU.
     """
     import openpyxl
+    import traceback
     
     try:
         content = await file.read()
@@ -1125,183 +1126,289 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
         "success": True
     }
     
-    # Process BuyerSKU_BOM sheet
-    if "BuyerSKU_BOM" in wb.sheetnames:
-        ws = wb["BuyerSKU_BOM"]
-        
-        # First, collect all unique buyer_sku_ids and rm_ids for validation
-        all_buyer_skus = set()
-        all_rm_ids = set()
-        
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if row[0]:
-                all_buyer_skus.add(str(row[0]).strip())
-            if row[1]:
-                all_rm_ids.add(str(row[1]).strip())
-        
-        # Pre-validate buyer SKUs
-        existing_buyer_skus = {}
-        for sku_id in all_buyer_skus:
-            buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0})
-            if buyer_sku:
-                existing_buyer_skus[sku_id] = buyer_sku
-        
-        missing_buyer_skus = all_buyer_skus - set(existing_buyer_skus.keys())
-        if missing_buyer_skus:
-            results["errors"].append(f"Missing Buyer SKUs: {', '.join(sorted(missing_buyer_skus)[:10])}" + 
-                                    (f" (and {len(missing_buyer_skus) - 10} more)" if len(missing_buyer_skus) > 10 else ""))
-        
-        # Pre-validate RMs (case-insensitive)
-        existing_rms = {}
-        for rm_id in all_rm_ids:
-            # Exact match first
-            rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "name": 1, "rm_id": 1})
-            if not rm:
-                # Case-insensitive match
-                escaped_rm_id = re.escape(rm_id)
-                rm = await db.raw_materials.find_one(
-                    {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                    {"_id": 0, "name": 1, "rm_id": 1}
-                )
-            if rm:
-                existing_rms[rm_id] = rm
-                existing_rms[rm_id.lower()] = rm  # Also store lowercase for lookups
-        
-        missing_rms = [rm for rm in all_rm_ids if rm not in existing_rms and rm.lower() not in existing_rms]
-        if missing_rms:
-            results["errors"].append(f"Missing RM IDs: {', '.join(sorted(missing_rms)[:10])}" + 
-                                    (f" (and {len(missing_rms) - 10} more)" if len(missing_rms) > 10 else ""))
-        
-        # If critical validations fail, return early with detailed errors
-        if missing_buyer_skus or missing_rms:
-            results["success"] = False
-            return results
-        
-        # Group items by buyer_sku_id
-        buyer_sku_boms = {}
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if not row[0]:
-                continue
+    try:
+        # Process BuyerSKU_BOM sheet
+        if "BuyerSKU_BOM" in wb.sheetnames:
+            ws = wb["BuyerSKU_BOM"]
             
-            buyer_sku_id = str(row[0]).strip()
-            rm_id = str(row[1]).strip() if row[1] else None
-            quantity = float(row[2]) if row[2] else 1.0
-            unit = str(row[3]).strip() if row[3] else "PCS"
-            brand_specific = str(row[4]).strip().upper() if row[4] else "N"
+            # First, collect all unique buyer_sku_ids and rm_ids for validation
+            all_buyer_skus = set()
+            all_rm_ids = set()
             
-            if not rm_id:
-                results["errors"].append(f"Row {row_idx}: RM_ID is required")
-                continue
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if row[0]:
+                    all_buyer_skus.add(str(row[0]).strip())
+                if row[1]:
+                    all_rm_ids.add(str(row[1]).strip())
             
-            if buyer_sku_id not in buyer_sku_boms:
-                buyer_sku_boms[buyer_sku_id] = {"common": [], "brand_specific": []}
+            # Pre-validate buyer SKUs
+            existing_buyer_skus = {}
+            for sku_id in all_buyer_skus:
+                buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0})
+                if buyer_sku:
+                    existing_buyer_skus[sku_id] = buyer_sku
             
-            item = {"rm_id": rm_id, "quantity": quantity, "unit": unit}
+            missing_buyer_skus = all_buyer_skus - set(existing_buyer_skus.keys())
+            if missing_buyer_skus:
+                results["errors"].append(f"Missing Buyer SKUs: {', '.join(sorted(missing_buyer_skus)[:10])}" + 
+                                        (f" (and {len(missing_buyer_skus) - 10} more)" if len(missing_buyer_skus) > 10 else ""))
             
-            if brand_specific == "Y":
-                buyer_sku_boms[buyer_sku_id]["brand_specific"].append(item)
-            else:
-                buyer_sku_boms[buyer_sku_id]["common"].append(item)
-        
-        # Process each buyer SKU
-        for buyer_sku_id, bom_data in buyer_sku_boms.items():
-            # Find buyer SKU and linked Bidso SKU
-            buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
-            if not buyer_sku:
-                results["errors"].append(f"Buyer SKU {buyer_sku_id} not found")
-                continue
-            
-            bidso_sku_id = buyer_sku["bidso_sku_id"]
-            brand_id = buyer_sku["brand_id"]
-            brand_code = buyer_sku.get("brand_code", "")
-            
-            # Validate RMs and prepare data (case-insensitive lookup)
-            common_items = []
-            for item in bom_data["common"]:
-                # Try exact match first, then case-insensitive
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+            # Pre-validate RMs (case-insensitive)
+            existing_rms = {}
+            for rm_id in all_rm_ids:
+                # Exact match first
+                rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "name": 1, "rm_id": 1})
                 if not rm:
-                    escaped_rm_id = re.escape(item["rm_id"])
+                    # Case-insensitive match
+                    escaped_rm_id = re.escape(rm_id)
                     rm = await db.raw_materials.find_one(
                         {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
                         {"_id": 0, "name": 1, "rm_id": 1}
                     )
-                if not rm:
-                    results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
-                    continue
-                common_items.append({
-                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                    "rm_name": rm["name"],
-                    "quantity": item["quantity"],
-                    "unit": item["unit"]
-                })
+                if rm:
+                    existing_rms[rm_id] = rm
+                    existing_rms[rm_id.lower()] = rm  # Also store lowercase for lookups
             
-            brand_items = []
-            for item in bom_data["brand_specific"]:
-                # Try exact match first, then case-insensitive
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
-                if not rm:
-                    escaped_rm_id = re.escape(item["rm_id"])
-                    rm = await db.raw_materials.find_one(
-                        {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                        {"_id": 0, "name": 1, "rm_id": 1}
-                    )
-                if not rm:
-                    results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
-                    continue
-                brand_items.append({
-                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                    "rm_name": rm["name"],
-                    "quantity": item["quantity"],
-                    "unit": item["unit"]
-                })
+            missing_rms = [rm for rm in all_rm_ids if rm not in existing_rms and rm.lower() not in existing_rms]
+            if missing_rms:
+                results["errors"].append(f"Missing RM IDs: {', '.join(sorted(missing_rms)[:10])}" + 
+                                        (f" (and {len(missing_rms) - 10} more)" if len(missing_rms) > 10 else ""))
             
-            # Update Common BOM (for the linked Bidso SKU)
-            if common_items:
-                existing_common = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
-                if existing_common and existing_common.get("is_locked"):
-                    results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped common items")
+            # If critical validations fail, return early with detailed errors
+            if missing_buyer_skus or missing_rms:
+                results["success"] = False
+                return results
+            
+            # Group items by buyer_sku_id
+            buyer_sku_boms = {}
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                if not row[0]:
+                    continue
+                
+                buyer_sku_id = str(row[0]).strip()
+                rm_id = str(row[1]).strip() if row[1] else None
+                quantity = float(row[2]) if row[2] else 1.0
+                unit = str(row[3]).strip() if row[3] else "PCS"
+                brand_specific = str(row[4]).strip().upper() if row[4] else "N"
+                
+                if not rm_id:
+                    results["errors"].append(f"Row {row_idx}: RM_ID is required")
+                    continue
+                
+                if buyer_sku_id not in buyer_sku_boms:
+                    buyer_sku_boms[buyer_sku_id] = {"common": [], "brand_specific": []}
+                
+                item = {"rm_id": rm_id, "quantity": quantity, "unit": unit}
+                
+                if brand_specific == "Y":
+                    buyer_sku_boms[buyer_sku_id]["brand_specific"].append(item)
                 else:
-                    if existing_common:
-                        # Merge items - add new RMs, update existing quantities
-                        existing_rm_ids = {item["rm_id"] for item in existing_common.get("items", [])}
-                        merged_items = list(existing_common.get("items", []))
-                        for item in common_items:
+                    buyer_sku_boms[buyer_sku_id]["common"].append(item)
+            
+            # Process each buyer SKU
+            for buyer_sku_id, bom_data in buyer_sku_boms.items():
+                # Find buyer SKU and linked Bidso SKU
+                buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+                if not buyer_sku:
+                    results["errors"].append(f"Buyer SKU {buyer_sku_id} not found")
+                    continue
+                
+                # Safely get required fields with validation
+                bidso_sku_id = buyer_sku.get("bidso_sku_id")
+                brand_id = buyer_sku.get("brand_id")
+                brand_code = buyer_sku.get("brand_code", "")
+                
+                if not bidso_sku_id:
+                    results["errors"].append(f"Buyer SKU {buyer_sku_id} has no linked Bidso SKU")
+                    continue
+                
+                if not brand_id:
+                    results["errors"].append(f"Buyer SKU {buyer_sku_id} has no brand_id")
+                    continue
+                
+                # Validate RMs and prepare data (case-insensitive lookup)
+                common_items = []
+                for item in bom_data["common"]:
+                    # Try exact match first, then case-insensitive
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    if not rm:
+                        escaped_rm_id = re.escape(item["rm_id"])
+                        rm = await db.raw_materials.find_one(
+                            {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                            {"_id": 0, "name": 1, "rm_id": 1}
+                        )
+                    if not rm:
+                        results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
+                        continue
+                    common_items.append({
+                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
+                        "rm_name": rm["name"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"]
+                    })
+                
+                brand_items = []
+                for item in bom_data["brand_specific"]:
+                    # Try exact match first, then case-insensitive
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    if not rm:
+                        escaped_rm_id = re.escape(item["rm_id"])
+                        rm = await db.raw_materials.find_one(
+                            {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                            {"_id": 0, "name": 1, "rm_id": 1}
+                        )
+                    if not rm:
+                        results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
+                        continue
+                    brand_items.append({
+                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
+                        "rm_name": rm["name"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"]
+                    })
+                
+                # Update Common BOM (for the linked Bidso SKU)
+                if common_items:
+                    existing_common = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
+                    if existing_common and existing_common.get("is_locked"):
+                        results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped common items")
+                    else:
+                        if existing_common:
+                            # Merge items - add new RMs, update existing quantities
+                            existing_rm_ids = {item["rm_id"] for item in existing_common.get("items", [])}
+                            merged_items = list(existing_common.get("items", []))
+                            for item in common_items:
+                                if item["rm_id"] not in existing_rm_ids:
+                                    merged_items.append(item)
+                                else:
+                                    # Update quantity
+                                    for i, ei in enumerate(merged_items):
+                                        if ei["rm_id"] == item["rm_id"]:
+                                            merged_items[i] = item
+                                            break
+                            
+                            await db.common_bom.update_one(
+                                {"bidso_sku_id": bidso_sku_id},
+                                {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
+                            )
+                        else:
+                            await db.common_bom.insert_one({
+                                "id": str(uuid.uuid4()),
+                                "bidso_sku_id": bidso_sku_id,
+                                "items": common_items,
+                                "is_locked": False,
+                                "created_at": datetime.now(timezone.utc)
+                            })
+                        results["common_bom_updated"] += 1
+                
+                # Update Brand-specific BOM
+                if brand_items:
+                    existing_brand = await db.brand_specific_bom.find_one({
+                        "bidso_sku_id": bidso_sku_id,
+                        "brand_id": brand_id
+                    })
+                    
+                    if existing_brand:
+                        # Merge items
+                        existing_rm_ids = {item["rm_id"] for item in existing_brand.get("items", [])}
+                        merged_items = list(existing_brand.get("items", []))
+                        for item in brand_items:
                             if item["rm_id"] not in existing_rm_ids:
                                 merged_items.append(item)
                             else:
-                                # Update quantity
                                 for i, ei in enumerate(merged_items):
                                     if ei["rm_id"] == item["rm_id"]:
                                         merged_items[i] = item
                                         break
                         
-                        await db.common_bom.update_one(
-                            {"bidso_sku_id": bidso_sku_id},
+                        await db.brand_specific_bom.update_one(
+                            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
                             {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
                         )
                     else:
-                        await db.common_bom.insert_one({
+                        await db.brand_specific_bom.insert_one({
                             "id": str(uuid.uuid4()),
                             "bidso_sku_id": bidso_sku_id,
-                            "items": common_items,
-                            "is_locked": False,
+                            "brand_id": brand_id,
+                            "brand_code": brand_code,
+                            "items": brand_items,
                             "created_at": datetime.now(timezone.utc)
                         })
-                    results["common_bom_updated"] += 1
-            
-            # Update Brand-specific BOM
-            if brand_items:
-                existing_brand = await db.brand_specific_bom.find_one({
-                    "bidso_sku_id": bidso_sku_id,
-                    "brand_id": brand_id
-                })
+                    results["brand_bom_updated"] += 1
                 
-                if existing_brand:
-                    # Merge items
-                    existing_rm_ids = {item["rm_id"] for item in existing_brand.get("items", [])}
-                    merged_items = list(existing_brand.get("items", []))
-                    for item in brand_items:
+                results["buyer_sku_processed"] += 1
+        
+        # Process BidsoSKU_BOM sheet (direct common BOM)
+        if "BidsoSKU_BOM" in wb.sheetnames:
+            ws = wb["BidsoSKU_BOM"]
+            
+            # Group items by bidso_sku_id
+            bidso_sku_boms = {}
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                if not row[0]:
+                    continue
+                
+                bidso_sku_id = str(row[0]).strip()
+                rm_id = str(row[1]).strip() if row[1] else None
+                quantity = float(row[2]) if row[2] else 1.0
+                unit = str(row[3]).strip() if row[3] else "PCS"
+                
+                if not rm_id:
+                    results["errors"].append(f"BidsoSKU_BOM Row {row_idx}: RM_ID is required")
+                    continue
+                
+                if bidso_sku_id not in bidso_sku_boms:
+                    bidso_sku_boms[bidso_sku_id] = []
+                
+                bidso_sku_boms[bidso_sku_id].append({
+                    "rm_id": rm_id,
+                    "quantity": quantity,
+                    "unit": unit
+                })
+            
+            # Process each Bidso SKU
+            for bidso_sku_id, items in bidso_sku_boms.items():
+                # Verify Bidso SKU exists
+                bidso = await db.bidso_skus.find_one({"bidso_sku_id": bidso_sku_id})
+                if not bidso:
+                    results["errors"].append(f"Bidso SKU {bidso_sku_id} not found")
+                    continue
+                
+                # Check if locked
+                existing = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
+                if existing and existing.get("is_locked"):
+                    results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped")
+                    continue
+                
+                # Validate RMs (case-insensitive lookup)
+                valid_items = []
+                for item in items:
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    if not rm:
+                        escaped_rm_id = re.escape(item["rm_id"])
+                        rm = await db.raw_materials.find_one(
+                            {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
+                            {"_id": 0, "name": 1, "rm_id": 1}
+                        )
+                    if not rm:
+                        results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
+                        continue
+                    valid_items.append({
+                        "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
+                        "rm_name": rm["name"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"]
+                    })
+                
+                if not valid_items:
+                    continue
+                
+                # Update or create Common BOM
+                if existing:
+                    # Merge
+                    existing_rm_ids = {item["rm_id"] for item in existing.get("items", [])}
+                    merged_items = list(existing.get("items", []))
+                    for item in valid_items:
                         if item["rm_id"] not in existing_rm_ids:
                             merged_items.append(item)
                         else:
@@ -1310,123 +1417,35 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                                     merged_items[i] = item
                                     break
                     
-                    await db.brand_specific_bom.update_one(
-                        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+                    await db.common_bom.update_one(
+                        {"bidso_sku_id": bidso_sku_id},
                         {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
                     )
                 else:
-                    await db.brand_specific_bom.insert_one({
+                    await db.common_bom.insert_one({
                         "id": str(uuid.uuid4()),
                         "bidso_sku_id": bidso_sku_id,
-                        "brand_id": brand_id,
-                        "brand_code": brand_code,
-                        "items": brand_items,
+                        "items": valid_items,
+                        "is_locked": False,
                         "created_at": datetime.now(timezone.utc)
                     })
-                results["brand_bom_updated"] += 1
-            
-            results["buyer_sku_processed"] += 1
-    
-    # Process BidsoSKU_BOM sheet (direct common BOM)
-    if "BidsoSKU_BOM" in wb.sheetnames:
-        ws = wb["BidsoSKU_BOM"]
-        
-        # Group items by bidso_sku_id
-        bidso_sku_boms = {}
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if not row[0]:
-                continue
-            
-            bidso_sku_id = str(row[0]).strip()
-            rm_id = str(row[1]).strip() if row[1] else None
-            quantity = float(row[2]) if row[2] else 1.0
-            unit = str(row[3]).strip() if row[3] else "PCS"
-            
-            if not rm_id:
-                results["errors"].append(f"BidsoSKU_BOM Row {row_idx}: RM_ID is required")
-                continue
-            
-            if bidso_sku_id not in bidso_sku_boms:
-                bidso_sku_boms[bidso_sku_id] = []
-            
-            bidso_sku_boms[bidso_sku_id].append({
-                "rm_id": rm_id,
-                "quantity": quantity,
-                "unit": unit
-            })
-        
-        # Process each Bidso SKU
-        for bidso_sku_id, items in bidso_sku_boms.items():
-            # Verify Bidso SKU exists
-            bidso = await db.bidso_skus.find_one({"bidso_sku_id": bidso_sku_id})
-            if not bidso:
-                results["errors"].append(f"Bidso SKU {bidso_sku_id} not found")
-                continue
-            
-            # Check if locked
-            existing = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id})
-            if existing and existing.get("is_locked"):
-                results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped")
-                continue
-            
-            # Validate RMs (case-insensitive lookup)
-            valid_items = []
-            for item in items:
-                rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
-                if not rm:
-                    escaped_rm_id = re.escape(item["rm_id"])
-                    rm = await db.raw_materials.find_one(
-                        {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                        {"_id": 0, "name": 1, "rm_id": 1}
-                    )
-                if not rm:
-                    results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
-                    continue
-                valid_items.append({
-                    "rm_id": rm["rm_id"],  # Use the actual rm_id from DB
-                    "rm_name": rm["name"],
-                    "quantity": item["quantity"],
-                    "unit": item["unit"]
-                })
-            
-            if not valid_items:
-                continue
-            
-            # Update or create Common BOM
-            if existing:
-                # Merge
-                existing_rm_ids = {item["rm_id"] for item in existing.get("items", [])}
-                merged_items = list(existing.get("items", []))
-                for item in valid_items:
-                    if item["rm_id"] not in existing_rm_ids:
-                        merged_items.append(item)
-                    else:
-                        for i, ei in enumerate(merged_items):
-                            if ei["rm_id"] == item["rm_id"]:
-                                merged_items[i] = item
-                                break
                 
-                await db.common_bom.update_one(
-                    {"bidso_sku_id": bidso_sku_id},
-                    {"$set": {"items": merged_items, "updated_at": datetime.now(timezone.utc)}}
-                )
-            else:
-                await db.common_bom.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "bidso_sku_id": bidso_sku_id,
-                    "items": valid_items,
-                    "is_locked": False,
-                    "created_at": datetime.now(timezone.utc)
-                })
-            
-            results["bidso_sku_processed"] += 1
-            results["common_bom_updated"] += 1
+                results["bidso_sku_processed"] += 1
+                results["common_bom_updated"] += 1
+        
+        # Mark as failed if there are errors and no successful processing
+        if results["errors"] and results["buyer_sku_processed"] == 0 and results["bidso_sku_processed"] == 0:
+            results["success"] = False
+        
+        return results
     
-    # Mark as failed if there are errors and no successful processing
-    if results["errors"] and results["buyer_sku_processed"] == 0 and results["bidso_sku_processed"] == 0:
+    except Exception as e:
+        # Log the full traceback for debugging
+        error_trace = traceback.format_exc()
+        print(f"BOM Upload Error: {str(e)}\n{error_trace}")
+        results["errors"].append(f"Server error: {str(e)}")
         results["success"] = False
-    
-    return results
+        return results
 
 
 @router.get("/bom/export")
