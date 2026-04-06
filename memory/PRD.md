@@ -582,6 +582,12 @@ Example:
 - Real-time dashboard with auto-refresh
 - Multi-month production planning view
 
+### IN PROGRESS (April 6, 2026)
+- 🔄 **SKU Data Model Migration** - Migrate from legacy `skus` collection to `bidso_skus` + `buyer_skus`
+  - Status: STARTING
+  - Scope: 56 references across 9 files
+  - Plan: `/app/memory/SKU_MIGRATION_PLAN.md`
+
 ### COMPLETED (April 6, 2026)
 - ✅ **Production Plan Excel Upload Overhaul** - Complete rewrite with FIFO allocation, capacity conflict detection, and Excel result report
   - **Three modes**: `check` (default, returns warning if conflicts), `add` (allocate within remaining), `override` (clear existing and allocate)
