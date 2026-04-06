@@ -386,10 +386,12 @@ async def get_filtered_skus(
     buyer_id: Optional[str] = None,
     search: Optional[str] = None,
     branch: Optional[str] = None,
-    include_inactive: bool = False
+    include_inactive: bool = False,
+    page: int = 1,
+    page_size: int = 50
 ):
     """
-    Get SKUs with relational filters.
+    Get SKUs with relational filters and pagination.
     Now queries consolidated db.buyer_skus collection (single source of truth).
     Enriches with vertical/model from parent Bidso SKU.
     """
@@ -401,6 +403,14 @@ async def get_filtered_skus(
         query["brand_id"] = brand_id
     if buyer_id:
         query["buyer_id"] = buyer_id
+    
+    # Apply search filter at DB level
+    if search:
+        query["$or"] = [
+            {"buyer_sku_id": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}}
+        ]
     
     # If filtering by vertical or model, we need to find matching bidso_skus first
     bidso_filter = None
@@ -415,30 +425,33 @@ async def get_filtered_skus(
         bidso_filter = [b["bidso_sku_id"] for b in matching_bidso]
         
         if not bidso_filter:
-            return []  # No matching Bidso SKUs, so no Buyer SKUs will match
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
         
         query["bidso_sku_id"] = {"$in": bidso_filter}
     
-    # Query from consolidated buyer_skus collection
-    skus = await db.buyer_skus.find(query, {"_id": 0}).to_list(10000)
+    # Get total count for pagination
+    total = await db.buyer_skus.count_documents(query)
     
-    # Apply search filter
-    if search:
-        search_lower = search.lower()
-        skus = [s for s in skus if 
-                search_lower in s.get("buyer_sku_id", "").lower() or
-                search_lower in s.get("name", "").lower() or
-                search_lower in s.get("description", "").lower()]
+    # Calculate pagination
+    skip = (page - 1) * page_size
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    # Query from consolidated buyer_skus collection with pagination
+    skus = await db.buyer_skus.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     # Cache for bidso_sku lookups to avoid repeated queries
     bidso_cache = {}
     
-    # Enrich with related data and add compatibility fields
+    # Batch fetch all verticals and models for enrichment
+    vertical_ids = set()
+    model_ids = set()
+    brand_ids = set()
+    buyer_ids = set()
+    
+    # First pass: get bidso data and collect IDs
     for sku in skus:
-        # Add sku_id alias for backward compatibility
         sku["sku_id"] = sku.get("buyer_sku_id", "")
         
-        # Get vertical and model from parent Bidso SKU
         bidso_sku_id = sku.get("bidso_sku_id")
         if bidso_sku_id:
             if bidso_sku_id not in bidso_cache:
@@ -452,33 +465,58 @@ async def get_filtered_skus(
             sku["vertical_id"] = bidso_data.get("vertical_id")
             sku["model_id"] = bidso_data.get("model_id")
         
-        # Get vertical name
         if sku.get("vertical_id"):
-            v = await db.verticals.find_one({"id": sku["vertical_id"]}, {"_id": 0, "name": 1, "code": 1})
-            if v:
-                sku["vertical_name"] = v["name"]
-                sku["vertical_code"] = v.get("code")
-                sku["vertical"] = {"id": sku["vertical_id"], "name": v["name"], "code": v.get("code")}
-        
-        # Get model name
+            vertical_ids.add(sku["vertical_id"])
         if sku.get("model_id"):
-            m = await db.models.find_one({"id": sku["model_id"]}, {"_id": 0, "name": 1, "code": 1})
-            if m:
-                sku["model_name"] = m["name"]
-                sku["model_code"] = m.get("code")
-                sku["model"] = {"id": sku["model_id"], "name": m["name"], "code": m.get("code")}
-        
-        # Get brand name if not already present
-        if sku.get("brand_id") and not sku.get("brand_name"):
-            b = await db.brands.find_one({"id": sku["brand_id"]}, {"_id": 0, "name": 1})
-            sku["brand_name"] = b["name"] if b else None
-        
-        # Get buyer name
+            model_ids.add(sku["model_id"])
+        if sku.get("brand_id"):
+            brand_ids.add(sku["brand_id"])
         if sku.get("buyer_id"):
-            bu = await db.buyers.find_one({"id": sku["buyer_id"]}, {"_id": 0, "name": 1})
-            sku["buyer_name"] = bu["name"] if bu else None
+            buyer_ids.add(sku["buyer_id"])
+    
+    # Batch fetch reference data
+    verticals_map = {}
+    models_map = {}
+    brands_map = {}
+    buyers_map = {}
+    
+    if vertical_ids:
+        v_docs = await db.verticals.find({"id": {"$in": list(vertical_ids)}}, {"_id": 0}).to_list(100)
+        verticals_map = {v["id"]: v for v in v_docs}
+    
+    if model_ids:
+        m_docs = await db.models.find({"id": {"$in": list(model_ids)}}, {"_id": 0}).to_list(200)
+        models_map = {m["id"]: m for m in m_docs}
+    
+    if brand_ids:
+        b_docs = await db.brands.find({"id": {"$in": list(brand_ids)}}, {"_id": 0}).to_list(100)
+        brands_map = {b["id"]: b for b in b_docs}
+    
+    if buyer_ids:
+        bu_docs = await db.buyers.find({"id": {"$in": list(buyer_ids)}}, {"_id": 0}).to_list(500)
+        buyers_map = {bu["id"]: bu for bu in bu_docs}
+    
+    # Second pass: enrich with names
+    for sku in skus:
+        if sku.get("vertical_id") and sku["vertical_id"] in verticals_map:
+            v = verticals_map[sku["vertical_id"]]
+            sku["vertical_name"] = v.get("name")
+            sku["vertical_code"] = v.get("code")
+            sku["vertical"] = {"id": sku["vertical_id"], "name": v.get("name"), "code": v.get("code")}
         
-        # Branch inventory
+        if sku.get("model_id") and sku["model_id"] in models_map:
+            m = models_map[sku["model_id"]]
+            sku["model_name"] = m.get("name")
+            sku["model_code"] = m.get("code")
+            sku["model"] = {"id": sku["model_id"], "name": m.get("name"), "code": m.get("code")}
+        
+        if sku.get("brand_id") and not sku.get("brand_name") and sku["brand_id"] in brands_map:
+            sku["brand_name"] = brands_map[sku["brand_id"]].get("name")
+        
+        if sku.get("buyer_id") and sku["buyer_id"] in buyers_map:
+            sku["buyer_name"] = buyers_map[sku["buyer_id"]].get("name")
+        
+        # Branch inventory (only if branch specified - expensive operation)
         if branch:
             inv = await db.branch_sku_inventory.find_one(
                 {"sku_id": sku.get("buyer_sku_id"), "branch": branch},
@@ -493,7 +531,13 @@ async def get_filtered_skus(
             )
             sku["fg_stock"] = fg.get("quantity", 0) if fg else 0
     
-    return skus
+    return {
+        "items": skus,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 
 

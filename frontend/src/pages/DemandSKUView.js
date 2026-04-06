@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import useAuthStore from "../store/authStore";
+import Pagination from "../components/Pagination";
 
 const API = process.env.REACT_APP_BACKEND_URL + "/api";
 
@@ -70,6 +71,18 @@ const DemandSKUView = () => {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   
+  // Pagination for Bidso SKUs
+  const [bidsoPage, setBidsoPage] = useState(1);
+  const [bidsoPageSize, setBidsoPageSize] = useState(50);
+  const [bidsoTotal, setBidsoTotal] = useState(0);
+  const [bidsoTotalPages, setBidsoTotalPages] = useState(1);
+  
+  // Pagination for Buyer SKUs
+  const [buyerPage, setBuyerPage] = useState(1);
+  const [buyerPageSize, setBuyerPageSize] = useState(50);
+  const [buyerTotal, setBuyerTotal] = useState(0);
+  const [buyerTotalPages, setBuyerTotalPages] = useState(1);
+  
   // Price Master State
   const [prices, setPrices] = useState([]);
   const [priceFilters, setPriceFilters] = useState({ customer_id: "", search: "" });
@@ -86,7 +99,27 @@ const DemandSKUView = () => {
 
   useEffect(() => {
     fetchMasterData();
+    // Fetch initial counts for tabs
+    fetchInitialCounts();
   }, []);
+
+  const fetchInitialCounts = async () => {
+    try {
+      // Get Bidso count
+      const bidsoRes = await axios.get(`${API}/demand-hub/bidso-skus?page=1&page_size=1`, { headers: getHeaders() });
+      if (bidsoRes.data.total !== undefined) {
+        setBidsoTotal(bidsoRes.data.total);
+      }
+      
+      // Get Buyer count
+      const buyerRes = await axios.get(`${API}/skus/filtered?page=1&page_size=1`, { headers: getHeaders() });
+      if (buyerRes.data.total !== undefined) {
+        setBuyerTotal(buyerRes.data.total);
+      }
+    } catch (error) {
+      console.error("Failed to fetch initial counts");
+    }
+  };
 
   useEffect(() => {
     if (activeTab === "bidso") {
@@ -96,7 +129,7 @@ const DemandSKUView = () => {
     } else if (activeTab === "prices") {
       fetchPrices();
     }
-  }, [activeTab, bidsoFilters, buyerFilters, priceFilters]);
+  }, [activeTab, bidsoFilters, buyerFilters, priceFilters, bidsoPage, bidsoPageSize, buyerPage, buyerPageSize]);
 
   const fetchMasterData = async () => {
     try {
@@ -119,13 +152,22 @@ const DemandSKUView = () => {
   const fetchBidsoSkus = async () => {
     setLoading(true);
     try {
-      let url = `${API}/demand-hub/bidso-skus?`;
-      if (bidsoFilters.vertical_id) url += `vertical_id=${bidsoFilters.vertical_id}&`;
-      if (bidsoFilters.model_id) url += `model_id=${bidsoFilters.model_id}&`;
-      if (bidsoFilters.search) url += `search=${encodeURIComponent(bidsoFilters.search)}&`;
+      let url = `${API}/demand-hub/bidso-skus?page=${bidsoPage}&page_size=${bidsoPageSize}`;
+      if (bidsoFilters.vertical_id) url += `&vertical_id=${bidsoFilters.vertical_id}`;
+      if (bidsoFilters.model_id) url += `&model_id=${bidsoFilters.model_id}`;
+      if (bidsoFilters.search) url += `&search=${encodeURIComponent(bidsoFilters.search)}`;
       
       const res = await axios.get(url, { headers: getHeaders() });
-      setBidsoSkus(res.data || []);
+      // Handle both paginated and non-paginated response formats
+      if (res.data.items) {
+        setBidsoSkus(res.data.items);
+        setBidsoTotal(res.data.total || 0);
+        setBidsoTotalPages(res.data.total_pages || 1);
+      } else {
+        setBidsoSkus(res.data || []);
+        setBidsoTotal(res.data?.length || 0);
+        setBidsoTotalPages(1);
+      }
     } catch (error) {
       toast.error("Failed to fetch Bidso SKUs");
     } finally {
@@ -136,20 +178,60 @@ const DemandSKUView = () => {
   const fetchBuyerSkus = async () => {
     setLoading(true);
     try {
-      let url = `${API}/skus/filtered?`;
-      if (buyerFilters.vertical_id) url += `vertical_id=${buyerFilters.vertical_id}&`;
-      if (buyerFilters.brand_id) url += `brand_id=${buyerFilters.brand_id}&`;
-      if (buyerFilters.model_id) url += `model_id=${buyerFilters.model_id}&`;
-      if (buyerFilters.buyer_id) url += `buyer_id=${buyerFilters.buyer_id}&`;
-      if (buyerFilters.search) url += `search=${encodeURIComponent(buyerFilters.search)}&`;
+      let url = `${API}/skus/filtered?page=${buyerPage}&page_size=${buyerPageSize}`;
+      if (buyerFilters.vertical_id) url += `&vertical_id=${buyerFilters.vertical_id}`;
+      if (buyerFilters.brand_id) url += `&brand_id=${buyerFilters.brand_id}`;
+      if (buyerFilters.model_id) url += `&model_id=${buyerFilters.model_id}`;
+      if (buyerFilters.buyer_id) url += `&buyer_id=${buyerFilters.buyer_id}`;
+      if (buyerFilters.search) url += `&search=${encodeURIComponent(buyerFilters.search)}`;
       
       const res = await axios.get(url, { headers: getHeaders() });
-      setBuyerSkus(res.data || []);
+      // Handle both paginated and non-paginated response formats
+      if (res.data.items) {
+        setBuyerSkus(res.data.items);
+        setBuyerTotal(res.data.total || 0);
+        setBuyerTotalPages(res.data.total_pages || 1);
+      } else {
+        setBuyerSkus(res.data || []);
+        setBuyerTotal(res.data?.length || 0);
+        setBuyerTotalPages(1);
+      }
     } catch (error) {
       toast.error("Failed to fetch Buyer SKUs");
     } finally {
       setLoading(false);
     }
+  };
+
+  // Pagination handlers for Bidso SKUs
+  const handleBidsoPageChange = (page) => {
+    setBidsoPage(page);
+  };
+  
+  const handleBidsoPageSizeChange = (size) => {
+    setBidsoPageSize(size);
+    setBidsoPage(1);
+  };
+  
+  // Pagination handlers for Buyer SKUs
+  const handleBuyerPageChange = (page) => {
+    setBuyerPage(page);
+  };
+  
+  const handleBuyerPageSizeChange = (size) => {
+    setBuyerPageSize(size);
+    setBuyerPage(1);
+  };
+  
+  // Reset pagination when filters change
+  const handleBidsoFilterChange = (key, value) => {
+    setBidsoFilters(prev => ({ ...prev, [key]: value }));
+    setBidsoPage(1);
+  };
+  
+  const handleBuyerFilterChange = (key, value) => {
+    setBuyerFilters(prev => ({ ...prev, [key]: value }));
+    setBuyerPage(1);
   };
 
   const handleDownload = async (type) => {
@@ -410,12 +492,12 @@ const DemandSKUView = () => {
           <TabsTrigger value="bidso" data-testid="bidso-tab">
             <Layers className="h-4 w-4 mr-2" />
             Bidso SKUs
-            <Badge className="ml-2 bg-gray-200 text-gray-700">{bidsoSkus.length}</Badge>
+            <Badge className="ml-2 bg-gray-200 text-gray-700">{bidsoTotal || bidsoSkus.length}</Badge>
           </TabsTrigger>
           <TabsTrigger value="buyer" data-testid="buyer-tab">
             <Tag className="h-4 w-4 mr-2" />
             Buyer SKUs
-            <Badge className="ml-2 bg-gray-200 text-gray-700">{buyerSkus.length}</Badge>
+            <Badge className="ml-2 bg-gray-200 text-gray-700">{buyerTotal || buyerSkus.length}</Badge>
           </TabsTrigger>
           <TabsTrigger value="prices" data-testid="prices-tab">
             <DollarSign className="h-4 w-4 mr-2" />
@@ -451,7 +533,7 @@ const DemandSKUView = () => {
                 </div>
                 <Select 
                   value={bidsoFilters.vertical_id || "_all"} 
-                  onValueChange={(v) => setBidsoFilters({...bidsoFilters, vertical_id: v === "_all" ? "" : v, model_id: ""})}
+                  onValueChange={(v) => handleBidsoFilterChange('vertical_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[160px]" data-testid="bidso-vertical-filter">
                     <SelectValue placeholder="All Verticals" />
@@ -466,7 +548,7 @@ const DemandSKUView = () => {
                 
                 <Select 
                   value={bidsoFilters.model_id || "_all"} 
-                  onValueChange={(v) => setBidsoFilters({...bidsoFilters, model_id: v === "_all" ? "" : v})}
+                  onValueChange={(v) => handleBidsoFilterChange('model_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[160px]" data-testid="bidso-model-filter">
                     <SelectValue placeholder="All Models" />
@@ -484,7 +566,7 @@ const DemandSKUView = () => {
                   <Input
                     placeholder="Search SKU ID..."
                     value={bidsoFilters.search}
-                    onChange={(e) => setBidsoFilters({...bidsoFilters, search: e.target.value})}
+                    onChange={(e) => handleBidsoFilterChange('search', e.target.value)}
                     className="pl-10"
                     data-testid="bidso-search-input"
                   />
@@ -494,7 +576,10 @@ const DemandSKUView = () => {
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    onClick={() => setBidsoFilters({vertical_id: "", brand_id: "", model_id: "", search: ""})}
+                    onClick={() => {
+                      setBidsoFilters({vertical_id: "", brand_id: "", model_id: "", search: ""});
+                      setBidsoPage(1);
+                    }}
                   >
                     Clear Filters
                   </Button>
@@ -542,6 +627,17 @@ const DemandSKUView = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination for Bidso SKUs */}
+              <Pagination
+                currentPage={bidsoPage}
+                totalPages={bidsoTotalPages}
+                totalItems={bidsoTotal}
+                pageSize={bidsoPageSize}
+                onPageChange={handleBidsoPageChange}
+                onPageSizeChange={handleBidsoPageSizeChange}
+                loading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -573,7 +669,7 @@ const DemandSKUView = () => {
                 </div>
                 <Select 
                   value={buyerFilters.vertical_id || "_all"} 
-                  onValueChange={(v) => setBuyerFilters({...buyerFilters, vertical_id: v === "_all" ? "" : v, model_id: ""})}
+                  onValueChange={(v) => handleBuyerFilterChange('vertical_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[150px]" data-testid="buyer-vertical-filter">
                     <SelectValue placeholder="All Verticals" />
@@ -588,7 +684,7 @@ const DemandSKUView = () => {
                 
                 <Select 
                   value={buyerFilters.brand_id || "_all"} 
-                  onValueChange={(v) => setBuyerFilters({...buyerFilters, brand_id: v === "_all" ? "" : v})}
+                  onValueChange={(v) => handleBuyerFilterChange('brand_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[150px]" data-testid="buyer-brand-filter">
                     <SelectValue placeholder="All Brands" />
@@ -603,7 +699,7 @@ const DemandSKUView = () => {
                 
                 <Select 
                   value={buyerFilters.model_id || "_all"} 
-                  onValueChange={(v) => setBuyerFilters({...buyerFilters, model_id: v === "_all" ? "" : v})}
+                  onValueChange={(v) => handleBuyerFilterChange('model_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[150px]" data-testid="buyer-model-filter">
                     <SelectValue placeholder="All Models" />
@@ -618,7 +714,7 @@ const DemandSKUView = () => {
                 
                 <Select 
                   value={buyerFilters.buyer_id || "_all"} 
-                  onValueChange={(v) => setBuyerFilters({...buyerFilters, buyer_id: v === "_all" ? "" : v})}
+                  onValueChange={(v) => handleBuyerFilterChange('buyer_id', v === "_all" ? "" : v)}
                 >
                   <SelectTrigger className="w-[180px]" data-testid="buyer-buyer-filter">
                     <SelectValue placeholder="All Buyers" />
@@ -636,7 +732,7 @@ const DemandSKUView = () => {
                   <Input
                     placeholder="Search SKU ID..."
                     value={buyerFilters.search}
-                    onChange={(e) => setBuyerFilters({...buyerFilters, search: e.target.value})}
+                    onChange={(e) => handleBuyerFilterChange('search', e.target.value)}
                     className="pl-10"
                     data-testid="buyer-search-input"
                   />
@@ -646,7 +742,10 @@ const DemandSKUView = () => {
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    onClick={() => setBuyerFilters({vertical_id: "", brand_id: "", model_id: "", buyer_id: "", search: ""})}
+                    onClick={() => {
+                      setBuyerFilters({vertical_id: "", brand_id: "", model_id: "", buyer_id: "", search: ""});
+                      setBuyerPage(1);
+                    }}
                   >
                     Clear Filters
                   </Button>
@@ -696,6 +795,17 @@ const DemandSKUView = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination for Buyer SKUs */}
+              <Pagination
+                currentPage={buyerPage}
+                totalPages={buyerTotalPages}
+                totalItems={buyerTotal}
+                pageSize={buyerPageSize}
+                onPageChange={handleBuyerPageChange}
+                onPageSizeChange={handleBuyerPageSizeChange}
+                loading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>

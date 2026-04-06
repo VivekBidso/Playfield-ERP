@@ -383,22 +383,31 @@ async def get_my_requests_summary(current_user: User = Depends(get_current_user)
 async def get_bidso_skus_for_demand(
     vertical_id: Optional[str] = None,
     model_id: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50
 ):
-    """Get Bidso SKUs for dropdown (with optional filters)"""
+    """Get Bidso SKUs for dropdown (with optional filters and pagination)"""
     query = {"status": "ACTIVE"}
     
     if vertical_id:
         query["vertical_id"] = vertical_id
     if model_id:
         query["model_id"] = model_id
-    
-    skus = await db.bidso_skus.find(query, {"_id": 0}).to_list(500)
-    
-    # Apply search filter client-side for flexibility
     if search:
-        search_lower = search.lower()
-        skus = [s for s in skus if search_lower in s.get("bidso_sku_id", "").lower() or search_lower in s.get("name", "").lower()]
+        query["$or"] = [
+            {"bidso_sku_id": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}}
+        ]
+    
+    # Get total count
+    total = await db.bidso_skus.count_documents(query)
+    
+    # Calculate pagination
+    skip = (page - 1) * page_size
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    
+    skus = await db.bidso_skus.find(query, {"_id": 0}).skip(skip).limit(page_size).to_list(page_size)
     
     # Enrich with vertical and model names
     vertical_ids = list(set(s.get("vertical_id") for s in skus if s.get("vertical_id")))
@@ -419,7 +428,13 @@ async def get_bidso_skus_for_demand(
         sku["vertical"] = verticals.get(sku.get("vertical_id"), {})
         sku["model"] = models.get(sku.get("model_id"), {})
     
-    return skus
+    return {
+        "items": skus,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
 
 
 @router.get("/existing-buyer-skus/{bidso_sku_id}")
