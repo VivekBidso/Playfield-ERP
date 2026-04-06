@@ -1862,12 +1862,21 @@ async def download_production_plan_template():
 
 
 @router.post("/cpc/production-plan/upload-excel")
-async def upload_production_plan_excel(file: UploadFile = File(...)):
+async def upload_production_plan_excel(
+    file: UploadFile = File(...),
+    mode: str = Query("check", description="Mode: 'check' (default) to check for conflicts, 'override' to clear existing schedules, 'add' to add to remaining capacity")
+):
     """
-    Bulk upload production plans from Excel.
-    Creates production schedules directly from Buyer SKU IDs (no forecast linking).
+    Bulk upload production plans from Excel with FIFO allocation.
+    
     Format: Branch ID | Date | Buyer SKU ID | Quantity
-    Validates: SKU exists, branch valid, capacity available.
+    
+    Modes:
+    - 'check': Validate and check for conflicts (default). Returns warning if existing schedules + capacity breach.
+    - 'override': Clear existing schedules for conflicting dates/branches, then allocate fresh.
+    - 'add': Keep existing schedules, allocate only within remaining capacity.
+    
+    Returns downloadable Excel with status for each row.
     """
     if not pd:
         raise HTTPException(status_code=500, detail="pandas not installed")
@@ -1884,7 +1893,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     # Normalize column names
     df.columns = [str(c).strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_") for c in df.columns]
     
-    # Map columns - new simplified format
+    # Map columns
     col_map = {}
     branch_opts = ["branch_id", "branch", "branch_name", "unit"]
     date_opts = ["date", "target_date", "date_dd_mm_yyyy", "date_yyyy_mm_dd"]
@@ -1917,7 +1926,7 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1, "capacity_units_per_day": 1}).to_list(100)
     branch_id_to_name = {b.get("branch_id", ""): b["name"] for b in branches if b.get("branch_id")}
     branch_name_to_name = {b["name"]: b["name"] for b in branches}
-    valid_branches = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
+    branch_capacity_map = {b["name"]: b.get("capacity_units_per_day", 0) for b in branches}
     
     # Get all Buyer SKUs
     buyer_skus = await db.buyer_skus.find(
@@ -1926,190 +1935,360 @@ async def upload_production_plan_excel(file: UploadFile = File(...)):
     ).to_list(10000)
     sku_map = {s["buyer_sku_id"]: s for s in buyer_skus}
     
-    # Get SKU-Branch subscriptions for validation
-    sku_assignments = await db.sku_branch_assignments.find(
-        {},
-        {"_id": 0, "sku_id": 1, "branch": 1}
-    ).to_list(20000)
-    # Create lookup: {(sku_id, branch): True}
+    # Get SKU-Branch subscriptions
+    sku_assignments = await db.sku_branch_assignments.find({}, {"_id": 0, "sku_id": 1, "branch": 1}).to_list(20000)
     sku_branch_subscribed = {(a["sku_id"], a["branch"]): True for a in sku_assignments}
     
-    # Track capacity usage for validation
-    date_branch_usage = {}  # {date|branch: allocated_qty}
-    
-    # Process rows
-    results = {"created": 0, "errors": [], "schedules": [], "overflow": []}
+    # Parse and validate all rows first, preserving order
+    parsed_rows = []
+    row_results = []  # Store results for each row
     
     for idx, row in df.iterrows():
+        row_num = idx + 2  # Excel row number (1-indexed + header)
+        result = {
+            "row": row_num,
+            "branch_id": str(row[col_map["branch"]]).strip() if pd.notna(row[col_map["branch"]]) else "",
+            "date": "",
+            "buyer_sku_id": str(row[col_map["sku"]]).strip() if pd.notna(row[col_map["sku"]]) else "",
+            "quantity": 0,
+            "status": "PENDING",
+            "allocated": 0,
+            "not_allocated": 0,
+            "schedule_code": "",
+            "remarks": ""
+        }
+        
         try:
-            branch_value = str(row[col_map["branch"]]).strip()
-            date_val = row[col_map["date"]]
-            sku_id = str(row[col_map["sku"]]).strip()
-            qty = int(row[col_map["qty"]])
+            branch_value = result["branch_id"]
+            sku_id = result["buyer_sku_id"]
+            qty = int(row[col_map["qty"]]) if pd.notna(row[col_map["qty"]]) else 0
+            result["quantity"] = qty
             
-            # Parse date - supports DD-MM-YYYY (primary) and other formats
+            # Parse date
+            date_val = row[col_map["date"]]
+            if pd.isna(date_val):
+                result["status"] = "ERROR"
+                result["remarks"] = "Date is required"
+                row_results.append(result)
+                continue
+                
             if isinstance(date_val, str):
                 date_str = date_val.strip()
                 try:
-                    # Try DD-MM-YYYY first (primary format)
                     target_date = datetime.strptime(date_str, "%d-%m-%Y").replace(tzinfo=timezone.utc)
                 except:
                     try:
-                        # Fallback to YYYY-MM-DD
                         target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                     except:
-                        # Fallback to pandas auto-detection
                         target_date = pd.to_datetime(date_val, dayfirst=True).to_pydatetime().replace(tzinfo=timezone.utc)
             else:
                 target_date = pd.to_datetime(date_val, dayfirst=True).to_pydatetime().replace(tzinfo=timezone.utc)
             
-            date_str = target_date.strftime("%Y-%m-%d")
+            result["date"] = target_date.strftime("%d-%m-%Y")
+            date_str_iso = target_date.strftime("%Y-%m-%d")
             
-            # Resolve branch ID to name (supports both branch_id and branch_name)
+            # Resolve branch
             branch_name = branch_id_to_name.get(branch_value) or branch_name_to_name.get(branch_value)
-            
-            # Validate branch
-            if not branch_name or branch_name not in valid_branches:
-                results["errors"].append(f"Row {idx+2}: Branch '{branch_value}' not found. Use Branch ID (e.g., BR_001)")
+            if not branch_name or branch_name not in branch_capacity_map:
+                result["status"] = "ERROR"
+                result["remarks"] = f"Invalid branch '{branch_value}'"
+                row_results.append(result)
                 continue
             
-            # Validate SKU exists
+            # Validate SKU
             if sku_id not in sku_map:
-                results["errors"].append(f"Row {idx+2}: Buyer SKU '{sku_id}' not found")
+                result["status"] = "ERROR"
+                result["remarks"] = f"Buyer SKU '{sku_id}' not found"
+                row_results.append(result)
                 continue
             
-            sku = sku_map[sku_id]
-            
-            # Validate SKU is subscribed to the branch
+            # Validate SKU-Branch subscription
             if (sku_id, branch_name) not in sku_branch_subscribed:
-                results["errors"].append(f"Row {idx+2}: SKU '{sku_id}' is not subscribed to branch '{branch_name}'. Please subscribe the SKU first.")
+                result["status"] = "ERROR"
+                result["remarks"] = f"SKU not subscribed to branch '{branch_name}'"
+                row_results.append(result)
                 continue
             
-            # Validate qty > 0
+            # Validate quantity
             if qty <= 0:
-                results["errors"].append(f"Row {idx+2}: Invalid quantity {qty}")
+                result["status"] = "ERROR"
+                result["remarks"] = f"Invalid quantity {qty}"
+                row_results.append(result)
                 continue
             
-            # Check branch capacity (considering other rows in this upload)
-            usage_key = f"{date_str}|{branch_name}"
-            current_usage = date_branch_usage.get(usage_key, 0)
-            branch_capacity = valid_branches[branch_name]
+            # Valid row - add to parsed rows for processing
+            parsed_rows.append({
+                "row_idx": len(row_results),  # Index in row_results
+                "row_num": row_num,
+                "branch_name": branch_name,
+                "branch_value": branch_value,
+                "date_iso": date_str_iso,
+                "target_date": target_date,
+                "sku_id": sku_id,
+                "sku": sku_map[sku_id],
+                "qty": qty
+            })
+            row_results.append(result)
             
-            # Get daily override if exists
-            daily_cap = await db.branch_daily_capacity.find_one(
-                {"branch": branch_name, "date": date_str},
-                {"_id": 0, "capacity": 1}
-            )
-            if daily_cap:
-                branch_capacity = daily_cap.get("capacity", branch_capacity)
-            
-            # Get existing schedules for this date/branch
-            day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+        except Exception as e:
+            result["status"] = "ERROR"
+            result["remarks"] = str(e)
+            row_results.append(result)
+    
+    # Group rows by (date, branch) for capacity analysis
+    date_branch_groups = {}
+    for pr in parsed_rows:
+        key = f"{pr['date_iso']}|{pr['branch_name']}"
+        if key not in date_branch_groups:
+            date_branch_groups[key] = {
+                "date_iso": pr["date_iso"],
+                "branch_name": pr["branch_name"],
+                "rows": [],
+                "total_demand": 0
+            }
+        date_branch_groups[key]["rows"].append(pr)
+        date_branch_groups[key]["total_demand"] += pr["qty"]
+    
+    # Check for existing schedules and calculate conflicts
+    conflicts = []
+    for key, group in date_branch_groups.items():
+        date_iso = group["date_iso"]
+        branch_name = group["branch_name"]
+        
+        # Get branch capacity (with daily override)
+        base_capacity = branch_capacity_map.get(branch_name, 0)
+        daily_cap = await db.branch_daily_capacity.find_one(
+            {"branch": branch_name, "date": date_iso},
+            {"_id": 0, "capacity": 1}
+        )
+        capacity = daily_cap.get("capacity", base_capacity) if daily_cap else base_capacity
+        
+        # Get existing schedules
+        day_start = datetime.strptime(date_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        existing_schedules = await db.production_schedules.find(
+            {
+                "branch": branch_name,
+                "target_date": {"$gte": day_start, "$lt": day_end},
+                "status": {"$ne": "CANCELLED"}
+            },
+            {"_id": 0, "id": 1, "schedule_code": 1, "sku_id": 1, "target_quantity": 1}
+        ).to_list(1000)
+        existing_scheduled = sum(s.get("target_quantity", 0) for s in existing_schedules)
+        
+        group["capacity"] = capacity
+        group["existing_scheduled"] = existing_scheduled
+        group["existing_schedules"] = existing_schedules
+        group["available"] = capacity - existing_scheduled
+        
+        # Check for conflict: existing schedules + capacity breach
+        if existing_scheduled > 0 and group["total_demand"] > group["available"]:
+            conflicts.append({
+                "date": day_start.strftime("%d-%m-%Y"),
+                "date_iso": date_iso,
+                "branch": branch_name,
+                "capacity": capacity,
+                "existing_scheduled": existing_scheduled,
+                "new_demand": group["total_demand"],
+                "total_demand": existing_scheduled + group["total_demand"],
+                "available": group["available"],
+                "overflow": group["total_demand"] - group["available"]
+            })
+    
+    # If mode is 'check' and there are conflicts, return warning
+    if mode == "check" and conflicts:
+        return {
+            "success": False,
+            "warning": True,
+            "message": "Capacity breach detected with existing schedules. Please confirm action.",
+            "conflicts": conflicts,
+            "total_rows": len(df),
+            "valid_rows": len(parsed_rows),
+            "error_rows": len(row_results) - len(parsed_rows),
+            "options": {
+                "override": "Clear existing schedules and allocate new demand up to capacity",
+                "add": "Keep existing schedules, allocate only within remaining capacity"
+            },
+            "instruction": "Re-upload with mode='override' or mode='add' query parameter"
+        }
+    
+    # Process with FIFO allocation
+    created_count = 0
+    
+    for key, group in date_branch_groups.items():
+        capacity = group["capacity"]
+        existing_scheduled = group["existing_scheduled"]
+        
+        # Determine available capacity based on mode
+        if mode == "override" and existing_scheduled > 0:
+            # Clear existing schedules for this date/branch
+            day_start = datetime.strptime(group["date_iso"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
             day_end = day_start + timedelta(days=1)
-            existing_on_date = await db.production_schedules.find(
-                {
-                    "branch": branch_name,
-                    "target_date": {"$gte": day_start, "$lt": day_end},
-                    "status": {"$ne": "CANCELLED"}
-                },
-                {"_id": 0, "target_quantity": 1}
-            ).to_list(1000)
-            existing_allocated = sum(s.get("target_quantity", 0) for s in existing_on_date)
             
-            available = branch_capacity - existing_allocated - current_usage
-            allocated_qty = qty
-            overflow_qty = 0
+            deleted = await db.production_schedules.delete_many({
+                "branch": group["branch_name"],
+                "target_date": {"$gte": day_start, "$lt": day_end},
+                "status": {"$ne": "CANCELLED"}
+            })
             
-            # Cap to available capacity if exceeded
-            if qty > available:
-                if available <= 0:
-                    # No capacity at all - add to overflow
-                    results["overflow"].append({
-                        "row": idx + 2,
-                        "branch_id": branch_value,
-                        "branch": branch_name,
-                        "date": date_str,
-                        "sku_id": sku_id,
-                        "sku_name": sku.get("name", "") or sku.get("description", ""),
-                        "requested_qty": qty,
-                        "allocated_qty": 0,
-                        "overflow_qty": qty,
-                        "available_capacity": 0,
-                        "branch_capacity": branch_capacity
-                    })
-                    continue
-                else:
-                    # Partial allocation - cap to available
-                    allocated_qty = available
-                    overflow_qty = qty - available
-                    results["overflow"].append({
-                        "row": idx + 2,
-                        "branch_id": branch_value,
-                        "branch": branch_name,
-                        "date": date_str,
-                        "sku_id": sku_id,
-                        "sku_name": sku.get("name", "") or sku.get("description", ""),
-                        "requested_qty": qty,
-                        "allocated_qty": allocated_qty,
-                        "overflow_qty": overflow_qty,
-                        "available_capacity": available,
-                        "branch_capacity": branch_capacity
-                    })
+            available = capacity  # Full capacity available after clearing
+        else:
+            available = capacity - existing_scheduled
+        
+        # FIFO allocation - process rows in order
+        for pr in group["rows"]:
+            result = row_results[pr["row_idx"]]
+            qty = pr["qty"]
             
-            # Create schedule with allocated quantity
+            if available <= 0:
+                # No capacity - reject
+                result["status"] = "REJECTED"
+                result["allocated"] = 0
+                result["not_allocated"] = qty
+                result["remarks"] = f"No capacity available. Branch capacity: {capacity}, Already scheduled: {capacity - available}"
+                continue
+            
+            if qty <= available:
+                # Full allocation
+                allocated_qty = qty
+                overflow_qty = 0
+                result["status"] = "SCHEDULED"
+                result["remarks"] = "Fully allocated"
+            else:
+                # Partial allocation
+                allocated_qty = available
+                overflow_qty = qty - available
+                result["status"] = "PARTIAL"
+                result["remarks"] = f"Capacity limit reached. {overflow_qty} units overflow."
+            
+            result["allocated"] = allocated_qty
+            result["not_allocated"] = overflow_qty
+            
+            # Create schedule
             count = await db.production_schedules.count_documents({})
             schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
             
             schedule = {
                 "id": str(uuid.uuid4()),
                 "schedule_code": schedule_code,
-                "forecast_id": None,  # No forecast linking
+                "forecast_id": None,
                 "dispatch_lot_id": None,
-                "branch": branch_name,
-                "sku_id": sku_id,
-                "sku_description": sku.get("name", "") or sku.get("description", ""),
+                "branch": pr["branch_name"],
+                "sku_id": pr["sku_id"],
+                "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
                 "target_quantity": allocated_qty,
                 "allocated_quantity": allocated_qty,
                 "completed_quantity": 0,
-                "target_date": target_date,
-                "priority": "MEDIUM",  # Default priority
+                "target_date": pr["target_date"],
+                "priority": "MEDIUM",
                 "status": "SCHEDULED",
-                "notes": f"Bulk upload" + (f" (capped from {qty})" if overflow_qty > 0 else ""),
+                "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else ""),
                 "created_at": datetime.now(timezone.utc)
             }
             
             await db.production_schedules.insert_one(schedule)
+            result["schedule_code"] = schedule_code
+            created_count += 1
             
-            # Update tracking
-            date_branch_usage[usage_key] = current_usage + allocated_qty
-            
-            results["created"] += 1
-            results["schedules"].append({
-                "schedule_code": schedule_code,
-                "sku_id": sku_id,
-                "branch": branch_name,
-                "date": date_str,
-                "qty": allocated_qty,
-                "original_qty": qty if overflow_qty > 0 else None,
-                "overflow": overflow_qty if overflow_qty > 0 else None
+            # Update available capacity
+            available -= allocated_qty
+    
+    # Generate result Excel file
+    result_data = []
+    for r in row_results:
+        result_data.append({
+            "Branch ID": r["branch_id"],
+            "Date (DD-MM-YYYY)": r["date"],
+            "Buyer SKU ID": r["buyer_sku_id"],
+            "Quantity": r["quantity"],
+            "Status": r["status"],
+            "Allocated": r["allocated"],
+            "Not Allocated": r["not_allocated"],
+            "Schedule Code": r["schedule_code"],
+            "Remarks": r["remarks"]
+        })
+    
+    result_df = pd.DataFrame(result_data)
+    
+    # Create Excel with formatting
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        result_df.to_excel(writer, index=False, sheet_name='Upload Result')
+        
+        # Apply formatting
+        ws = writer.sheets['Upload Result']
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 15
+        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['D'].width = 10
+        ws.column_dimensions['E'].width = 12
+        ws.column_dimensions['F'].width = 10
+        ws.column_dimensions['G'].width = 14
+        ws.column_dimensions['H'].width = 18
+        ws.column_dimensions['I'].width = 50
+        
+        # Header styling
+        header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+        
+        # Status column color coding
+        status_colors = {
+            "SCHEDULED": "C6EFCE",  # Green
+            "PARTIAL": "FFEB9C",    # Yellow
+            "REJECTED": "FFC7CE",   # Red
+            "ERROR": "D9D9D9",      # Gray
+            "PENDING": "FFFFFF"     # White
+        }
+        
+        for row_num in range(2, len(result_data) + 2):
+            status_cell = ws.cell(row=row_num, column=5)
+            status = status_cell.value
+            if status in status_colors:
+                status_cell.fill = PatternFill(start_color=status_colors[status], end_color=status_colors[status], fill_type="solid")
+    
+    output.seek(0)
+    
+    # Generate upload ID for download reference
+    upload_id = str(uuid.uuid4())[:8]
+    
+    # Store result in memory/cache for download (simplified - in production use Redis/DB)
+    # For now, return the file directly in base64 or as download
+    
+    # Calculate summary stats
+    scheduled_count = sum(1 for r in row_results if r["status"] == "SCHEDULED")
+    partial_count = sum(1 for r in row_results if r["status"] == "PARTIAL")
+    rejected_count = sum(1 for r in row_results if r["status"] == "REJECTED")
+    error_count = sum(1 for r in row_results if r["status"] == "ERROR")
+    total_allocated = sum(r["allocated"] for r in row_results)
+    total_not_allocated = sum(r["not_allocated"] for r in row_results)
+    
+    # Return file as StreamingResponse
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=production_plan_result_{upload_id}.xlsx",
+            "X-Upload-Summary": json.dumps({
+                "success": True,
+                "upload_id": upload_id,
+                "mode": mode,
+                "total_rows": len(df),
+                "scheduled": scheduled_count,
+                "partial": partial_count,
+                "rejected": rejected_count,
+                "errors": error_count,
+                "total_allocated": total_allocated,
+                "total_not_allocated": total_not_allocated,
+                "schedules_created": created_count
             })
-            
-        except Exception as e:
-            results["errors"].append(f"Row {idx+2}: {str(e)}")
-    
-    # Calculate total overflow
-    total_overflow = sum(o["overflow_qty"] for o in results["overflow"])
-    
-    return {
-        "message": f"Bulk upload complete. Created {results['created']} schedules.",
-        "created": results["created"],
-        "schedules": results["schedules"][:50],
-        "errors": results["errors"][:20],
-        "total_errors": len(results["errors"]),
-        "overflow": results["overflow"],
-        "total_overflow": total_overflow,
-        "has_overflow": total_overflow > 0
-    }
+        }
+    )
 
 
 @router.get("/cpc/available-capacity")
