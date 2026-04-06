@@ -8,6 +8,7 @@ import io
 
 from database import db
 from services.stock_origin_service import allocate_stock_fifo, format_origin_breakdown
+from services import sku_service
 
 router = APIRouter(tags=["Demand"])
 
@@ -215,7 +216,7 @@ async def create_forecast(data: ForecastCreate):
     # Auto-derive vertical_id from SKU if not provided
     vertical_id = data.vertical_id
     if data.sku_id and not vertical_id:
-        sku = await db.skus.find_one({"sku_id": data.sku_id}, {"_id": 0})
+        sku = await sku_service.get_sku_by_sku_id(data.sku_id)
         if sku and sku.get("vertical_id"):
             vertical_id = sku["vertical_id"]
     
@@ -280,7 +281,7 @@ async def update_forecast(forecast_id: str, data: ForecastUpdate):
         update_data["sku_id"] = data.sku_id
         # Auto-derive vertical_id from SKU if not explicitly provided
         if data.vertical_id is None:
-            sku = await db.skus.find_one({"sku_id": data.sku_id}, {"_id": 0})
+            sku = await sku_service.get_sku_by_sku_id(data.sku_id)
             if sku and sku.get("vertical_id"):
                 update_data["vertical_id"] = sku["vertical_id"]
     
@@ -621,10 +622,7 @@ async def get_brands_by_buyer(buyer_id: str):
     
     sku_ids = [f["sku_id"] for f in forecasts if f.get("sku_id")]
     if sku_ids:
-        skus = await db.skus.find(
-            {"sku_id": {"$in": sku_ids}},
-            {"brand_id": 1, "brand": 1, "_id": 0}
-        ).to_list(1000)
+        skus = await sku_service.get_skus_by_sku_ids(sku_ids)
         
         # Get unique brand_ids from forecasted SKUs
         brand_ids_from_skus = list(set(s.get("brand_id") for s in skus if s.get("brand_id")))
@@ -664,7 +662,10 @@ async def get_verticals_by_buyer(buyer_id: str, brand_id: Optional[str] = None):
         if brand_id:
             sku_query["brand_id"] = brand_id
         
-        skus = await db.skus.find(sku_query, {"vertical_id": 1, "_id": 0}).to_list(1000)
+        skus = await sku_service.get_skus_by_sku_ids(sku_ids)
+        # Apply brand filter if specified
+        if brand_id:
+            skus = [s for s in skus if s.get("brand_id") == brand_id]
         for s in skus:
             if s.get("vertical_id"):
                 vertical_ids.add(s["vertical_id"])
@@ -731,11 +732,25 @@ async def get_forecasted_skus(buyer_id: str, vertical_id: Optional[str] = None, 
         else:
             sku_query = {"$or": or_conditions}
     
-    skus = await db.skus.find(sku_query, {"_id": 0}).to_list(1000)
+    # Use sku_service to get all SKUs that match criteria
+    # Since we need complex filtering, get all and filter
+    all_skus = await sku_service.get_all_skus(limit=5000)
     
-    # Apply brand filter if specified
-    if brand_id:
-        skus = [s for s in skus if s.get("brand_id") == brand_id]
+    # Apply filters
+    skus = []
+    for s in all_skus:
+        # Check vertical/brand filter
+        if vertical_id and s.get("vertical_id") != vertical_id:
+            continue
+        if brand_id and s.get("brand_id") != brand_id:
+            continue
+        
+        # Check if SKU is in forecasted set
+        sku_id = s.get("sku_id")
+        sku_vertical = s.get("vertical_id")
+        
+        if sku_id in forecasted_sku_ids or sku_vertical in forecasted_vertical_ids:
+            skus.append(s)
     
     # Get existing dispatch lot quantities
     dispatch_lots = await db.dispatch_lots.find(
@@ -999,7 +1014,7 @@ async def get_dispatch_lot_details(lot_id: str):
     
     # Get SKU details and inventory for readiness calculation
     sku_ids = [line.get("sku_id") for line in lines if line.get("sku_id")]
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(1000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
     # Get FG inventory for these SKUs (sum across all branches)
@@ -1244,7 +1259,7 @@ async def get_dispatch_lots_with_readiness(
     sku_ids = list(sku_ids)
     
     # Get SKU current stock
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "current_stock": 1}).to_list(5000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     stock_by_sku = {s["sku_id"]: s.get("current_stock", 0) for s in skus}
     
     # Get FG inventory
@@ -1387,7 +1402,7 @@ async def parse_forecast_excel(file: UploadFile = File(...)):
             wb.close()
         
         # Load SKU master data for validation and auto-fill
-        skus = await db.skus.find({}, {"_id": 0}).to_list(50000)
+        skus = await sku_service.get_all_skus(limit=50000)
         sku_map = {s.get("sku_id", "").upper(): s for s in skus}
         
         # Load verticals for mapping
@@ -1624,7 +1639,7 @@ async def export_forecasts(
     buyers = await db.buyers.find({}, {"_id": 0}).to_list(1000)
     buyer_map = {b["id"]: b for b in buyers}
     
-    skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+    skus = await sku_service.get_all_skus(limit=10000)
     sku_map = {s["sku_id"]: s for s in skus}
     
     verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
@@ -1958,7 +1973,7 @@ async def bulk_upload_dispatch_lots(file: UploadFile = File(...)):
         forecast_map = {f["forecast_code"]: f for f in forecasts}
         
         # Get SKUs map
-        skus = await db.skus.find({}, {"_id": 0}).to_list(10000)
+        skus = await sku_service.get_all_skus(limit=10000)
         sku_map = {s["sku_id"]: s for s in skus}
         
         # Create dispatch lots
@@ -2115,7 +2130,7 @@ async def run_fifo_allocation():
         inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
     
     # Also add from SKU current_stock if no FG inventory
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "current_stock": 1}).to_list(10000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     for sku in skus:
         sid = sku.get("sku_id")
         if sid not in inventory_by_sku or inventory_by_sku[sid] == 0:
@@ -2320,7 +2335,7 @@ async def get_dispatch_lot_full_details(lot_id: str):
     
     # Get SKU details
     sku_ids = [line.get("sku_id") for line in lines if line.get("sku_id")]
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(1000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
     # Get total inventory (not allocated, just total available)

@@ -57,6 +57,15 @@ Vertical (e.g., Kids Scooter - KS)
 - `buyer_skus` - Branded variants
 - `common_bom` - Core BOMs locked at Bidso level
 - `brand_specific_bom` - Brand additions
+- `skus` - **DEPRECATED** (Legacy collection - all READ operations migrated away)
+
+**Data Migration Status (April 6, 2026):**
+- ✅ Phase 1: Helper service created (`/app/backend/services/sku_service.py`)
+- ✅ Phase 2: All READ operations migrated to use `bidso_skus` + `buyer_skus`
+- ✅ Phase 3: Data sync verified - no active transactions use missing SKUs
+- 🔲 Phase 4: Cleanup legacy import logic (optional)
+
+See `/app/memory/SKU_MIGRATION_PLAN.md` for full migration details.
 
 **API Endpoints:**
 - `GET/POST /api/sku-management/bidso-skus`

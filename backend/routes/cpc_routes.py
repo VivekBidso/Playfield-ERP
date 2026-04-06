@@ -10,6 +10,7 @@ import json
 
 from database import db, BRANCHES
 from services.stock_origin_service import create_origin_entry
+from services import sku_service
 
 router = APIRouter(tags=["CPC - Central Production Control"])
 
@@ -591,7 +592,7 @@ async def create_production_schedule(data: ProductionScheduleCreate):
     schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
     
     # Verify SKU exists
-    sku = await db.skus.find_one({"sku_id": data.sku_id}, {"_id": 0})
+    sku = await sku_service.get_sku_by_sku_id(data.sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     
@@ -1270,7 +1271,7 @@ async def get_schedule_suggestions():
             continue
         
         # Get SKU info
-        sku = await db.skus.find_one({"sku_id": lot["sku_id"]}, {"_id": 0})
+        sku = await sku_service.get_sku_by_sku_id(lot["sku_id"])
         
         suggestions.append({
             "dispatch_lot_id": lot["id"],
@@ -1357,7 +1358,7 @@ async def get_branch_wise_schedules(
     
     # Get SKU info
     sku_ids = list(set(s.get("sku_id") for s in schedules if s.get("sku_id")))
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0, "sku_id": 1, "description": 1}).to_list(1000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s.get("description", "") for s in skus}
     
     # Get forecast info
@@ -1492,10 +1493,7 @@ async def get_demand_forecasts_for_cpc(
     
     # Get SKU details including current_stock
     sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
-    skus = await db.skus.find(
-        {"sku_id": {"$in": sku_ids}}, 
-        {"_id": 0, "sku_id": 1, "description": 1, "vertical": 1, "brand": 1, "current_stock": 1}
-    ).to_list(1000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
     # Get FG inventory by SKU
@@ -1611,10 +1609,7 @@ async def get_demand_forecasts_summary():
     total_inventory = sum(inv.get("quantity", 0) for inv in fg_inventory)
     
     # Also check SKU current_stock
-    skus = await db.skus.find(
-        {"sku_id": {"$in": sku_ids}},
-        {"_id": 0, "sku_id": 1, "current_stock": 1}
-    ).to_list(5000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     
     # Add current_stock if not already in fg_inventory
     inventory_skus = set(inv.get("sku_id") for inv in fg_inventory)
@@ -1665,7 +1660,7 @@ async def download_demand_forecasts():
     buyer_map = {b["id"]: b for b in buyers}
     
     sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(5000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
     vertical_ids = list(set(f.get("vertical_id") for f in forecasts if f.get("vertical_id")))
@@ -2770,7 +2765,7 @@ async def get_branch_capacity_for_date(branch: str, date_str: str, model_id: Opt
 async def get_sku_assigned_branches(sku_id: str):
     """Get branches where a SKU is assigned/subscribed"""
     # Check if SKU exists
-    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    sku = await sku_service.get_sku_by_sku_id(sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
     
@@ -3036,7 +3031,7 @@ async def create_schedule_from_forecast(data: ScheduleFromForecastRequest):
         raise HTTPException(status_code=400, detail="Forecast has no SKU linked")
     
     # Verify SKU exists
-    sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+    sku = await sku_service.get_sku_by_sku_id(sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {sku_id} not found")
     

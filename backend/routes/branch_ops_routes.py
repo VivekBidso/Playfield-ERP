@@ -7,6 +7,7 @@ from services.auth_service import get_current_user
 from models.auth import User
 from routes.sku_management_routes import generate_rm_description
 from services.utils import update_branch_rm_inventory, get_branch_rm_stock
+from services import sku_service
 import uuid
 
 router = APIRouter(tags=["Branch Operations"])
@@ -316,7 +317,7 @@ async def get_branch_schedules(
     
     # Enrich with SKU details
     sku_ids = list(set(s.get("sku_id") for s in schedules if s.get("sku_id")))
-    skus = await db.skus.find({"sku_id": {"$in": sku_ids}}, {"_id": 0}).to_list(1000)
+    skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
     enriched_schedules = []

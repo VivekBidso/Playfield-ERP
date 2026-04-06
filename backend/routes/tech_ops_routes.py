@@ -12,6 +12,7 @@ from models.master_data import (
     Brand, BrandCreate,
     Buyer, BuyerCreate, BuyerUpdate, BuyerBulkImport
 )
+from services import sku_service
 
 router = APIRouter(tags=["Tech Ops"])
 
@@ -60,9 +61,11 @@ async def delete_vertical(vertical_id: str):
     if models_count > 0:
         raise HTTPException(status_code=400, detail=f"Cannot delete: {models_count} active models use this vertical")
     
-    skus_count = await db.skus.count_documents({"vertical_id": vertical_id})
-    if skus_count > 0:
-        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this vertical")
+    skus_count = await sku_service.count_skus({"bidso_sku_id": {"$exists": True}})
+    # Check if any bidso_skus use this vertical
+    bidso_count = await db.bidso_skus.count_documents({"vertical_id": vertical_id})
+    if bidso_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {bidso_count} SKUs use this vertical")
     
     result = await db.verticals.update_one({"id": vertical_id}, {"$set": {"status": "INACTIVE"}})
     if result.matched_count == 0:
@@ -109,9 +112,10 @@ async def update_model(model_id: str, data: ModelCreate):
 
 @router.delete("/models/{model_id}")
 async def delete_model(model_id: str):
-    skus_count = await db.skus.count_documents({"model_id": model_id})
-    if skus_count > 0:
-        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this model")
+    # Check if any bidso_skus use this model
+    bidso_count = await db.bidso_skus.count_documents({"model_id": model_id})
+    if bidso_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {bidso_count} SKUs use this model")
     
     result = await db.models.update_one({"id": model_id}, {"$set": {"status": "INACTIVE"}})
     if result.matched_count == 0:
@@ -281,9 +285,10 @@ async def update_brand(brand_id: str, data: BrandCreate):
 
 @router.delete("/brands/{brand_id}")
 async def delete_brand(brand_id: str):
-    skus_count = await db.skus.count_documents({"brand_id": brand_id})
-    if skus_count > 0:
-        raise HTTPException(status_code=400, detail=f"Cannot delete: {skus_count} SKUs use this brand")
+    # Check if any buyer_skus use this brand
+    buyer_sku_count = await db.buyer_skus.count_documents({"brand_id": brand_id})
+    if buyer_sku_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: {buyer_sku_count} SKUs use this brand")
     
     result = await db.brands.update_one({"id": brand_id}, {"$set": {"status": "INACTIVE"}})
     if result.matched_count == 0:

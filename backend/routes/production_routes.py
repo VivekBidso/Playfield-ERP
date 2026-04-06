@@ -14,6 +14,7 @@ from services.utils import (
     update_branch_rm_inventory, generate_movement_code, 
     get_branch_rm_stock, get_current_rm_price
 )
+from services import sku_service
 
 router = APIRouter(tags=["Production"])
 
@@ -159,7 +160,7 @@ async def create_production_entry(
     check_branch_access(current_user, input.branch)
     
     # Verify SKU exists
-    sku = await db.skus.find_one({"sku_id": input.sku_id}, {"_id": 0})
+    sku = await sku_service.get_sku_by_sku_id(input.sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {input.sku_id} not found")
     
@@ -258,7 +259,7 @@ async def get_production_entries(
     
     # Enrich with SKU info
     for entry in entries:
-        sku = await db.skus.find_one({"sku_id": entry["sku_id"]}, {"_id": 0, "description": 1})
+        sku = await sku_service.get_sku_by_sku_id(entry["sku_id"])
         entry["sku_description"] = sku.get("description") if sku else None
     
     return entries
@@ -336,7 +337,7 @@ async def get_production_batches(
     
     # Enrich with SKU info
     for batch in batches:
-        sku = await db.skus.find_one({"sku_id": batch.get("sku_id")}, {"_id": 0, "description": 1})
+        sku = await sku_service.get_sku_by_sku_id(batch.get("sku_id"))
         batch["sku_description"] = sku.get("description") if sku else None
     
     return batches
@@ -554,7 +555,7 @@ async def get_production_plans_filtered(
 async def create_single_production_plan(plan: SingleProductionPlanCreate):
     """Create a single production plan entry"""
     # Validate SKU exists
-    sku = await db.skus.find_one({"sku_id": plan.sku_id}, {"_id": 0})
+    sku = await sku_service.get_sku_by_sku_id(plan.sku_id)
     if not sku:
         raise HTTPException(status_code=404, detail=f"SKU {plan.sku_id} not found")
     
@@ -731,7 +732,7 @@ async def bulk_upload_production_plan(
         # Process valid rows
         for row_data in rows_to_process:
             try:
-                sku = await db.skus.find_one({"sku_id": row_data["sku_id"]}, {"_id": 0})
+                sku = await sku_service.get_sku_by_sku_id(row_data["sku_id"])
                 if not sku:
                     errors.append(f"Row {row_data['row_idx']}: SKU {row_data['sku_id']} not found")
                     continue
@@ -808,7 +809,7 @@ async def get_shortage_analysis(branch: str, plan_month: str):
         planned_qty = plan['planned_quantity']
         
         if sku_id not in sku_details:
-            sku = await db.skus.find_one({"sku_id": sku_id}, {"_id": 0})
+            sku = await sku_service.get_sku_by_sku_id(sku_id)
             if sku:
                 sku_details[sku_id] = {"name": sku.get('description', sku_id), "total_planned": 0}
         

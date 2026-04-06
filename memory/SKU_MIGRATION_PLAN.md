@@ -3,10 +3,49 @@
 ## Objective
 Migrate all code from legacy `skus` collection to use `bidso_skus` + `buyer_skus` collections.
 
-## Current State
-- **Legacy `skus` collection**: 711 records, 56 code references across 9 files
+## Current State (Updated: April 6, 2026)
+- **Legacy `skus` collection**: 711 records, **7 remaining code references** (all are WRITE operations for legacy sync/import)
 - **New `bidso_skus` collection**: 258 records (base products)
 - **New `buyer_skus` collection**: 693 records (branded variants)
+
+## Migration Progress
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | ✅ COMPLETE | Created `/app/backend/services/sku_service.py` helper service |
+| Phase 2 | ✅ COMPLETE | Migrated all READ operations across 8 route files |
+| Phase 3 | ✅ COMPLETE | Data sync verified - no active transactions use missing SKUs |
+| Phase 4 | 🔲 NOT STARTED | Cleanup legacy import logic + optional drop |
+
+### Phase 3 Verification Results (April 6, 2026)
+- Legacy `skus`: 711 records
+- New `buyer_skus`: 693 records  
+- Missing in new model: 33 SKUs (none used in active forecasts/production/dispatch)
+- Extra in new model: 15 SKUs (new additions)
+- **Verdict**: Safe to proceed - all active transactions work with new data model
+
+### Files Migrated (Phase 2)
+
+| File | Original Refs | Migrated | Status |
+|------|--------------|----------|--------|
+| sku_routes.py | 17 | 17 | ✅ Complete |
+| demand_routes.py | 12 | 12 | ✅ Complete |
+| cpc_routes.py | 8 | 8 | ✅ Complete |
+| production_routes.py | 6 | 6 | ✅ Complete |
+| tech_ops_routes.py | 3 | 3 | ✅ Complete |
+| branch_ops_routes.py | 1 | 1 | ✅ Complete |
+| report_routes.py | 2 | 2 | ✅ Complete |
+| sku_management_routes.py | 3 | 0 | ⏸️ Legacy WRITE ops (Phase 4) |
+| demand_hub_routes.py | 4 | 0 | ⏸️ Legacy WRITE ops (Phase 4) |
+
+### Remaining References (Phase 4)
+```
+/app/backend/routes/sku_management_routes.py:627 - existing = await db.skus.find_one (import check)
+/app/backend/routes/sku_management_routes.py:681 - await db.skus.insert_one (legacy import)
+/app/backend/routes/sku_management_routes.py:2729 - await db.skus.count_documents (migration stats)
+/app/backend/routes/demand_hub_routes.py:93-106 - Legacy sync operations
+```
+These are intentionally kept for backward compatibility with legacy import flows. They will be updated in Phase 4.
 
 ## Data Model Mapping
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from database import db
 from models import User
 from services.utils import get_current_user, check_branch_access, serialize_doc
+from services import sku_service
 
 router = APIRouter(tags=["Reports"])
 
@@ -34,7 +35,7 @@ async def get_fg_inventory(
     
     # Enrich with SKU info
     for item in inventory:
-        sku = await db.skus.find_one({"sku_id": item["sku_id"]}, {"_id": 0, "description": 1})
+        sku = await sku_service.get_sku_by_sku_id(item["sku_id"])
         item["sku_description"] = sku.get("description") if sku else None
     
     return inventory
@@ -68,7 +69,7 @@ async def get_fg_inventory_summary(
     
     # Enrich with SKU descriptions
     for item in result:
-        sku = await db.skus.find_one({"sku_id": item["_id"]}, {"_id": 0, "description": 1})
+        sku = await sku_service.get_sku_by_sku_id(item["_id"])
         item["sku_id"] = item["_id"]
         item["sku_description"] = sku.get("description") if sku else None
         del item["_id"]
