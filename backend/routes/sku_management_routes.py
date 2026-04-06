@@ -1106,6 +1106,9 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
     
     For Buyer SKU BOM: Items marked as NOT brand-specific will automatically
     populate the Common BOM of the linked Bidso SKU.
+    
+    Only requires: BUYER_SKU_ID, RM_ID, QUANTITY
+    RM names are NOT required - only RM ID is used for mapping.
     """
     import openpyxl
     import traceback
@@ -1153,23 +1156,24 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                 results["errors"].append(f"Missing Buyer SKUs: {', '.join(sorted(missing_buyer_skus)[:10])}" + 
                                         (f" (and {len(missing_buyer_skus) - 10} more)" if len(missing_buyer_skus) > 10 else ""))
             
-            # Pre-validate RMs (case-insensitive)
-            existing_rms = {}
+            # Pre-validate RMs - only check if rm_id exists, don't need name
+            existing_rm_ids_set = set()
             for rm_id in all_rm_ids:
                 # Exact match first
-                rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "name": 1, "rm_id": 1})
+                rm = await db.raw_materials.find_one({"rm_id": rm_id}, {"_id": 0, "rm_id": 1})
                 if not rm:
                     # Case-insensitive match
                     escaped_rm_id = re.escape(rm_id)
                     rm = await db.raw_materials.find_one(
                         {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                        {"_id": 0, "name": 1, "rm_id": 1}
+                        {"_id": 0, "rm_id": 1}
                     )
                 if rm:
-                    existing_rms[rm_id] = rm
-                    existing_rms[rm_id.lower()] = rm  # Also store lowercase for lookups
+                    existing_rm_ids_set.add(rm_id)
+                    existing_rm_ids_set.add(rm_id.lower())
+                    existing_rm_ids_set.add(rm.get("rm_id", rm_id))  # Add actual DB rm_id
             
-            missing_rms = [rm for rm in all_rm_ids if rm not in existing_rms and rm.lower() not in existing_rms]
+            missing_rms = [rm for rm in all_rm_ids if rm not in existing_rm_ids_set and rm.lower() not in existing_rm_ids_set]
             if missing_rms:
                 results["errors"].append(f"Missing RM IDs: {', '.join(sorted(missing_rms)[:10])}" + 
                                         (f" (and {len(missing_rms) - 10} more)" if len(missing_rms) > 10 else ""))
@@ -1198,6 +1202,7 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                 if buyer_sku_id not in buyer_sku_boms:
                     buyer_sku_boms[buyer_sku_id] = {"common": [], "brand_specific": []}
                 
+                # Store only rm_id, quantity, unit - NO name needed
                 item = {"rm_id": rm_id, "quantity": quantity, "unit": unit}
                 
                 if brand_specific == "Y":
@@ -1226,43 +1231,38 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                     results["errors"].append(f"Buyer SKU {buyer_sku_id} has no brand_id")
                     continue
                 
-                # Validate RMs and prepare data (case-insensitive lookup)
+                # Build BOM items - only rm_id, quantity, unit (no name lookup needed)
                 common_items = []
                 for item in bom_data["common"]:
-                    # Try exact match first, then case-insensitive
-                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    # Verify RM exists (already validated above, but double-check)
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "rm_id": 1})
                     if not rm:
                         escaped_rm_id = re.escape(item["rm_id"])
                         rm = await db.raw_materials.find_one(
                             {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                            {"_id": 0, "name": 1, "rm_id": 1}
+                            {"_id": 0, "rm_id": 1}
                         )
                     if not rm:
-                        results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
-                        continue
+                        continue  # Skip - already reported in validation
                     common_items.append({
                         "rm_id": rm.get("rm_id", item["rm_id"]),
-                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
                 
                 brand_items = []
                 for item in bom_data["brand_specific"]:
-                    # Try exact match first, then case-insensitive
-                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "rm_id": 1})
                     if not rm:
                         escaped_rm_id = re.escape(item["rm_id"])
                         rm = await db.raw_materials.find_one(
                             {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                            {"_id": 0, "name": 1, "rm_id": 1}
+                            {"_id": 0, "rm_id": 1}
                         )
                     if not rm:
-                        results["errors"].append(f"RM {item['rm_id']} not found (for {buyer_sku_id})")
                         continue
                     brand_items.append({
                         "rm_id": rm.get("rm_id", item["rm_id"]),
-                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
@@ -1380,22 +1380,21 @@ async def bulk_upload_bom(file: UploadFile = File(...)):
                     results["warnings"].append(f"Common BOM for {bidso_sku_id} is locked - skipped")
                     continue
                 
-                # Validate RMs (case-insensitive lookup)
+                # Validate RMs - only check existence, no name needed
                 valid_items = []
                 for item in items:
-                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "rm_id": 1})
+                    rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "rm_id": 1})
                     if not rm:
                         escaped_rm_id = re.escape(item["rm_id"])
                         rm = await db.raw_materials.find_one(
                             {"rm_id": {"$regex": f"^{escaped_rm_id}$", "$options": "i"}},
-                            {"_id": 0, "name": 1, "rm_id": 1}
+                            {"_id": 0, "rm_id": 1}
                         )
                     if not rm:
                         results["errors"].append(f"RM {item['rm_id']} not found (for {bidso_sku_id})")
                         continue
                     valid_items.append({
                         "rm_id": rm.get("rm_id", item["rm_id"]),
-                        "rm_name": rm.get("name", "") or item["rm_id"],  # Fallback to rm_id if name is empty
                         "quantity": item["quantity"],
                         "unit": item["unit"]
                     })
