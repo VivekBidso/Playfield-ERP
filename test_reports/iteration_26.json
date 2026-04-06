@@ -1,0 +1,81 @@
+{
+  "summary": "Production Plan Excel Upload feature testing completed. Backend: 15/15 tests passed (100%). Frontend: All UI elements verified and working correctly. The upload endpoint supports three modes (check, add, override) with FIFO allocation, capacity conflict detection, and Excel result report generation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_production_plan_upload.py",
+    "/app/test_reports/pytest/pytest_production_plan_upload.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "All 15 backend API tests passed - Production Plan Upload feature fully functional",
+    "POST /api/cpc/production-plan/upload-excel (mode=check) - Returns JSON warning when conflicts exist with existing schedules",
+    "POST /api/cpc/production-plan/upload-excel?mode=add - Allocates within remaining capacity, returns Excel with results",
+    "POST /api/cpc/production-plan/upload-excel?mode=override - Clears existing schedules for conflicting dates, allocates fresh",
+    "Excel result file contains all required columns: Status, Allocated, Not Allocated, Schedule Code, Remarks",
+    "FIFO allocation working correctly - first rows get full allocation before later rows",
+    "Partial allocation shows correct allocated/not_allocated counts when capacity exceeded",
+    "Schedule codes generated correctly (PS_YYYYMM_XXXX format) for SCHEDULED/PARTIAL rows",
+    "Invalid branch/SKU validation working - returns ERROR status in Excel",
+    "Missing columns validation working - returns 400 error",
+    "Invalid file format validation working - returns 400 error",
+    "X-Upload-Summary header contains JSON stats (total_rows, scheduled, partial, rejected, errors, total_allocated, total_not_allocated)",
+    "Frontend: CPC page loads correctly with 3 tabs (Production Planning, Branch Capacity, Production Schedule)",
+    "Frontend: Upload Plan, Download Template, Capacity Report buttons have proper data-testid attributes",
+    "Frontend: Branch Capacity tab shows 8 branches with capacity, utilization, and available units",
+    "Frontend: Production Schedule tab shows branch-wise schedules with filters (date range, branch)",
+    "Frontend: Conflict dialog code present in CPC.js (lines 1059-1232) for handling capacity conflicts"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_production_plan_upload.py"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "admin_user": {"email": "admin@factory.com", "password": "bidso123", "role": "master_admin"}
+  },
+  "seed_data_creation": "Test schedules created during testing with SKU FC_KS_BE_115 and branch BR_001 (Unit 1 Vedica)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Production Plan Excel Upload feature fully tested. Key verifications: 1) POST /api/cpc/production-plan/upload-excel supports 3 modes: check (default), add, override. 2) Check mode returns JSON warning with conflicts array when existing schedules + new demand exceeds capacity. 3) Add mode allocates within remaining capacity with FIFO order. 4) Override mode clears existing schedules for conflicting date/branch combos. 5) Excel result has columns: Branch ID, Date, Buyer SKU ID, Quantity, Status, Allocated, Not Allocated, Schedule Code, Remarks. 6) Status values: SCHEDULED (full), PARTIAL (capacity limit), REJECTED (no capacity), ERROR (validation). 7) X-Upload-Summary header contains JSON stats. 8) Frontend CPC page has conflict dialog (showConflictDialog state) that appears when check mode returns warning. 9) Valid test SKU: FC_KS_BE_115, Valid branch: BR_001 (Unit 1 Vedica, capacity 1000).",
+  "features_tested": {
+    "backend_api": {
+      "GET /api/branches/reference": "PASS - Returns branch list with IDs",
+      "GET /api/cpc/production-plan/template": "PASS - Downloads Excel template",
+      "POST /api/cpc/production-plan/upload-excel (invalid file)": "PASS - Returns 400 error",
+      "POST /api/cpc/production-plan/upload-excel (missing columns)": "PASS - Returns 400 error",
+      "POST /api/cpc/production-plan/upload-excel (invalid branch)": "PASS - Returns Excel with ERROR status",
+      "POST /api/cpc/production-plan/upload-excel (invalid SKU)": "PASS - Returns Excel with ERROR status",
+      "POST /api/cpc/production-plan/upload-excel (check mode with conflict)": "PASS - Returns JSON warning",
+      "POST /api/cpc/production-plan/upload-excel?mode=add": "PASS - Allocates within remaining capacity",
+      "POST /api/cpc/production-plan/upload-excel?mode=override": "PASS - Clears existing and allocates fresh",
+      "FIFO allocation": "PASS - First rows get priority",
+      "Partial allocation": "PASS - Shows correct allocated/not_allocated counts",
+      "Excel result columns": "PASS - All required columns present",
+      "Schedule code generation": "PASS - PS_YYYYMM_XXXX format",
+      "GET /api/branches/capacity": "PASS - Returns branch capacities",
+      "GET /api/cpc/available-capacity": "PASS - Returns available capacity"
+    },
+    "frontend_ui": {
+      "CPC page loads at /cpc": "PASS",
+      "Production Planning tab (data-testid='planning-tab')": "PASS",
+      "Branch Capacity tab (data-testid='capacity-tab')": "PASS",
+      "Production Schedule tab (data-testid='schedules-tab')": "PASS",
+      "Upload Plan button (data-testid='upload-plan-btn')": "PASS",
+      "Download Template button (data-testid='download-plan-template-btn')": "PASS",
+      "Capacity Report button (data-testid='download-capacity-btn')": "PASS",
+      "Branch capacity cards (8 branches)": "PASS",
+      "Production schedule list with filters": "PASS",
+      "Conflict dialog code present": "PASS"
+    }
+  }
+}

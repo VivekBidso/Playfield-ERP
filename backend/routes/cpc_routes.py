@@ -1,11 +1,12 @@
 """CPC (Central Production Control) routes - Scheduling and Branch Allocation"""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional, List
 import uuid
 import io
+import json
 
 from database import db, BRANCHES
 from services.stock_origin_service import create_origin_entry

@@ -41,11 +41,17 @@ const CPC = () => {
   const [showScheduleFromForecastDialog, setShowScheduleFromForecastDialog] = useState(false);
   const [showCapacityDialog, setShowCapacityDialog] = useState(false);
   const [showOverflowDialog, setShowOverflowDialog] = useState(false);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
   
   // Overflow allocation state
   const [overflowItems, setOverflowItems] = useState([]);
   const [overflowAllocation, setOverflowAllocation] = useState({});
   const [availableCapacity, setAvailableCapacity] = useState([]);
+  
+  // Production Plan Upload state
+  const [conflictData, setConflictData] = useState(null);
+  const [pendingUploadFile, setPendingUploadFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
   
   // Form Data
   const [forecastScheduleForm, setForecastScheduleForm] = useState({
@@ -378,37 +384,71 @@ const CPC = () => {
                       
                       const formData = new FormData();
                       formData.append('file', file);
+                      setPendingUploadFile(file);
+                      setUploadLoading(true);
                       
                       try {
+                        // First, check mode (default)
                         const res = await axios.post(`${API}/cpc/production-plan/upload-excel`, formData, {
-                          headers: { 'Content-Type': 'multipart/form-data' }
+                          headers: { 'Content-Type': 'multipart/form-data' },
+                          responseType: 'blob'
                         });
                         
-                        // Check for overflow (capacity exceeded)
-                        if (res.data.has_overflow && res.data.overflow?.length > 0) {
-                          toast.warning(`Created ${res.data.created} schedules. ${res.data.total_overflow} units need reallocation.`);
-                          setOverflowItems(res.data.overflow);
-                          // Initialize allocation state
-                          const initAlloc = {};
-                          res.data.overflow.forEach((o, idx) => {
-                            initAlloc[idx] = { date: "", branch: o.branch, qty: o.overflow_qty };
-                          });
-                          setOverflowAllocation(initAlloc);
-                          // Fetch available capacity
-                          fetchAvailableCapacity();
-                          setShowOverflowDialog(true);
-                        } else if (res.data.total_errors > 0) {
-                          toast.warning(`Created ${res.data.created} schedules with ${res.data.total_errors} errors`);
-                          if (res.data.errors?.length > 0) {
-                            res.data.errors.slice(0, 5).forEach(err => toast.error(err));
+                        // Check if response is JSON (warning) or Excel (success)
+                        const contentType = res.headers['content-type'];
+                        
+                        if (contentType?.includes('application/json')) {
+                          // It's a warning response - parse JSON
+                          const text = await res.data.text();
+                          const data = JSON.parse(text);
+                          
+                          if (data.warning && data.conflicts?.length > 0) {
+                            setConflictData(data);
+                            setShowConflictDialog(true);
+                          } else if (data.error) {
+                            toast.error(data.detail || data.error);
                           }
                         } else {
-                          toast.success(`Successfully created ${res.data.created} production schedules`);
+                          // It's an Excel file - download it
+                          const summary = JSON.parse(res.headers['x-upload-summary'] || '{}');
+                          
+                          // Create download link
+                          const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `production_plan_result_${summary.upload_id || 'upload'}.xlsx`;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          
+                          // Show summary toast
+                          if (summary.errors > 0) {
+                            toast.warning(`Processed ${summary.total_rows} rows: ${summary.scheduled} scheduled, ${summary.partial || 0} partial, ${summary.errors} errors. Check downloaded file for details.`);
+                          } else if (summary.partial > 0) {
+                            toast.warning(`Processed ${summary.total_rows} rows: ${summary.scheduled} scheduled, ${summary.partial} partial (capacity overflow). Total: ${summary.total_allocated} allocated, ${summary.total_not_allocated} overflow.`);
+                          } else {
+                            toast.success(`Successfully created ${summary.schedules_created} production schedules. Total allocated: ${summary.total_allocated}`);
+                          }
+                          
+                          fetchAllData();
+                          setPendingUploadFile(null);
                         }
-                        fetchAllData();
                       } catch (error) {
-                        toast.error(error.response?.data?.detail || "Failed to upload plan");
+                        if (error.response?.data instanceof Blob) {
+                          const text = await error.response.data.text();
+                          try {
+                            const data = JSON.parse(text);
+                            toast.error(data.detail || "Failed to upload plan");
+                          } catch {
+                            toast.error("Failed to upload plan");
+                          }
+                        } else {
+                          toast.error(error.response?.data?.detail || "Failed to upload plan");
+                        }
                       }
+                      setUploadLoading(false);
                       e.target.value = '';
                     }}
                   />
@@ -422,7 +462,7 @@ const CPC = () => {
                   <thead>
                     <tr className="text-left">
                       <th className="pr-4 pb-1">Branch ID</th>
-                      <th className="pr-4 pb-1">Date (YYYY-MM-DD)</th>
+                      <th className="pr-4 pb-1">Date (DD-MM-YYYY)</th>
                       <th className="pr-4 pb-1">Buyer SKU ID</th>
                       <th className="pr-4 pb-1">Quantity</th>
                     </tr>
@@ -430,20 +470,20 @@ const CPC = () => {
                   <tbody className="text-zinc-600">
                     <tr>
                       <td className="pr-4">BR_001</td>
-                      <td className="pr-4">2026-04-10</td>
+                      <td className="pr-4">10-04-2026</td>
                       <td className="pr-4">KM_SC_BN_001</td>
                       <td className="pr-4">100</td>
                     </tr>
                     <tr>
                       <td className="pr-4">BR_002</td>
-                      <td className="pr-4">2026-04-10</td>
+                      <td className="pr-4">10-04-2026</td>
                       <td className="pr-4">KM_RO_BT_002</td>
                       <td className="pr-4">50</td>
                     </tr>
                   </tbody>
                 </table>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Download the template for a list of valid Branch IDs and Buyer SKU IDs.
+                  Download the template for a list of valid Branch IDs and Buyer SKU IDs. Date format: DD-MM-YYYY
                 </p>
               </div>
             </CardContent>
@@ -1015,6 +1055,178 @@ const CPC = () => {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Capacity Conflict Dialog */}
+      <Dialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <AlertTriangle className="w-5 h-5" />
+              Capacity Conflict Detected
+            </DialogTitle>
+            <DialogDescription>
+              Existing schedules were found that would cause capacity overflow. Choose how to proceed.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {conflictData && (
+            <div className="space-y-4">
+              {/* Conflict Summary */}
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <h4 className="font-semibold text-sm mb-2">Conflict Summary:</h4>
+                <div className="space-y-2">
+                  {conflictData.conflicts?.map((c, idx) => (
+                    <div key={idx} className="text-sm bg-white p-2 rounded border">
+                      <div className="font-medium">{c.branch} - {c.date}</div>
+                      <div className="grid grid-cols-2 gap-2 mt-1 text-xs text-muted-foreground">
+                        <span>Branch Capacity: <strong className="text-foreground">{c.capacity}</strong></span>
+                        <span>Already Scheduled: <strong className="text-blue-600">{c.existing_scheduled}</strong></span>
+                        <span>New Demand: <strong className="text-orange-600">{c.new_demand}</strong></span>
+                        <span>Overflow: <strong className="text-red-600">{c.overflow}</strong></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="flex gap-4 text-sm">
+                <Badge variant="outline">Total Rows: {conflictData.total_rows}</Badge>
+                <Badge variant="secondary">Valid: {conflictData.valid_rows}</Badge>
+                {conflictData.error_rows > 0 && (
+                  <Badge variant="destructive">Errors: {conflictData.error_rows}</Badge>
+                )}
+              </div>
+
+              {/* Options */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-sm">Choose Action:</h4>
+                
+                <Card 
+                  className="cursor-pointer hover:border-blue-500 transition-colors"
+                  onClick={async () => {
+                    if (!pendingUploadFile) return;
+                    setUploadLoading(true);
+                    setShowConflictDialog(false);
+                    
+                    try {
+                      const formData = new FormData();
+                      formData.append('file', pendingUploadFile);
+                      
+                      const res = await axios.post(`${API}/cpc/production-plan/upload-excel?mode=override`, formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                        responseType: 'blob'
+                      });
+                      
+                      const summary = JSON.parse(res.headers['x-upload-summary'] || '{}');
+                      
+                      // Download result
+                      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `production_plan_result_${summary.upload_id || 'upload'}.xlsx`;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                      
+                      toast.success(`Override complete! ${summary.schedules_created} schedules created, ${summary.total_allocated} units allocated.`);
+                      fetchAllData();
+                    } catch (error) {
+                      toast.error("Failed to process override");
+                    }
+                    setUploadLoading(false);
+                    setPendingUploadFile(null);
+                    setConflictData(null);
+                  }}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                        <AlertTriangle className="w-4 h-4 text-red-600" />
+                      </div>
+                      <div>
+                        <div className="font-medium">Override Existing</div>
+                        <div className="text-xs text-muted-foreground">Delete existing schedules for conflicting dates, then allocate new demand up to capacity</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card 
+                  className="cursor-pointer hover:border-green-500 transition-colors"
+                  onClick={async () => {
+                    if (!pendingUploadFile) return;
+                    setUploadLoading(true);
+                    setShowConflictDialog(false);
+                    
+                    try {
+                      const formData = new FormData();
+                      formData.append('file', pendingUploadFile);
+                      
+                      const res = await axios.post(`${API}/cpc/production-plan/upload-excel?mode=add`, formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                        responseType: 'blob'
+                      });
+                      
+                      const summary = JSON.parse(res.headers['x-upload-summary'] || '{}');
+                      
+                      // Download result
+                      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `production_plan_result_${summary.upload_id || 'upload'}.xlsx`;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                      
+                      if (summary.partial > 0 || summary.rejected > 0) {
+                        toast.warning(`Partial allocation: ${summary.scheduled} scheduled, ${summary.partial} partial, ${summary.rejected} rejected. Check downloaded file.`);
+                      } else {
+                        toast.success(`Add complete! ${summary.schedules_created} schedules created, ${summary.total_allocated} units allocated.`);
+                      }
+                      fetchAllData();
+                    } catch (error) {
+                      toast.error("Failed to process add");
+                    }
+                    setUploadLoading(false);
+                    setPendingUploadFile(null);
+                    setConflictData(null);
+                  }}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div>
+                        <div className="font-medium">Add to Remaining Capacity</div>
+                        <div className="text-xs text-muted-foreground">Keep existing schedules, allocate only within remaining capacity (partial allocation if needed)</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowConflictDialog(false);
+                setPendingUploadFile(null);
+                setConflictData(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
