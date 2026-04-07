@@ -2764,3 +2764,27 @@ Synced frontend RM category configurations with the database. Categories are now
 
 
 
+
+
+---
+
+## SUPPORTING DOCUMENTS
+
+| Document | Path | Description |
+|----------|------|-------------|
+| System Design | `/app/memory/SYSTEM_DESIGN.md` | Complete system architecture with Mermaid diagrams, all database schemas, and route-to-collection mappings |
+| SKU Migration Plan | `/app/memory/SKU_MIGRATION_PLAN.md` | Details of the SKU data model migration |
+
+---
+
+## CHANGELOG
+
+### December 2025
+
+**System Design Documentation (COMPLETED)**
+- Created comprehensive `/app/memory/SYSTEM_DESIGN.md` with:
+  - High-level architecture diagram (Frontend → Backend → Database layers)
+  - Detailed data flow diagram (service to collection mappings)
+  - Complete database schema documentation for all 69 collections
+  - Route-by-route read/write mapping for all 22 backend route modules
+  - Frontend page to API endpoint mapping
