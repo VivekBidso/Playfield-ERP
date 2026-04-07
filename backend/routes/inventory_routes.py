@@ -668,3 +668,30 @@ async def get_inventory_filters():
         "categories": [c for c in categories if c],
         "models": models
     }
+
+
+@router.get("/fg/debug")
+async def debug_fg_inventory():
+    """Debug endpoint to check FG inventory state"""
+    total = await db.fg_inventory.count_documents({})
+    
+    # Get all records
+    all_records = await db.fg_inventory.find({}, {"_id": 0}).to_list(100)
+    
+    # Check field usage
+    with_buyer_sku_id = await db.fg_inventory.count_documents({"buyer_sku_id": {"$exists": True}})
+    with_sku_id = await db.fg_inventory.count_documents({"sku_id": {"$exists": True}})
+    with_branch_id = await db.fg_inventory.count_documents({"branch_id": {"$exists": True}})
+    with_branch = await db.fg_inventory.count_documents({"branch": {"$exists": True}})
+    
+    return {
+        "total_records": total,
+        "field_usage": {
+            "with_buyer_sku_id": with_buyer_sku_id,
+            "with_sku_id": with_sku_id,
+            "with_branch_id": with_branch_id,
+            "with_branch": with_branch
+        },
+        "records": all_records[:20]  # First 20 records
+    }
+

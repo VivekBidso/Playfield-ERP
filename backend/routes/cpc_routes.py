@@ -824,6 +824,9 @@ async def auto_allocate_production(data: AutoAllocateRequest):
 @router.put("/production-schedules/{schedule_id}/complete")
 async def complete_production_schedule(schedule_id: str, completed_quantity: int):
     """Mark production schedule as completed. Called by branch ops team."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     schedule = await db.production_schedules.find_one({"id": schedule_id})
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -849,41 +852,58 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     sku_id = schedule.get("sku_id") or schedule.get("bidso_sku_id")
     branch = schedule.get("branch")
     
+    logger.info(f"Completing schedule {schedule.get('schedule_code')}: SKU={sku_id}, Branch={branch}, Qty={completed_quantity}")
+    
     # Get branch_id for FG inventory (matches inventory_routes query structure)
     branch_doc = await db.branches.find_one({"name": branch}, {"_id": 0, "branch_id": 1})
     branch_id = branch_doc.get("branch_id") if branch_doc else None
     
+    logger.info(f"Branch lookup: name={branch} -> branch_id={branch_id}")
+    
+    fg_updated = False
+    fg_error = None
+    
     # Update FG inventory
     if sku_id and branch and completed_quantity > 0:
-        fg_existing = await db.fg_inventory.find_one(
-            {"buyer_sku_id": sku_id, "branch_id": branch_id}
-        )
-        
-        if fg_existing:
-            await db.fg_inventory.update_one(
-                {"buyer_sku_id": sku_id, "branch_id": branch_id},
-                {"$inc": {"quantity": completed_quantity}}
+        try:
+            fg_existing = await db.fg_inventory.find_one(
+                {"buyer_sku_id": sku_id, "branch_id": branch_id}
             )
-        else:
-            await db.fg_inventory.insert_one({
-                "id": str(uuid.uuid4()),
-                "buyer_sku_id": sku_id,  # Changed from sku_id
-                "sku_id": sku_id,  # Keep for backward compat
-                "branch_id": branch_id,  # Changed from branch
-                "branch": branch,  # Keep for display
-                "quantity": completed_quantity,
-                "created_at": completion_time.isoformat()
-            })
-        
-        # Create stock origin entry for manufacturing origin tracking
-        await create_origin_entry(
-            sku_id=sku_id,
-            branch=branch,
-            quantity=completed_quantity,
-            manufacturing_unit=branch,  # Manufacturing origin = branch where produced
-            production_date=completion_time,
-            production_schedule_id=schedule_id
-        )
+            
+            if fg_existing:
+                result = await db.fg_inventory.update_one(
+                    {"buyer_sku_id": sku_id, "branch_id": branch_id},
+                    {"$inc": {"quantity": completed_quantity}}
+                )
+                fg_updated = result.modified_count > 0
+                logger.info(f"FG inventory updated: modified_count={result.modified_count}")
+            else:
+                result = await db.fg_inventory.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "buyer_sku_id": sku_id,
+                    "sku_id": sku_id,
+                    "branch_id": branch_id,
+                    "branch": branch,
+                    "quantity": completed_quantity,
+                    "created_at": completion_time.isoformat()
+                })
+                fg_updated = result.inserted_id is not None
+                logger.info(f"FG inventory inserted: inserted_id={result.inserted_id}")
+            
+            # Create stock origin entry for manufacturing origin tracking
+            await create_origin_entry(
+                sku_id=sku_id,
+                branch=branch,
+                quantity=completed_quantity,
+                manufacturing_unit=branch,
+                production_date=completion_time,
+                production_schedule_id=schedule_id
+            )
+        except Exception as e:
+            fg_error = str(e)
+            logger.error(f"FG inventory update failed: {e}")
+    else:
+        logger.warning(f"Skipping FG update: sku_id={sku_id}, branch={branch}, qty={completed_quantity}")
     
     # Update dispatch lot if linked
     if schedule.get("dispatch_lot_id"):
@@ -897,7 +917,9 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
         "schedule_id": schedule_id,
         "sku_id": sku_id,
         "branch": branch,
-        "fg_inventory_updated": True,
+        "branch_id": branch_id,
+        "fg_inventory_updated": fg_updated,
+        "fg_error": fg_error,
         "manufacturing_origin": branch
     }
 
