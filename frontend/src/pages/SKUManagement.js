@@ -553,6 +553,88 @@ const SKUManagement = () => {
     }
   };
 
+  // Download Full Filtered SKU Data
+  const handleDownloadSKUs = async (type) => {
+    setExportLoading(true);
+    try {
+      if (type === "bidso") {
+        // Fetch ALL filtered Bidso SKUs
+        let url = `${API}/sku-management/bidso-skus?page=1&page_size=10000`;
+        if (filterVertical) url += `&vertical_id=${filterVertical}`;
+        if (filterModel) url += `&model_id=${filterModel}`;
+        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        
+        const res = await axios.get(url, { headers: getHeaders() });
+        const allSkus = res.data.items || res.data || [];
+        
+        const data = [['Bidso SKU ID', 'Vertical Code', 'Vertical Name', 'Model Code', 'Model Name', 'Name', 'Description', 'Status']];
+        allSkus.forEach(sku => {
+          const vert = verticals.find(v => v.id === sku.vertical_id);
+          const mod = models.find(m => m.id === sku.model_id);
+          data.push([
+            sku.bidso_sku_id || '',
+            vert?.code || sku.vertical_code || '',
+            vert?.name || '',
+            mod?.code || sku.model_code || '',
+            mod?.name || '',
+            sku.name || '',
+            sku.description || '',
+            sku.status || 'ACTIVE'
+          ]);
+        });
+        
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 40 }, { wch: 10 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Bidso SKUs');
+        XLSX.writeFile(wb, `bidso_skus_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast.success(`Downloaded ${allSkus.length} Bidso SKUs`);
+        
+      } else {
+        // Fetch ALL filtered Buyer SKUs
+        let url = `${API}/sku-management/buyer-skus?page=1&page_size=10000`;
+        if (filterVertical) url += `&vertical_id=${filterVertical}`;
+        if (filterBrand) url += `&brand_id=${filterBrand}`;
+        if (filterModel) url += `&model_id=${filterModel}`;
+        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        
+        const res = await axios.get(url, { headers: getHeaders() });
+        const allSkus = res.data.items || res.data || [];
+        
+        const data = [['Buyer SKU ID', 'Bidso SKU ID', 'Brand Code', 'Brand Name', 'Vertical', 'Model', 'Name', 'HSN Code', 'GST Rate', 'Status']];
+        allSkus.forEach(sku => {
+          const brand = brands.find(b => b.id === sku.brand_id);
+          const vert = verticals.find(v => v.id === sku.vertical_id);
+          const mod = models.find(m => m.id === sku.model_id);
+          data.push([
+            sku.buyer_sku_id || sku.sku_id || '',
+            sku.bidso_sku_id || '',
+            brand?.code || sku.brand_code || '',
+            brand?.name || '',
+            vert?.name || '',
+            mod?.name || '',
+            sku.name || sku.description || '',
+            sku.hsn_code || '',
+            sku.gst_rate || 18,
+            sku.status || 'ACTIVE'
+          ]);
+        });
+        
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 10 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Buyer SKUs');
+        XLSX.writeFile(wb, `buyer_skus_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast.success(`Downloaded ${allSkus.length} Buyer SKUs`);
+      }
+    } catch (error) {
+      toast.error("Failed to download SKUs");
+      console.error(error);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   // Data Sync Functions
   const handleExportData = async () => {
     setExportLoading(true);
@@ -959,10 +1041,16 @@ const SKUManagement = () => {
               </Button>
             </div>
             
-            <Button onClick={() => setShowBidsoDialog(true)} data-testid="create-bidso-btn">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Bidso SKU
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownloadSKUs("bidso")} disabled={exportLoading || bidsoTotal === 0}>
+                <Download className="h-4 w-4 mr-2" />
+                {exportLoading ? "..." : `Download All (${bidsoTotal})`}
+              </Button>
+              <Button onClick={() => setShowBidsoDialog(true)} data-testid="create-bidso-btn">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Bidso SKU
+              </Button>
+            </div>
           </div>
 
           {/* Bidso SKUs Table */}
@@ -1108,6 +1196,10 @@ const SKUManagement = () => {
             </div>
             
             <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownloadSKUs("buyer")} disabled={exportLoading || buyerTotal === 0}>
+                <Download className="h-4 w-4 mr-2" />
+                {exportLoading ? "..." : `Download All (${buyerTotal})`}
+              </Button>
               <Button 
                 variant="outline" 
                 className="text-red-600 border-red-200 hover:bg-red-50"
