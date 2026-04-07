@@ -411,20 +411,26 @@ async def complete_production_batch(
         batch_id=batch_id
     )
     
+    # Get branch_id for FG inventory (matches inventory_routes query structure)
+    branch_doc = await db.branches.find_one({"name": batch["branch"]}, {"_id": 0, "branch_id": 1})
+    branch_id = branch_doc.get("branch_id") if branch_doc else None
+    
     # Update FG inventory
     fg_existing = await db.fg_inventory.find_one(
-        {"sku_id": batch["sku_id"], "branch": batch["branch"]}
+        {"buyer_sku_id": batch["sku_id"], "branch_id": branch_id}
     )
     
     if fg_existing:
         await db.fg_inventory.update_one(
-            {"sku_id": batch["sku_id"], "branch": batch["branch"]},
+            {"buyer_sku_id": batch["sku_id"], "branch_id": branch_id},
             {"$inc": {"quantity": produced_quantity}}
         )
     else:
         await db.fg_inventory.insert_one({
             "id": str(uuid.uuid4()),
+            "buyer_sku_id": batch["sku_id"],
             "sku_id": batch["sku_id"],
+            "branch_id": branch_id,
             "branch": batch["branch"],
             "quantity": produced_quantity,
             "created_at": datetime.now(timezone.utc).isoformat()

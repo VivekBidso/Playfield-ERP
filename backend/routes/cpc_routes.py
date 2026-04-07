@@ -849,22 +849,28 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     sku_id = schedule.get("sku_id") or schedule.get("bidso_sku_id")
     branch = schedule.get("branch")
     
+    # Get branch_id for FG inventory (matches inventory_routes query structure)
+    branch_doc = await db.branches.find_one({"name": branch}, {"_id": 0, "branch_id": 1})
+    branch_id = branch_doc.get("branch_id") if branch_doc else None
+    
     # Update FG inventory
     if sku_id and branch and completed_quantity > 0:
         fg_existing = await db.fg_inventory.find_one(
-            {"sku_id": sku_id, "branch": branch}
+            {"buyer_sku_id": sku_id, "branch_id": branch_id}
         )
         
         if fg_existing:
             await db.fg_inventory.update_one(
-                {"sku_id": sku_id, "branch": branch},
+                {"buyer_sku_id": sku_id, "branch_id": branch_id},
                 {"$inc": {"quantity": completed_quantity}}
             )
         else:
             await db.fg_inventory.insert_one({
                 "id": str(uuid.uuid4()),
-                "sku_id": sku_id,
-                "branch": branch,
+                "buyer_sku_id": sku_id,  # Changed from sku_id
+                "sku_id": sku_id,  # Keep for backward compat
+                "branch_id": branch_id,  # Changed from branch
+                "branch": branch,  # Keep for display
                 "quantity": completed_quantity,
                 "created_at": completion_time.isoformat()
             })
