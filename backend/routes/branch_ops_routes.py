@@ -177,8 +177,13 @@ async def add_fg_inventory(
 ) -> dict:
     """
     Add finished goods (Buyer SKU) to branch inventory after production completion.
+    Writes to both branch_sku_inventory (for branch ops) and fg_inventory (for inventory tab).
     """
-    # Check if inventory record exists
+    # Get branch_id for fg_inventory (matches inventory_routes query structure)
+    branch_doc = await db.branches.find_one({"name": branch}, {"_id": 0, "branch_id": 1})
+    branch_id = branch_doc.get("branch_id") if branch_doc else None
+    
+    # ========== Update branch_sku_inventory (Branch Ops view) ==========
     existing = await db.branch_sku_inventory.find_one(
         {"branch": branch, "buyer_sku_id": buyer_sku_id}
     )
@@ -201,6 +206,27 @@ async def add_fg_inventory(
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     
+    # ========== Update fg_inventory (Inventory Tab view) ==========
+    existing_fg = await db.fg_inventory.find_one(
+        {"buyer_sku_id": buyer_sku_id, "branch_id": branch_id}
+    )
+    
+    if existing_fg:
+        await db.fg_inventory.update_one(
+            {"buyer_sku_id": buyer_sku_id, "branch_id": branch_id},
+            {"$inc": {"quantity": quantity}}
+        )
+    else:
+        await db.fg_inventory.insert_one({
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": buyer_sku_id,
+            "sku_id": buyer_sku_id,
+            "branch_id": branch_id,
+            "branch": branch,
+            "quantity": quantity,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
     # Log the production entry
     await db.fg_production_log.insert_one({
         "id": str(uuid.uuid4()),
@@ -211,7 +237,7 @@ async def add_fg_inventory(
         "produced_at": datetime.now(timezone.utc).isoformat()
     })
     
-    return {"buyer_sku_id": buyer_sku_id, "quantity_added": quantity, "branch": branch}
+    return {"buyer_sku_id": buyer_sku_id, "quantity_added": quantity, "branch": branch, "branch_id": branch_id}
 
 
 @router.get("/branch-ops/my-branches")
