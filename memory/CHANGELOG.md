@@ -1,5 +1,33 @@
 # Changelog - Factory OPS
 
+## April 7, 2026
+
+### System Design Documentation
+
+**Deployment: Documentation Update**
+
+Created comprehensive system architecture documentation at `/app/memory/SYSTEM_DESIGN.md`:
+
+- **High-Level Architecture Diagram** (Mermaid): Frontend → API Gateway → Backend → Database layer visualization
+- **Detailed Data Flow Diagram** (Mermaid): Route-to-collection read/write mappings
+- **Database Schema Documentation**: Complete field-level documentation for all 69 MongoDB collections including:
+  - Master Data (users, roles, branches, brands, buyers, verticals, models, vendors)
+  - SKU Data (bidso_skus, buyer_skus, common_bom, brand_specific_bom)
+  - Inventory (branch_rm_inventory, fg_inventory, rm_stock_movements)
+  - Production (production_schedules, production_plans, production_batches)
+  - Demand & Dispatch (forecasts, dispatch_lots, dispatch_lot_lines)
+  - Procurement (purchase_orders, ibt_transfers)
+- **Route Mappings**: All 22 backend route modules with endpoint-level read/write collection mapping
+- **Frontend Pages**: 30+ pages mapped to their primary API endpoints
+
+#### Files Created
+- `/app/memory/SYSTEM_DESIGN.md` (1,182 lines)
+
+#### Files Updated
+- `/app/memory/PRD.md` - Added reference to new documentation
+
+---
+
 ## April 5, 2026
 
 ### In-House Production Module - Phase 2A/2B Complete
