@@ -845,11 +845,31 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
         }}
     )
     
-    # Create stock origin entry for manufacturing origin tracking
+    # Get SKU and branch info
     sku_id = schedule.get("sku_id") or schedule.get("bidso_sku_id")
     branch = schedule.get("branch")
     
+    # Update FG inventory
     if sku_id and branch and completed_quantity > 0:
+        fg_existing = await db.fg_inventory.find_one(
+            {"sku_id": sku_id, "branch": branch}
+        )
+        
+        if fg_existing:
+            await db.fg_inventory.update_one(
+                {"sku_id": sku_id, "branch": branch},
+                {"$inc": {"quantity": completed_quantity}}
+            )
+        else:
+            await db.fg_inventory.insert_one({
+                "id": str(uuid.uuid4()),
+                "sku_id": sku_id,
+                "branch": branch,
+                "quantity": completed_quantity,
+                "created_at": completion_time.isoformat()
+            })
+        
+        # Create stock origin entry for manufacturing origin tracking
         await create_origin_entry(
             sku_id=sku_id,
             branch=branch,
@@ -869,6 +889,9 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     return {
         "message": f"Production schedule {schedule.get('schedule_code')} completed with {completed_quantity} units",
         "schedule_id": schedule_id,
+        "sku_id": sku_id,
+        "branch": branch,
+        "fg_inventory_updated": True,
         "manufacturing_origin": branch
     }
 
