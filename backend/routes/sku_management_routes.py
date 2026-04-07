@@ -182,7 +182,7 @@ async def get_bidso_skus(
     search: Optional[str] = None,
     include_inactive: bool = False,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(50, ge=1, le=100, description="Items per page")
+    page_size: int = Query(50, ge=1, le=10000, description="Items per page (max 10000 for downloads)")
 ):
     """Get all Bidso SKUs with optional filters and pagination"""
     query = {}
@@ -1056,7 +1056,7 @@ async def get_buyer_skus(
     search: Optional[str] = None,
     include_inactive: bool = False,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(50, ge=1, le=100, description="Items per page")
+    page_size: int = Query(50, ge=1, le=10000, description="Items per page (max 10000 for downloads)")
 ):
     """Get all Buyer SKUs with optional filters and pagination"""
     query = {}
