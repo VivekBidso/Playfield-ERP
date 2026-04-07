@@ -241,17 +241,26 @@ const DemandSKUView = () => {
       const wb = XLSX.utils.book_new();
       
       if (type === "bidso") {
-        // Prepare Bidso SKU data - API returns enriched data with vertical/model objects
+        // Fetch ALL filtered Bidso SKUs (no pagination limit)
+        let url = `${API}/demand-hub/bidso-skus?page=1&page_size=10000`;
+        if (bidsoFilters.vertical_id) url += `&vertical_id=${bidsoFilters.vertical_id}`;
+        if (bidsoFilters.model_id) url += `&model_id=${bidsoFilters.model_id}`;
+        if (bidsoFilters.search) url += `&search=${encodeURIComponent(bidsoFilters.search)}`;
+        
+        const res = await axios.get(url, { headers: getHeaders() });
+        const allBidsoSkus = res.data.items || res.data || [];
+        
+        // Prepare Bidso SKU data
         const headers = ['Bidso SKU ID', 'Name', 'Description', 'Vertical', 'Model', 'Status'];
         const data = [headers];
         
-        bidsoSkus.forEach(sku => {
+        allBidsoSkus.forEach(sku => {
           data.push([
             sku.bidso_sku_id || '',
             sku.name || '',
             sku.description || '',
-            sku.vertical?.name || '',
-            sku.model?.name || '',
+            sku.vertical?.name || sku.vertical_code || '',
+            sku.model?.name || sku.model_code || '',
             sku.status || 'ACTIVE'
           ]);
         });
@@ -262,24 +271,32 @@ const DemandSKUView = () => {
         ];
         XLSX.utils.book_append_sheet(wb, ws, 'Bidso SKUs');
         XLSX.writeFile(wb, `bidso_skus_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast.success(`Downloaded ${allBidsoSkus.length} Bidso SKUs`);
         
       } else {
+        // Fetch ALL filtered Buyer SKUs (no pagination limit)
+        let url = `${API}/skus/filtered?page=1&page_size=10000`;
+        if (buyerFilters.vertical_id) url += `&vertical_id=${buyerFilters.vertical_id}`;
+        if (buyerFilters.brand_id) url += `&brand_id=${buyerFilters.brand_id}`;
+        if (buyerFilters.model_id) url += `&model_id=${buyerFilters.model_id}`;
+        if (buyerFilters.buyer_id) url += `&buyer_id=${buyerFilters.buyer_id}`;
+        if (buyerFilters.search) url += `&search=${encodeURIComponent(buyerFilters.search)}`;
+        
+        const res = await axios.get(url, { headers: getHeaders() });
+        const allBuyerSkus = res.data.items || res.data || [];
+        
         // Prepare Buyer SKU data
         const headers = ['SKU ID', 'Description', 'Vertical', 'Brand', 'Model', 'Buyer', 'Bidso SKU', 'Status'];
         const data = [headers];
         
-        buyerSkus.forEach(sku => {
-          const vertical = verticals.find(v => v.id === sku.vertical_id);
-          const brand = brands.find(b => b.id === sku.brand_id);
-          const model = models.find(m => m.id === sku.model_id);
-          const buyer = buyers.find(b => b.id === sku.buyer_id);
+        allBuyerSkus.forEach(sku => {
           data.push([
-            sku.sku_id || '',
-            sku.description || '',
-            vertical?.name || '',
-            brand?.name || '',
-            model?.name || '',
-            buyer?.name || '',
+            sku.sku_id || sku.buyer_sku_id || '',
+            sku.description || sku.name || '',
+            sku.vertical || sku.vertical_code || '',
+            sku.brand || sku.brand_code || '',
+            sku.model || sku.model_code || '',
+            sku.buyer_name || '',
             sku.bidso_sku_id || '',
             sku.status || 'ACTIVE'
           ]);
@@ -291,11 +308,12 @@ const DemandSKUView = () => {
         ];
         XLSX.utils.book_append_sheet(wb, ws, 'Buyer SKUs');
         XLSX.writeFile(wb, `buyer_skus_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast.success(`Downloaded ${allBuyerSkus.length} Buyer SKUs`);
       }
       
-      toast.success(`${type === "bidso" ? "Bidso" : "Buyer"} SKUs downloaded successfully`);
     } catch (error) {
       toast.error("Failed to download SKUs");
+      console.error(error);
     } finally {
       setDownloading(false);
     }
@@ -522,7 +540,7 @@ const DemandSKUView = () => {
                   data-testid="download-bidso-btn"
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {downloading ? "Downloading..." : `Download (${bidsoSkus.length})`}
+                  {downloading ? "Downloading..." : `Download All (${bidsoTotal})`}
                 </Button>
               </div>
               
@@ -654,11 +672,11 @@ const DemandSKUView = () => {
                 <Button 
                   variant="outline" 
                   onClick={() => handleDownload("buyer")}
-                  disabled={downloading || buyerSkus.length === 0}
+                  disabled={downloading || buyerTotal === 0}
                   data-testid="download-buyer-btn"
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {downloading ? "Downloading..." : `Download (${buyerSkus.length})`}
+                  {downloading ? "Downloading..." : `Download All (${buyerTotal})`}
                 </Button>
               </div>
               

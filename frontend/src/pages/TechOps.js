@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette, Factory, FileText } from "lucide-react";
+import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette, Factory, FileText, Download } from "lucide-react";
 import PantoneLibrary from "../components/PantoneLibrary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,7 +62,76 @@ const TechOps = () => {
   
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Download functions for each tab
+  const handleDownload = async (type) => {
+    setDownloading(true);
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+      let data = [];
+      let filename = '';
+      let sheetName = '';
+      
+      switch(type) {
+        case 'verticals':
+          data = [['Code', 'Name', 'Description', 'Status']];
+          verticals.forEach(v => data.push([v.code, v.name, v.description || '', v.status]));
+          filename = 'verticals';
+          sheetName = 'Verticals';
+          break;
+          
+        case 'models':
+          data = [['Code', 'Name', 'Vertical', 'Description', 'Status']];
+          models.forEach(m => {
+            const vert = verticals.find(v => v.id === m.vertical_id);
+            data.push([m.code, m.name, vert?.name || '', m.description || '', m.status]);
+          });
+          filename = 'models';
+          sheetName = 'Models';
+          break;
+          
+        case 'brands':
+          data = [['Code', 'Name', 'Status']];
+          brands.forEach(b => data.push([b.code, b.name, b.status]));
+          filename = 'brands';
+          sheetName = 'Brands';
+          break;
+          
+        case 'buyers':
+          data = [['Customer Code', 'Name', 'GST', 'Email', 'Phone', 'POC Name', 'Status']];
+          buyers.forEach(b => data.push([
+            b.customer_code || b.code || '', 
+            b.name, 
+            b.gst || '', 
+            b.email || '', 
+            b.phone_no || '', 
+            b.poc_name || '',
+            b.status
+          ]));
+          filename = 'buyers';
+          sheetName = 'Buyers';
+          break;
+          
+        default:
+          toast.error('Unknown download type');
+          return;
+      }
+      
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `${filename}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      toast.success(`Downloaded ${data.length - 1} ${type}`);
+      
+    } catch (error) {
+      toast.error('Failed to download');
+      console.error(error);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     fetchAllData();
@@ -505,10 +574,16 @@ const TechOps = () => {
         <TabsContent value="verticals">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold">Product Verticals</h2>
-            <Button onClick={() => openAddDialog('vertical')} className="uppercase text-xs tracking-wide" data-testid="add-vertical-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Vertical
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownload('verticals')} disabled={downloading || verticals.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                {downloading ? "..." : `Download (${verticals.length})`}
+              </Button>
+              <Button onClick={() => openAddDialog('vertical')} className="uppercase text-xs tracking-wide" data-testid="add-vertical-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Vertical
+              </Button>
+            </div>
           </div>
           
           <div className="border rounded-sm">
@@ -551,10 +626,16 @@ const TechOps = () => {
         <TabsContent value="models">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold">Product Models</h2>
-            <Button onClick={() => openAddDialog('model')} className="uppercase text-xs tracking-wide" data-testid="add-model-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Model
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownload('models')} disabled={downloading || models.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                {downloading ? "..." : `Download (${models.length})`}
+              </Button>
+              <Button onClick={() => openAddDialog('model')} className="uppercase text-xs tracking-wide" data-testid="add-model-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Model
+              </Button>
+            </div>
           </div>
           
           <div className="border rounded-sm">
@@ -595,10 +676,16 @@ const TechOps = () => {
         <TabsContent value="brands">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold">Brands</h2>
-            <Button onClick={() => openAddDialog('brand')} className="uppercase text-xs tracking-wide" data-testid="add-brand-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Brand
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownload('brands')} disabled={downloading || brands.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                {downloading ? "..." : `Download (${brands.length})`}
+              </Button>
+              <Button onClick={() => openAddDialog('brand')} className="uppercase text-xs tracking-wide" data-testid="add-brand-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Brand
+              </Button>
+            </div>
           </div>
           
           <div className="border rounded-sm">
@@ -638,6 +725,10 @@ const TechOps = () => {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold">Buyers / Customers</h2>
             <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleDownload('buyers')} disabled={downloading || buyers.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                {downloading ? "..." : `Download (${buyers.length})`}
+              </Button>
               <Button variant="outline" onClick={() => setShowImportDialog(true)} className="uppercase text-xs tracking-wide" data-testid="import-buyers-btn">
                 <Upload className="w-4 h-4 mr-2" />
                 Import Excel
