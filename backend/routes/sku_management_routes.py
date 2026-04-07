@@ -392,6 +392,304 @@ async def delete_bidso_sku(bidso_sku_id: str):
     return {"message": "Bidso SKU deleted"}
 
 
+
+@router.post("/bidso-skus/bulk-import")
+async def bulk_import_bidso_skus(file: UploadFile = File(...)):
+    """
+    Bulk import Bidso SKUs from Excel file.
+    
+    Expected columns: bidso_sku_id, vertical_code, model_code, numeric_code, name, description
+    
+    This endpoint will:
+    - Create new Bidso SKUs if they don't exist
+    - Skip existing ones (no update)
+    """
+    if not openpyxl:
+        raise HTTPException(status_code=500, detail="openpyxl not installed")
+    
+    try:
+        content = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")
+    
+    ws = wb.active
+    results = {
+        "processed": 0,
+        "created": 0,
+        "skipped": 0,
+        "errors": []
+    }
+    
+    # Load reference data
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
+    models = await db.models.find({}, {"_id": 0}).to_list(500)
+    
+    vertical_map = {}
+    for v in verticals:
+        vertical_map[v.get("code", "").upper()] = v
+        vertical_map[v.get("name", "").lower()] = v
+    
+    model_map = {}
+    for m in models:
+        model_map[m.get("code", "").upper()] = m
+        model_map[m.get("name", "").lower()] = m
+    
+    # Detect headers
+    headers = [str(cell.value).strip().upper() if cell.value else "" for cell in ws[1]]
+    
+    # Find column indices
+    bidso_col = None
+    vertical_col = None
+    model_col = None
+    numeric_col = None
+    name_col = None
+    desc_col = None
+    
+    for idx, h in enumerate(headers):
+        if h in ["BIDSO_SKU_ID", "BIDSO SKU ID", "BIDSO SKU", "BIDSO_SKU"]:
+            bidso_col = idx
+        elif h in ["VERTICAL_CODE", "VERTICAL CODE", "VERTICAL"]:
+            vertical_col = idx
+        elif h in ["MODEL_CODE", "MODEL CODE", "MODEL"]:
+            model_col = idx
+        elif h in ["NUMERIC_CODE", "NUMERIC CODE", "CODE", "NUMBER"]:
+            numeric_col = idx
+        elif h in ["NAME", "SKU_NAME", "SKU NAME"]:
+            name_col = idx
+        elif h in ["DESCRIPTION", "DESC"]:
+            desc_col = idx
+    
+    if bidso_col is None:
+        raise HTTPException(status_code=400, detail="Missing required column: BIDSO_SKU_ID")
+    
+    # Process rows
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row[bidso_col]:
+            continue
+        
+        try:
+            bidso_sku_id = str(row[bidso_col]).strip()
+            results["processed"] += 1
+            
+            # Check if already exists
+            existing = await db.bidso_skus.find_one({"bidso_sku_id": bidso_sku_id})
+            if existing:
+                results["skipped"] += 1
+                continue
+            
+            # Try to parse vertical and model from bidso_sku_id if not provided
+            vertical_code = None
+            model_code = None
+            numeric_code = None
+            
+            if vertical_col is not None and row[vertical_col]:
+                v_input = str(row[vertical_col]).strip()
+                v = vertical_map.get(v_input.upper()) or vertical_map.get(v_input.lower())
+                if v:
+                    vertical_code = v.get("code")
+            
+            if model_col is not None and row[model_col]:
+                m_input = str(row[model_col]).strip()
+                m = model_map.get(m_input.upper()) or model_map.get(m_input.lower())
+                if m:
+                    model_code = m.get("code")
+            
+            if numeric_col is not None and row[numeric_col]:
+                numeric_code = str(row[numeric_col]).strip().zfill(3)
+            
+            # Parse from bidso_sku_id if not provided (format: VERTICAL_MODEL_NUMBER)
+            if not vertical_code or not model_code:
+                parts = bidso_sku_id.split("_")
+                if len(parts) >= 2:
+                    potential_vertical = parts[0]
+                    potential_model = parts[1] if len(parts) > 1 else None
+                    potential_numeric = parts[2] if len(parts) > 2 else None
+                    
+                    if not vertical_code:
+                        v = vertical_map.get(potential_vertical.upper())
+                        if v:
+                            vertical_code = v.get("code")
+                    
+                    if not model_code and potential_model:
+                        m = model_map.get(potential_model.upper())
+                        if m:
+                            model_code = m.get("code")
+                    
+                    if not numeric_code and potential_numeric:
+                        numeric_code = potential_numeric.zfill(3)
+            
+            if not vertical_code:
+                results["errors"].append(f"Row {row_idx}: Cannot determine vertical for {bidso_sku_id}")
+                continue
+            
+            if not model_code:
+                results["errors"].append(f"Row {row_idx}: Cannot determine model for {bidso_sku_id}")
+                continue
+            
+            # Get full vertical and model info
+            vertical = vertical_map.get(vertical_code.upper())
+            model = model_map.get(model_code.upper())
+            
+            if not vertical or not model:
+                results["errors"].append(f"Row {row_idx}: Invalid vertical/model for {bidso_sku_id}")
+                continue
+            
+            # Create Bidso SKU
+            name = str(row[name_col]).strip() if name_col is not None and row[name_col] else f"{vertical.get('name', '')} - {model.get('name', '')}"
+            description = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] else None
+            
+            bidso_doc = {
+                "id": str(uuid.uuid4()),
+                "bidso_sku_id": bidso_sku_id,
+                "vertical_id": vertical.get("id"),
+                "vertical_code": vertical_code,
+                "model_id": model.get("id"),
+                "model_code": model_code,
+                "numeric_code": numeric_code or "001",
+                "name": name,
+                "description": description,
+                "status": "ACTIVE",
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.bidso_skus.insert_one(bidso_doc)
+            results["created"] += 1
+            
+        except Exception as e:
+            results["errors"].append(f"Row {row_idx}: {str(e)}")
+    
+    return results
+
+
+@router.get("/bidso-skus/missing-from-buyer-skus")
+async def get_missing_bidso_skus():
+    """
+    Find Bidso SKU IDs referenced by Buyer SKUs that don't exist in bidso_skus collection.
+    Useful for data recovery when Bidso SKUs were accidentally deleted.
+    """
+    # Get all unique bidso_sku_ids referenced by buyer_skus
+    referenced_ids = await db.buyer_skus.distinct("bidso_sku_id")
+    referenced_ids = [b for b in referenced_ids if b]  # Filter nulls
+    
+    # Get existing bidso_sku_ids
+    existing_ids = await db.bidso_skus.distinct("bidso_sku_id")
+    
+    # Find missing ones
+    missing_ids = [b for b in referenced_ids if b not in existing_ids]
+    
+    # For each missing, try to extract vertical/model info
+    missing_details = []
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
+    models = await db.models.find({}, {"_id": 0}).to_list(500)
+    
+    vertical_map = {v.get("code", "").upper(): v for v in verticals}
+    model_map = {m.get("code", "").upper(): m for m in models}
+    
+    for bidso_id in sorted(missing_ids):
+        parts = bidso_id.split("_")
+        detail = {
+            "bidso_sku_id": bidso_id,
+            "vertical_code": parts[0] if len(parts) > 0 else None,
+            "model_code": parts[1] if len(parts) > 1 else None,
+            "numeric_code": parts[2] if len(parts) > 2 else None,
+            "vertical_found": parts[0].upper() in vertical_map if len(parts) > 0 else False,
+            "model_found": parts[1].upper() in model_map if len(parts) > 1 else False
+        }
+        
+        # Count buyer SKUs referencing this
+        buyer_count = await db.buyer_skus.count_documents({"bidso_sku_id": bidso_id})
+        detail["buyer_sku_count"] = buyer_count
+        
+        missing_details.append(detail)
+    
+    return {
+        "total_referenced": len(referenced_ids),
+        "total_existing": len(existing_ids),
+        "total_missing": len(missing_ids),
+        "missing_bidso_skus": missing_details
+    }
+
+
+@router.post("/bidso-skus/auto-create-from-buyer-skus")
+async def auto_create_missing_bidso_skus():
+    """
+    Automatically create missing Bidso SKUs based on references from Buyer SKUs.
+    This parses the bidso_sku_id format (VERTICAL_MODEL_NUMBER) to create the records.
+    """
+    # Get all unique bidso_sku_ids referenced by buyer_skus
+    referenced_ids = await db.buyer_skus.distinct("bidso_sku_id")
+    referenced_ids = [b for b in referenced_ids if b]
+    
+    # Get existing bidso_sku_ids
+    existing_ids = set(await db.bidso_skus.distinct("bidso_sku_id"))
+    
+    # Find missing ones
+    missing_ids = [b for b in referenced_ids if b not in existing_ids]
+    
+    if not missing_ids:
+        return {"message": "No missing Bidso SKUs found", "created": 0}
+    
+    # Load reference data
+    verticals = await db.verticals.find({}, {"_id": 0}).to_list(100)
+    models = await db.models.find({}, {"_id": 0}).to_list(500)
+    
+    vertical_map = {v.get("code", "").upper(): v for v in verticals}
+    model_map = {m.get("code", "").upper(): m for m in models}
+    
+    results = {
+        "processed": 0,
+        "created": 0,
+        "errors": []
+    }
+    
+    for bidso_id in sorted(missing_ids):
+        results["processed"] += 1
+        
+        parts = bidso_id.split("_")
+        if len(parts) < 2:
+            results["errors"].append(f"{bidso_id}: Cannot parse - need at least VERTICAL_MODEL format")
+            continue
+        
+        vertical_code = parts[0].upper()
+        model_code = parts[1].upper()
+        numeric_code = parts[2] if len(parts) > 2 else "001"
+        
+        vertical = vertical_map.get(vertical_code)
+        model = model_map.get(model_code)
+        
+        if not vertical:
+            results["errors"].append(f"{bidso_id}: Vertical '{vertical_code}' not found in system")
+            continue
+        
+        if not model:
+            results["errors"].append(f"{bidso_id}: Model '{model_code}' not found in system")
+            continue
+        
+        # Create Bidso SKU
+        bidso_doc = {
+            "id": str(uuid.uuid4()),
+            "bidso_sku_id": bidso_id,
+            "vertical_id": vertical.get("id"),
+            "vertical_code": vertical_code,
+            "model_id": model.get("id"),
+            "model_code": model_code,
+            "numeric_code": numeric_code.zfill(3) if numeric_code.isdigit() else numeric_code,
+            "name": f"{vertical.get('name', '')} - {model.get('name', '')}",
+            "status": "ACTIVE",
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        try:
+            await db.bidso_skus.insert_one(bidso_doc)
+            results["created"] += 1
+        except Exception as e:
+            results["errors"].append(f"{bidso_id}: {str(e)}")
+    
+    return results
+
+
+
 @router.get("/bidso-skus/next-code")
 async def suggest_numeric_code(vertical_id: str, model_id: str):
     """Get next available numeric code for a vertical/model combination"""
