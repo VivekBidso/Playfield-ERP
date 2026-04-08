@@ -2788,3 +2788,22 @@ Synced frontend RM category configurations with the database. Categories are now
   - Complete database schema documentation for all 69 collections
   - Route-by-route read/write mapping for all 22 backend route modules
   - Frontend page to API endpoint mapping
+
+
+### April 8, 2026
+
+**CPC Delete Production Schedule Feature (COMPLETED)**
+- Added new "Delete Schedule" tab to CPC module with red-styled UI
+- Allows soft-deleting production schedules for a specific month and branch
+- Deleted schedules preserve completed quantities for auto-population when new schedules are created
+
+**Backend Endpoints:**
+- `GET /api/production-schedules/preview-delete?month=YYYY-MM&branch=Name` - Preview schedules to delete
+- `POST /api/production-schedules/bulk-soft-delete` - Soft-delete (sets status to "DELETED")
+- `GET /api/production-schedules/deleted-completions` - Get completed quantities from deleted schedules
+
+**Bug Fixed:**
+- DELETED schedules were appearing in `/api/cpc/branch-schedules` endpoint
+- Changed status filter from `{"$ne": "CANCELLED"}` to `{"$nin": ["CANCELLED", "DELETED"]}`
+
+**Testing:** All 14 backend API tests passed. Frontend UI fully verified.
