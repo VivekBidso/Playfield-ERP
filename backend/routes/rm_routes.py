@@ -17,6 +17,83 @@ from services.rbac_service import require_permission
 
 router = APIRouter(tags=["Raw Materials"])
 
+# Cache for rm_categories description columns
+_category_name_format_cache = {}
+
+async def get_category_name_format(category: str) -> list:
+    """Get the name format fields for a category from database"""
+    global _category_name_format_cache
+    
+    if category in _category_name_format_cache:
+        return _category_name_format_cache[category]
+    
+    cat_doc = await db.rm_categories.find_one({"code": category}, {"_id": 0, "description_columns": 1})
+    if cat_doc:
+        desc_cols = cat_doc.get("description_columns", [])
+        name_fields = [
+            col["key"] for col in sorted(desc_cols, key=lambda x: x.get("order", 0))
+            if col.get("include_in_name")
+        ]
+        _category_name_format_cache[category] = name_fields
+        return name_fields
+    
+    # Fallback to hardcoded
+    if category in RM_CATEGORIES:
+        return RM_CATEGORIES[category].get("nameFormat", [])
+    
+    return []
+
+
+def compute_rm_description(rm: dict, name_format: list = None) -> str:
+    """
+    Compute description from category_data if description field is null/empty.
+    Uses pipe-separated format: field1 | field2 | field3
+    """
+    # If description already exists, return it
+    existing_desc = rm.get("description")
+    if existing_desc and existing_desc.strip():
+        return existing_desc
+    
+    # Check category_data.name
+    cat_data_name = rm.get("category_data", {}).get("name")
+    if cat_data_name and cat_data_name.strip():
+        return cat_data_name
+    
+    # Compute from category_data fields
+    if not name_format:
+        return ""
+    
+    category_data = rm.get("category_data", {})
+    parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
+    return " | ".join(parts) if parts else ""
+
+
+async def enrich_rm_with_description(rm: dict) -> dict:
+    """Add computed description to RM if missing"""
+    if not rm.get("description"):
+        name_format = await get_category_name_format(rm.get("category", ""))
+        rm["description"] = compute_rm_description(rm, name_format)
+    return rm
+
+
+async def enrich_rms_with_description(rms: list) -> list:
+    """Add computed description to list of RMs efficiently"""
+    # Pre-load all category formats needed
+    categories_needed = set(rm.get("category", "") for rm in rms if not rm.get("description"))
+    category_formats = {}
+    
+    for cat in categories_needed:
+        if cat:
+            category_formats[cat] = await get_category_name_format(cat)
+    
+    # Apply descriptions
+    for rm in rms:
+        if not rm.get("description"):
+            name_format = category_formats.get(rm.get("category", ""), [])
+            rm["description"] = compute_rm_description(rm, name_format)
+    
+    return rms
+
 
 @router.get("/raw-materials/filter-options")
 async def get_filter_options():
@@ -490,6 +567,9 @@ async def get_raw_materials_filtered(
             rm["branch_stock"] = inv.get("current_stock", 0.0) if inv else 0.0
             rm["is_active_in_branch"] = inv.get("is_active", False) if inv else False
     
+    # Enrich RMs with computed description if missing
+    rms = await enrich_rms_with_description(rms)
+    
     # Calculate pagination
     total = len(rms)
     total_pages = (total + page_size - 1) // page_size
@@ -555,6 +635,9 @@ async def export_raw_materials(
         rms = [rm for rm in rms if rm.get("category_data", {}).get("colour") == colour_filter]
     if brand_filter:
         rms = [rm for rm in rms if rm.get("category_data", {}).get("brand") == brand_filter]
+    
+    # Enrich RMs with computed description if missing
+    rms = await enrich_rms_with_description(rms)
     
     # Get category fields for column headers
     all_cat_fields = set()

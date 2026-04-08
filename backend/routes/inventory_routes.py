@@ -19,6 +19,46 @@ except ImportError:
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
+# Cache for rm_categories description columns
+_inv_category_name_format_cache = {}
+
+async def get_category_name_format(category: str) -> list:
+    """Get the name format fields for a category from database"""
+    global _inv_category_name_format_cache
+    
+    if category in _inv_category_name_format_cache:
+        return _inv_category_name_format_cache[category]
+    
+    cat_doc = await db.rm_categories.find_one({"code": category}, {"_id": 0, "description_columns": 1})
+    if cat_doc:
+        desc_cols = cat_doc.get("description_columns", [])
+        name_fields = [
+            col["key"] for col in sorted(desc_cols, key=lambda x: x.get("order", 0))
+            if col.get("include_in_name")
+        ]
+        _inv_category_name_format_cache[category] = name_fields
+        return name_fields
+    
+    return []
+
+
+def compute_rm_description(rm: dict, name_format: list) -> str:
+    """Compute description from category_data if description field is null/empty"""
+    existing_desc = rm.get("description")
+    if existing_desc and existing_desc.strip():
+        return existing_desc
+    
+    cat_data_name = rm.get("category_data", {}).get("name")
+    if cat_data_name and cat_data_name.strip():
+        return cat_data_name
+    
+    if not name_format:
+        return ""
+    
+    category_data = rm.get("category_data", {})
+    parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
+    return " | ".join(parts) if parts else ""
+
 
 # ============ RM INVENTORY ============
 # NOTE: Uses branch_rm_inventory collection (same as RM Stock View, Production, etc.)
@@ -65,8 +105,14 @@ async def get_rm_inventory(
     for item in items:
         rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "description": 1, "category": 1, "default_unit": 1, "category_data": 1})
         if rm:
-            # Use description (computed), fallback to category_data.name, then name
-            item["rm_name"] = rm.get("description") or rm.get("category_data", {}).get("name") or rm.get("name") or ""
+            # Compute description on-the-fly if not present
+            description = rm.get("description")
+            if not description or not description.strip():
+                category = rm.get("category", "")
+                name_format = await get_category_name_format(category)
+                description = compute_rm_description(rm, name_format)
+            
+            item["rm_name"] = description or rm.get("name") or ""
             item["category"] = rm.get("category", "")
             item["unit"] = rm.get("default_unit", "PCS")
         
