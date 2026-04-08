@@ -1077,7 +1077,7 @@ const RMRepository = () => {
                     </TableHead>
                     <TableHead>RM ID</TableHead>
                     <TableHead>Category</TableHead>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Description</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Level</TableHead>
                     <TableHead>Brands</TableHead>
@@ -1115,8 +1115,10 @@ const RMRepository = () => {
                         <TableCell>
                           <Badge variant="outline">{rm.category}</Badge>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {rm.category_data?.name || rm.category_data?.model_name || rm.description || "-"}
+                        <TableCell className="max-w-[250px]">
+                          <span className="truncate block" title={rm.description || rm.category_data?.name || "-"}>
+                            {rm.description || rm.category_data?.name || "-"}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {rm.source_type ? (

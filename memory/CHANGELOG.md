@@ -2,6 +2,54 @@
 
 ## April 8, 2026
 
+### RM Description & Model Fix
+
+**Deployment: RM Data Migration & Logic Fix**
+
+Fixed the RM naming/description issue across all categories:
+
+**Problems Fixed:**
+1. **Description was null for 95% of RMs (2,620 of 2,759)**
+   - Now auto-generated from `category_data` fields based on `rm_categories.description_columns`
+   
+2. **Model column showed "-" for INP category**
+   - `model_ids` was empty even though `category_data.model_name` had values
+   - Now auto-mapped `model_name` text to `models` collection IDs
+
+3. **Name column showed incomplete values** (e.g., "Wave", "Uni")
+   - Frontend was falling back to `category_data.model_name`
+   - Now displays full `description` field
+
+**Changes Made:**
+
+*Backend (`services/utils.py`):*
+- Updated `generate_rm_name()` to use pipe-separated format: `field1 | field2 | field3`
+- Added `get_rm_category_config()` to read from database `rm_categories.description_columns`
+- Added `generate_rm_description_async()` for async route usage
+- Added `clear_rm_category_cache()` for cache management
+
+*Data Migration (one-time):*
+- Updated 2,758 RMs with computed `description` field
+- Auto-mapped 281 RMs to `model_ids` based on `category_data.model_name`
+
+*Frontend (`RMRepository.js`):*
+- Changed "Name" column to "Description"
+- Now displays `rm.description || rm.category_data?.name`
+
+**Description Formats by Category:**
+| Category | Format |
+|----------|--------|
+| INP | `colour \| model_name \| mould_code \| part_name` |
+| INM | `colour \| model_name \| part_name \| type` |
+| ACC | `colour \| model_name \| type` |
+| ELC | `type` |
+| PM | `brand \| type` |
+| LB | `type` |
+| BS | `brand \| position \| type` |
+| SP | `type` |
+
+---
+
 ### Multi-Item IBT - UI Redesign
 
 **Deployment: IBT Create Form UX Improvement**

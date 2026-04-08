@@ -222,12 +222,69 @@ RM_CATEGORIES = {
     }
 }
 
+# Cache for rm_categories from database
+_rm_categories_cache = {}
 
-def generate_rm_name(category: str, category_data: dict) -> str:
-    """Generate RM name from category_data based on nomenclature"""
-    if category not in RM_CATEGORIES:
+async def get_rm_category_config(category: str) -> dict:
+    """Get RM category configuration from database with caching"""
+    global _rm_categories_cache
+    
+    if category in _rm_categories_cache:
+        return _rm_categories_cache[category]
+    
+    # Fetch from database
+    cat_doc = await db.rm_categories.find_one({"code": category}, {"_id": 0})
+    if cat_doc:
+        # Extract name format from description_columns with include_in_name=True
+        desc_cols = cat_doc.get("description_columns", [])
+        name_fields = [
+            col["key"] for col in sorted(desc_cols, key=lambda x: x.get("order", 0))
+            if col.get("include_in_name")
+        ]
+        
+        config = {
+            "name": cat_doc.get("name", category),
+            "fields": [col["key"] for col in desc_cols],
+            "nameFormat": name_fields,
+            "description_columns": desc_cols
+        }
+        _rm_categories_cache[category] = config
+        return config
+    
+    # Fallback to hardcoded if not in database
+    if category in RM_CATEGORIES:
+        return RM_CATEGORIES[category]
+    
+    return {"name": category, "fields": [], "nameFormat": []}
+
+
+def generate_rm_name(category: str, category_data: dict, category_config: dict = None) -> str:
+    """
+    Generate RM description from category_data based on nomenclature.
+    Uses category_config if provided, otherwise falls back to hardcoded RM_CATEGORIES.
+    Format: field1 | field2 | field3 (pipe-separated for readability)
+    """
+    if category_config:
+        name_format = category_config.get("nameFormat", [])
+    elif category in RM_CATEGORIES:
+        name_format = RM_CATEGORIES[category].get("nameFormat", [])
+    else:
         return ""
     
-    name_format = RM_CATEGORIES[category].get("nameFormat", [])
     parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
-    return "_".join(parts) if parts else ""
+    return " | ".join(parts) if parts else ""
+
+
+async def generate_rm_description_async(category: str, category_data: dict) -> str:
+    """
+    Async version that fetches category config from database.
+    This is the preferred method to use in routes.
+    """
+    config = await get_rm_category_config(category)
+    return generate_rm_name(category, category_data, config)
+
+
+def clear_rm_category_cache():
+    """Clear the RM categories cache (call after updating rm_categories collection)"""
+    global _rm_categories_cache
+    _rm_categories_cache = {}
