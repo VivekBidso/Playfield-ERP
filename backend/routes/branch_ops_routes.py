@@ -329,13 +329,15 @@ async def get_branch_schedules(
                 raise HTTPException(status_code=403, detail=f"Access denied to branch: {branch}")
             user_branches = [branch]
     
-    # Build query
+    # Build query - always exclude DELETED schedules
     query = {
         "branch": {"$in": user_branches},
-        "target_date": {"$gte": start, "$lt": end}
+        "target_date": {"$gte": start, "$lt": end},
+        "status": {"$nin": ["DELETED"]}  # Never show deleted schedules
     }
     
     if status:
+        # Override with specific status filter (still excludes DELETED)
         query["status"] = status
     
     # Fetch schedules

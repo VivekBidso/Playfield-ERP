@@ -227,6 +227,51 @@ const CPC = () => {
     setDeleting(false);
   };
 
+  // Download schedules as Excel before deletion
+  const handleDownloadSchedules = () => {
+    if (!deletePreview?.schedules?.length) {
+      toast.error("No schedules to download");
+      return;
+    }
+    
+    // Prepare data for Excel
+    const data = deletePreview.schedules.map(s => ({
+      "Schedule Code": s.schedule_code || "",
+      "SKU ID": s.sku_id || "",
+      "SKU Description": s.sku_description || "",
+      "Branch": s.branch || deleteBranch,
+      "Date": s.target_date ? new Date(s.target_date).toLocaleDateString() : "",
+      "Target Qty": s.target_quantity || 0,
+      "Completed Qty": s.completed_quantity || 0,
+      "Status": s.status || ""
+    }));
+    
+    // Create CSV content
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(","),
+      ...data.map(row => headers.map(h => {
+        const val = row[h];
+        // Escape commas and quotes in values
+        if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      }).join(","))
+    ].join("\n");
+    
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthName = monthNames[parseInt(deleteMonthNum) - 1] || deleteMonthNum;
+    link.download = `schedules_${deleteBranch.replace(/\s+/g, '_')}_${monthName}_${deleteYear}.csv`;
+    link.click();
+    
+    toast.success(`Downloaded ${data.length} schedules`);
+  };
+
   // Get minimum month for delete (current month)
   const getMinMonth = () => {
     const now = new Date();
@@ -946,16 +991,26 @@ const CPC = () => {
                   </Select>
                 </div>
                 
-                <div className="flex items-end">
+                <div className="flex items-end gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={!deleteMonth || !deleteBranch || deleteLoading || !deletePreview?.schedules?.length}
+                    onClick={handleDownloadSchedules}
+                    className="flex-1"
+                    data-testid="download-schedules-btn"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
                   <Button
                     variant="destructive"
                     disabled={!deleteMonth || !deleteBranch || deleteLoading || !deletePreview?.summary?.total_count}
                     onClick={() => setShowDeleteConfirmDialog(true)}
-                    className="w-full"
+                    className="flex-1"
                     data-testid="delete-schedules-btn"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Schedules
+                    Delete
                   </Button>
                 </div>
               </div>
