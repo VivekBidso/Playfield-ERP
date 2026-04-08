@@ -1,5 +1,37 @@
 # Changelog - Factory OPS
 
+## April 8, 2026
+
+### Multi-Item IBT Transfers
+
+**Deployment: IBT Enhancement**
+
+Enhanced Inter-Branch Transfer (IBT) system to support multiple items per transfer:
+
+**New Features:**
+- **Add Multiple Items**: Users can now add multiple items (RM or FG) to a single transfer
+- **Item-Level Receiving**: Each item can be received with its own quantity, allowing partial receipts
+- **Per-Item Shortage Tracking**: Shortage records created for each item with variance
+
+**UI Changes:**
+- Create Dialog: Added "Items to Transfer" section with "Add Item" form
+- Items can be added one at a time with stock validation
+- Items list shows added items with remove option
+- Transfer list shows item count badge for multi-item transfers
+- Detail Dialog shows expandable items list with individual quantities
+- Receive Dialog allows entering received quantity per item
+
+**Backend Changes:**
+- `POST /api/ibt-transfers`: Now accepts `items: [{item_id, quantity}]` array
+- `PUT /api/ibt-transfers/{id}/dispatch`: Deducts all items from source inventory
+- `PUT /api/ibt-transfers/{id}/receive`: Accepts per-item received quantities
+
+**Backward Compatibility:**
+- Legacy single-item transfers continue to work (read/dispatch/receive)
+- API auto-detects format based on presence of `items` array or `item_id` field
+
+---
+
 ## April 7, 2026
 
 ### IBT Flow Simplification

@@ -12,7 +12,8 @@ import {
   XCircle,
   AlertTriangle,
   Eye,
-  Send
+  Send,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,8 +54,6 @@ const IBT = () => {
     transfer_type: "RM",
     source_branch: "",
     destination_branch: "",
-    item_id: "",
-    quantity: 0,
     notes: "",
     vehicle_number: "",
     driver_name: "",
@@ -62,13 +61,18 @@ const IBT = () => {
     expected_arrival: ""
   });
   
+  // Multi-item support
+  const [itemsToTransfer, setItemsToTransfer] = useState([]);
+  const [currentItem, setCurrentItem] = useState({ item_id: "", quantity: 0 });
+  
   // Inventory check
   const [availableStock, setAvailableStock] = useState(null);
   const [checkingStock, setCheckingStock] = useState(false);
   
-  // Receive form
+  // Receive form - supports both single and multi-item
   const [receiveForm, setReceiveForm] = useState({
     received_quantity: 0,
+    items: [], // For multi-item transfers: [{item_id, received_quantity}]
     received_notes: "",
     damage_notes: ""
   });
@@ -115,42 +119,93 @@ const IBT = () => {
   };
 
   // Check inventory when source branch and item change
-  const checkInventory = async () => {
-    if (!form.source_branch || !form.item_id) {
+  const checkInventory = async (itemId) => {
+    if (!form.source_branch || !itemId) {
+      return null;
+    }
+    
+    try {
+      const res = await axios.get(
+        `${API}/ibt-transfers/check-inventory/${form.transfer_type}/${itemId}/${encodeURIComponent(form.source_branch)}`,
+        { headers: getHeaders() }
+      );
+      return res.data.available_stock;
+    } catch (err) {
+      return 0;
+    }
+  };
+  
+  // Check stock for current item being added
+  const checkCurrentItemStock = async () => {
+    if (!form.source_branch || !currentItem.item_id) {
       setAvailableStock(null);
       return;
     }
-    
     setCheckingStock(true);
-    try {
-      const res = await axios.get(
-        `${API}/ibt-transfers/check-inventory/${form.transfer_type}/${form.item_id}/${encodeURIComponent(form.source_branch)}`,
-        { headers: getHeaders() }
-      );
-      setAvailableStock(res.data.available_stock);
-    } catch (err) {
-      setAvailableStock(0);
-    }
+    const stock = await checkInventory(currentItem.item_id);
+    setAvailableStock(stock);
     setCheckingStock(false);
   };
 
   useEffect(() => {
-    checkInventory();
-  }, [form.source_branch, form.item_id, form.transfer_type]);
+    checkCurrentItemStock();
+  }, [form.source_branch, currentItem.item_id, form.transfer_type]);
+  
+  // Add item to transfer list
+  const handleAddItem = async () => {
+    if (!currentItem.item_id || currentItem.quantity <= 0) {
+      toast.error("Select an item and enter a valid quantity");
+      return;
+    }
+    
+    // Check if item already added
+    if (itemsToTransfer.some(i => i.item_id === currentItem.item_id)) {
+      toast.error("Item already added to transfer");
+      return;
+    }
+    
+    // Validate stock
+    const stock = await checkInventory(currentItem.item_id);
+    if (stock !== null && currentItem.quantity > stock) {
+      toast.error(`Insufficient stock. Only ${stock} available.`);
+      return;
+    }
+    
+    // Get item name for display
+    let itemName = currentItem.item_id;
+    if (form.transfer_type === "RM") {
+      const rm = rawMaterials.find(r => r.rm_id === currentItem.item_id);
+      itemName = rm ? `${rm.rm_id} - ${rm.description?.substring(0, 30) || ''}` : currentItem.item_id;
+    } else {
+      const sku = buyerSkus.find(s => s.buyer_sku_id === currentItem.item_id);
+      itemName = sku ? `${sku.buyer_sku_id} - ${sku.name?.substring(0, 30) || ''}` : currentItem.item_id;
+    }
+    
+    setItemsToTransfer([...itemsToTransfer, {
+      item_id: currentItem.item_id,
+      item_name: itemName,
+      quantity: parseFloat(currentItem.quantity),
+      available_stock: stock
+    }]);
+    
+    setCurrentItem({ item_id: "", quantity: 0 });
+    setAvailableStock(null);
+    toast.success("Item added to transfer");
+  };
+  
+  // Remove item from transfer list
+  const handleRemoveItem = (itemId) => {
+    setItemsToTransfer(itemsToTransfer.filter(i => i.item_id !== itemId));
+  };
 
   const handleCreateTransfer = async () => {
-    if (!form.source_branch || !form.destination_branch || !form.item_id || form.quantity <= 0) {
-      toast.error("Please fill all required fields");
+    if (!form.source_branch || !form.destination_branch || itemsToTransfer.length === 0) {
+      toast.error("Please select branches and add at least one item");
       return;
     }
     
     if (form.source_branch === form.destination_branch) {
       toast.error("Source and destination cannot be the same");
-      return;
-    }
-    
-    if (availableStock !== null && form.quantity > availableStock) {
-      toast.error(`Insufficient stock. Only ${availableStock} available.`);
       return;
     }
     
@@ -160,8 +215,7 @@ const IBT = () => {
         transfer_type: form.transfer_type,
         source_branch: form.source_branch,
         destination_branch: form.destination_branch,
-        item_id: form.item_id,
-        quantity: parseFloat(form.quantity),
+        items: itemsToTransfer.map(i => ({ item_id: i.item_id, quantity: i.quantity })),
         notes: form.notes,
         vehicle_number: form.vehicle_number || null,
         driver_name: form.driver_name || null,
@@ -169,14 +223,14 @@ const IBT = () => {
         expected_arrival: form.expected_arrival || null
       }, { headers: getHeaders() });
       
-      toast.success(`Transfer ${res.data.transfer?.transfer_code} created`);
+      toast.success(`Transfer ${res.data.transfer?.transfer_code} created with ${itemsToTransfer.length} item(s)`);
       setShowCreateDialog(false);
       resetForm();
       fetchAllData();
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (detail?.error === "INSUFFICIENT_INVENTORY") {
-        toast.error(`Insufficient stock: ${detail.available} available, ${detail.requested} requested`);
+        toast.error(detail.message || "Insufficient stock for one or more items");
       } else {
         toast.error(typeof detail === 'string' ? detail : "Failed to create transfer");
       }
@@ -189,14 +243,14 @@ const IBT = () => {
       transfer_type: "RM",
       source_branch: "",
       destination_branch: "",
-      item_id: "",
-      quantity: 0,
       notes: "",
       vehicle_number: "",
       driver_name: "",
       driver_contact: "",
       expected_arrival: ""
     });
+    setItemsToTransfer([]);
+    setCurrentItem({ item_id: "", quantity: 0 });
     setAvailableStock(null);
   };
 
@@ -245,11 +299,29 @@ const IBT = () => {
 
   const openReceiveDialog = (transfer) => {
     setSelectedTransfer(transfer);
-    setReceiveForm({
-      received_quantity: transfer.dispatched_quantity || transfer.quantity,
-      received_notes: "",
-      damage_notes: ""
-    });
+    
+    // Check if multi-item transfer
+    if (transfer.items?.length > 0) {
+      // Initialize receive form with all items at their dispatched quantities
+      setReceiveForm({
+        items: transfer.items.map(item => ({
+          item_id: item.item_id,
+          item_name: item.item_name || item.item_id,
+          dispatched_quantity: item.dispatched_quantity || item.quantity,
+          received_quantity: item.dispatched_quantity || item.quantity
+        })),
+        received_notes: "",
+        damage_notes: ""
+      });
+    } else {
+      // Legacy single-item format
+      setReceiveForm({
+        received_quantity: transfer.dispatched_quantity || transfer.quantity,
+        items: [],
+        received_notes: "",
+        damage_notes: ""
+      });
+    }
     setShowReceiveDialog(true);
   };
 
@@ -258,9 +330,26 @@ const IBT = () => {
     
     setSubmitting(true);
     try {
+      // Build request body based on transfer type
+      let requestBody = {
+        received_notes: receiveForm.received_notes,
+        damage_notes: receiveForm.damage_notes
+      };
+      
+      if (receiveForm.items?.length > 0) {
+        // Multi-item format
+        requestBody.items = receiveForm.items.map(item => ({
+          item_id: item.item_id,
+          received_quantity: item.received_quantity
+        }));
+      } else {
+        // Legacy single-item format
+        requestBody.received_quantity = receiveForm.received_quantity;
+      }
+      
       const res = await axios.put(
         `${API}/ibt-transfers/${selectedTransfer.id}/receive`,
-        receiveForm,
+        requestBody,
         { headers: getHeaders() }
       );
       
@@ -460,21 +549,47 @@ const IBT = () => {
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className="max-w-[200px] truncate" title={getItemName(transfer)}>
-                          {transfer.item_id}
-                        </div>
-                        <div className="text-xs text-zinc-500 truncate">{getItemName(transfer)}</div>
+                        {transfer.items?.length > 0 ? (
+                          <div>
+                            <Badge variant="outline" className="text-xs">{transfer.items.length} item(s)</Badge>
+                            <div className="text-xs text-zinc-500 mt-1 truncate max-w-[200px]">
+                              {transfer.items.map(i => i.item_id).join(", ")}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="max-w-[200px] truncate" title={getItemName(transfer)}>
+                              {transfer.item_id}
+                            </div>
+                            <div className="text-xs text-zinc-500 truncate">{getItemName(transfer)}</div>
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 text-right font-mono">
-                        {transfer.received_quantity !== undefined && transfer.status === "COMPLETED" ? (
+                        {transfer.items?.length > 0 ? (
                           <span>
-                            {transfer.received_quantity}
-                            {transfer.variance > 0 && (
-                              <span className="text-red-500 text-xs ml-1">(-{transfer.variance})</span>
+                            {transfer.total_received !== undefined && transfer.status === "COMPLETED" ? (
+                              <>
+                                {transfer.total_received}
+                                {transfer.total_variance > 0 && (
+                                  <span className="text-red-500 text-xs ml-1">(-{transfer.total_variance})</span>
+                                )}
+                              </>
+                            ) : (
+                              transfer.total_quantity || transfer.items.reduce((sum, i) => sum + i.quantity, 0)
                             )}
                           </span>
                         ) : (
-                          transfer.quantity
+                          transfer.received_quantity !== undefined && transfer.status === "COMPLETED" ? (
+                            <span>
+                              {transfer.received_quantity}
+                              {transfer.variance > 0 && (
+                                <span className="text-red-500 text-xs ml-1">(-{transfer.variance})</span>
+                              )}
+                            </span>
+                          ) : (
+                            transfer.quantity
+                          )
                         )}
                       </td>
                       <td className="p-3">
@@ -548,7 +663,7 @@ const IBT = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Source Branch *</Label>
-                <Select value={form.source_branch} onValueChange={(v) => setForm({ ...form, source_branch: v })}>
+                <Select value={form.source_branch} onValueChange={(v) => { setForm({ ...form, source_branch: v }); setItemsToTransfer([]); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="From..." />
                   </SelectTrigger>
@@ -574,47 +689,103 @@ const IBT = () => {
               </div>
             </div>
             
-            <div>
-              <Label>Item *</Label>
-              <Select value={form.item_id} onValueChange={(v) => setForm({ ...form, item_id: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select item..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {form.transfer_type === "RM" 
-                    ? rawMaterials.slice(0, 200).map(rm => (
-                        <SelectItem key={rm.rm_id} value={rm.rm_id}>
-                          {rm.rm_id} - {rm.description?.substring(0, 40)}
-                        </SelectItem>
-                      ))
-                    : buyerSkus.slice(0, 200).map(sku => (
-                        <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
-                          {sku.buyer_sku_id} - {sku.name?.substring(0, 40)}
-                        </SelectItem>
-                      ))
-                  }
-                </SelectContent>
-              </Select>
-              
-              {availableStock !== null && form.source_branch && (
-                <p className={`text-xs mt-1 ${availableStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  Available at {form.source_branch}: {availableStock}
-                </p>
-              )}
-            </div>
+            <Separator />
             
-            <div>
-              <Label>Quantity *</Label>
-              <Input 
-                type="number" 
-                min="0"
-                value={form.quantity}
-                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                className={form.quantity > availableStock ? 'border-red-500' : ''}
-              />
-              {form.quantity > availableStock && availableStock !== null && (
-                <p className="text-xs text-red-600 mt-1">Exceeds available stock!</p>
+            {/* Items Section */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <Label className="text-base font-medium">Items to Transfer</Label>
+                <Badge variant="outline">{itemsToTransfer.length} item(s)</Badge>
+              </div>
+              
+              {/* Added Items List */}
+              {itemsToTransfer.length > 0 && (
+                <div className="bg-zinc-50 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
+                  {itemsToTransfer.map((item, idx) => (
+                    <div key={item.item_id} className="flex items-center justify-between bg-white p-2 rounded border">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.item_name}</p>
+                        <p className="text-xs text-zinc-500">Qty: {item.quantity}</p>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-red-500 hover:text-red-700 ml-2"
+                        onClick={() => handleRemoveItem(item.item_id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               )}
+              
+              {/* Add Item Form */}
+              <div className="bg-blue-50 p-3 rounded-lg space-y-3">
+                <p className="text-sm font-medium text-blue-700">Add Item</p>
+                <div>
+                  <Label className="text-xs">Select Item</Label>
+                  <Select 
+                    value={currentItem.item_id} 
+                    onValueChange={(v) => setCurrentItem({ ...currentItem, item_id: v })}
+                    disabled={!form.source_branch}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={form.source_branch ? "Select item..." : "Select source branch first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {form.transfer_type === "RM" 
+                        ? rawMaterials
+                            .filter(rm => !itemsToTransfer.some(i => i.item_id === rm.rm_id))
+                            .slice(0, 200).map(rm => (
+                              <SelectItem key={rm.rm_id} value={rm.rm_id}>
+                                {rm.rm_id} - {rm.description?.substring(0, 40)}
+                              </SelectItem>
+                            ))
+                        : buyerSkus
+                            .filter(sku => !itemsToTransfer.some(i => i.item_id === sku.buyer_sku_id))
+                            .slice(0, 200).map(sku => (
+                              <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
+                                {sku.buyer_sku_id} - {sku.name?.substring(0, 40)}
+                              </SelectItem>
+                            ))
+                      }
+                    </SelectContent>
+                  </Select>
+                  
+                  {availableStock !== null && form.source_branch && currentItem.item_id && (
+                    <p className={`text-xs mt-1 ${availableStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      Available at {form.source_branch}: {availableStock}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <Label className="text-xs">Quantity</Label>
+                    <Input 
+                      type="number" 
+                      min="0"
+                      placeholder="Enter qty"
+                      value={currentItem.quantity || ""}
+                      onChange={(e) => setCurrentItem({ ...currentItem, quantity: e.target.value })}
+                      className={currentItem.quantity > availableStock && availableStock !== null ? 'border-red-500' : ''}
+                    />
+                  </div>
+                  <Button 
+                    type="button"
+                    onClick={handleAddItem}
+                    disabled={!currentItem.item_id || !currentItem.quantity || currentItem.quantity <= 0}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+                {currentItem.quantity > availableStock && availableStock !== null && (
+                  <p className="text-xs text-red-600">Exceeds available stock!</p>
+                )}
+              </div>
             </div>
             
             <Separator />
@@ -675,9 +846,9 @@ const IBT = () => {
             </Button>
             <Button 
               onClick={handleCreateTransfer} 
-              disabled={submitting || !form.source_branch || !form.destination_branch || !form.item_id || form.quantity <= 0}
+              disabled={submitting || !form.source_branch || !form.destination_branch || itemsToTransfer.length === 0}
             >
-              {submitting ? "Creating..." : "Create Transfer"}
+              {submitting ? "Creating..." : `Create Transfer (${itemsToTransfer.length} items)`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -689,7 +860,7 @@ const IBT = () => {
           <DialogHeader>
             <DialogTitle>Dispatch Transfer</DialogTitle>
             <DialogDescription>
-              Dispatching {selectedTransfer?.transfer_code} - {selectedTransfer?.quantity} units
+              Dispatching {selectedTransfer?.transfer_code} - {selectedTransfer?.items?.length || 1} item(s)
             </DialogDescription>
           </DialogHeader>
           
@@ -697,8 +868,21 @@ const IBT = () => {
             <div className="bg-blue-50 p-3 rounded-lg text-sm">
               <p><strong>From:</strong> {selectedTransfer?.source_branch}</p>
               <p><strong>To:</strong> {selectedTransfer?.destination_branch}</p>
-              <p><strong>Item:</strong> {selectedTransfer?.item_id}</p>
-              <p><strong>Quantity:</strong> {selectedTransfer?.quantity}</p>
+              {selectedTransfer?.items?.length > 0 ? (
+                <div className="mt-2">
+                  <p className="font-medium">Items:</p>
+                  <ul className="list-disc list-inside text-xs mt-1 max-h-32 overflow-y-auto">
+                    {selectedTransfer.items.map((item, idx) => (
+                      <li key={idx}>{item.item_id} - Qty: {item.quantity}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <>
+                  <p><strong>Item:</strong> {selectedTransfer?.item_id}</p>
+                  <p><strong>Quantity:</strong> {selectedTransfer?.quantity}</p>
+                </>
+              )}
             </div>
             
             <div className="grid grid-cols-2 gap-4">
@@ -753,7 +937,7 @@ const IBT = () => {
 
       {/* Receive Dialog */}
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Receive Transfer</DialogTitle>
             <DialogDescription>
@@ -764,25 +948,62 @@ const IBT = () => {
           <div className="space-y-4">
             <div className="bg-green-50 p-3 rounded-lg text-sm">
               <p><strong>From:</strong> {selectedTransfer?.source_branch}</p>
-              <p><strong>Item:</strong> {selectedTransfer?.item_id}</p>
-              <p><strong>Dispatched Qty:</strong> {selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity}</p>
-            </div>
-            
-            <div>
-              <Label>Received Quantity *</Label>
-              <Input 
-                type="number"
-                min="0"
-                max={selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity}
-                value={receiveForm.received_quantity}
-                onChange={(e) => setReceiveForm({ ...receiveForm, received_quantity: parseFloat(e.target.value) || 0 })}
-              />
-              {receiveForm.received_quantity < (selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity) && (
-                <p className="text-xs text-amber-600 mt-1">
-                  Variance: {(selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity) - receiveForm.received_quantity} units will be recorded as shortage
-                </p>
+              {selectedTransfer?.items?.length > 0 ? (
+                <p><strong>Items:</strong> {selectedTransfer.items.length} item(s)</p>
+              ) : (
+                <>
+                  <p><strong>Item:</strong> {selectedTransfer?.item_id}</p>
+                  <p><strong>Dispatched Qty:</strong> {selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity}</p>
+                </>
               )}
             </div>
+            
+            {/* Multi-item receive */}
+            {receiveForm.items?.length > 0 ? (
+              <div className="space-y-3">
+                <Label>Received Quantities *</Label>
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {receiveForm.items.map((item, idx) => (
+                    <div key={item.item_id} className="bg-zinc-50 p-3 rounded-lg">
+                      <p className="text-sm font-medium truncate">{item.item_name}</p>
+                      <p className="text-xs text-zinc-500 mb-2">Dispatched: {item.dispatched_quantity}</p>
+                      <Input 
+                        type="number"
+                        min="0"
+                        max={item.dispatched_quantity}
+                        value={item.received_quantity}
+                        onChange={(e) => {
+                          const newItems = [...receiveForm.items];
+                          newItems[idx].received_quantity = parseFloat(e.target.value) || 0;
+                          setReceiveForm({ ...receiveForm, items: newItems });
+                        }}
+                      />
+                      {item.received_quantity < item.dispatched_quantity && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Shortage: {item.dispatched_quantity - item.received_quantity} units
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <Label>Received Quantity *</Label>
+                <Input 
+                  type="number"
+                  min="0"
+                  max={selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity}
+                  value={receiveForm.received_quantity}
+                  onChange={(e) => setReceiveForm({ ...receiveForm, received_quantity: parseFloat(e.target.value) || 0 })}
+                />
+                {receiveForm.received_quantity < (selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity) && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Variance: {(selectedTransfer?.dispatched_quantity || selectedTransfer?.quantity) - receiveForm.received_quantity} units will be recorded as shortage
+                  </p>
+                )}
+              </div>
+            )}
             
             <div>
               <Label>Damage Notes (if any)</Label>
@@ -814,7 +1035,7 @@ const IBT = () => {
 
       {/* Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {getStatusIcon(selectedTransfer?.status)}
@@ -841,27 +1062,67 @@ const IBT = () => {
                   <p className="text-zinc-500">Destination Branch</p>
                   <p className="font-medium">{selectedTransfer.destination_branch}</p>
                 </div>
-                <div className="col-span-2">
-                  <p className="text-zinc-500">Item</p>
-                  <p className="font-medium">{selectedTransfer.item_id}</p>
-                  <p className="text-xs text-zinc-500">{getItemName(selectedTransfer)}</p>
-                </div>
-                <div>
-                  <p className="text-zinc-500">Quantity</p>
-                  <p className="font-medium">{selectedTransfer.quantity}</p>
-                </div>
-                {selectedTransfer.received_quantity !== undefined && (
-                  <div>
-                    <p className="text-zinc-500">Received</p>
-                    <p className="font-medium">
-                      {selectedTransfer.received_quantity}
-                      {selectedTransfer.variance > 0 && (
-                        <span className="text-red-500 ml-1">(-{selectedTransfer.variance})</span>
-                      )}
-                    </p>
-                  </div>
-                )}
               </div>
+              
+              {/* Items Section */}
+              {selectedTransfer.items?.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-zinc-500 text-sm">Items ({selectedTransfer.items.length})</p>
+                  <div className="bg-zinc-50 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+                    {selectedTransfer.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border text-sm">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{item.item_id}</p>
+                          <p className="text-xs text-zinc-500 truncate">{item.item_name}</p>
+                        </div>
+                        <div className="text-right ml-2">
+                          <p className="font-mono">{item.dispatched_quantity || item.quantity}</p>
+                          {item.received_quantity !== undefined && (
+                            <p className="text-xs">
+                              Rcvd: {item.received_quantity}
+                              {item.variance > 0 && <span className="text-red-500 ml-1">(-{item.variance})</span>}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-sm font-medium">
+                    <span>Total:</span>
+                    <span>
+                      {selectedTransfer.total_quantity || selectedTransfer.items.reduce((sum, i) => sum + (i.dispatched_quantity || i.quantity), 0)}
+                      {selectedTransfer.total_received !== undefined && (
+                        <span className="text-zinc-500 ml-2">
+                          (Received: {selectedTransfer.total_received})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="col-span-2">
+                    <p className="text-zinc-500">Item</p>
+                    <p className="font-medium">{selectedTransfer.item_id}</p>
+                    <p className="text-xs text-zinc-500">{getItemName(selectedTransfer)}</p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500">Quantity</p>
+                    <p className="font-medium">{selectedTransfer.quantity}</p>
+                  </div>
+                  {selectedTransfer.received_quantity !== undefined && (
+                    <div>
+                      <p className="text-zinc-500">Received</p>
+                      <p className="font-medium">
+                        {selectedTransfer.received_quantity}
+                        {selectedTransfer.variance > 0 && (
+                          <span className="text-red-500 ml-1">(-{selectedTransfer.variance})</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
               
               <Separator />
               
