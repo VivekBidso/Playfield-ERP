@@ -2,6 +2,33 @@
 
 ## April 8, 2026
 
+### RM Description Fix - All Views
+
+**Deployment: Extended RM Description to All Pages**
+
+Fixed description display across ALL RM-related pages (not just RM Repository):
+
+**Pages Fixed:**
+| Page | Before | After |
+|------|--------|-------|
+| RM Repository | ✅ Already working | ✅ Working |
+| RM Stock View | Type/Model/Colour columns (often empty) | Single "Description" column |
+| Inventory | "Name" showed empty/wrong values | "Name" shows full description |
+| RM Shortage | ✅ Already working | ✅ Working |
+
+**Changes Made:**
+
+*Backend (`inventory_routes.py`):*
+- Updated `rm_name` lookup to use `description` field instead of `name`
+- Fallback chain: `description → category_data.name → name`
+
+*Frontend (`RawMaterials.js`):*
+- Removed separate Type/Model/Colour columns
+- Added single "Description" column showing `material.description || material.category_data?.name`
+- Cleaner table with fewer columns
+
+---
+
 ### RM Description & Model Fix
 
 **Deployment: RM Data Migration & Logic Fix**

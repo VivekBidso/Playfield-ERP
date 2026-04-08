@@ -373,9 +373,7 @@ const RawMaterials = () => {
               <tr>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">RM ID</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Category</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Type</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Model</th>
-                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Colour</th>
+                <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Description</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Branch Inventory</th>
                 <th className="h-10 px-4 text-left align-middle font-mono text-xs font-medium text-zinc-500 uppercase tracking-wider">Safety Stock</th>
               </tr>
@@ -393,14 +391,10 @@ const RawMaterials = () => {
                       <div className="text-xs font-mono text-primary font-bold">{material.category}</div>
                       <div className="text-xs text-muted-foreground">{RM_CATEGORY_NAMES[material.category] || material.category}</div>
                     </td>
-                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                      {material.category_data?.type || '-'}
-                    </td>
-                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                      {material.category_data?.model || material.category_data?.model_name || '-'}
-                    </td>
-                    <td className="p-4 align-middle text-xs text-zinc-600 font-mono">
-                      {material.category_data?.colour || '-'}
+                    <td className="p-4 align-middle text-sm text-zinc-700 max-w-[300px]">
+                      <span className="truncate block" title={material.description || material.category_data?.name || '-'}>
+                        {material.description || material.category_data?.name || '-'}
+                      </span>
                     </td>
                     <td className={`p-4 align-middle font-mono ${isBelowSafety ? 'text-red-600 font-bold' : 'text-zinc-700'}`}>
                       {currentStock}

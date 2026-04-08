@@ -63,9 +63,10 @@ async def get_rm_inventory(
     
     # Enrich with RM details
     for item in items:
-        rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "category": 1, "default_unit": 1})
+        rm = await db.raw_materials.find_one({"rm_id": item["rm_id"]}, {"_id": 0, "name": 1, "description": 1, "category": 1, "default_unit": 1, "category_data": 1})
         if rm:
-            item["rm_name"] = rm.get("name", "")
+            # Use description (computed), fallback to category_data.name, then name
+            item["rm_name"] = rm.get("description") or rm.get("category_data", {}).get("name") or rm.get("name") or ""
             item["category"] = rm.get("category", "")
             item["unit"] = rm.get("default_unit", "PCS")
         
