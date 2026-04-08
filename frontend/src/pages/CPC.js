@@ -92,12 +92,16 @@ const CPC = () => {
   const [loadingForecastLots, setLoadingForecastLots] = useState(false);
   
   // Delete Schedule tab state
-  const [deleteMonth, setDeleteMonth] = useState("");
+  const [deleteYear, setDeleteYear] = useState("");
+  const [deleteMonthNum, setDeleteMonthNum] = useState("");
   const [deleteBranch, setDeleteBranch] = useState("");
   const [deletePreview, setDeletePreview] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  
+  // Combine year and month for API calls
+  const deleteMonth = deleteYear && deleteMonthNum ? `${deleteYear}-${deleteMonthNum}` : "";
   
   // Loading
   const [loading, setLoading] = useState(true);
@@ -212,7 +216,8 @@ const CPC = () => {
       });
       toast.success(res.data.message);
       setShowDeleteConfirmDialog(false);
-      setDeleteMonth("");
+      setDeleteYear("");
+      setDeleteMonthNum("");
       setDeleteBranch("");
       setDeletePreview(null);
       fetchAllData();
@@ -226,6 +231,40 @@ const CPC = () => {
   const getMinMonth = () => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+  
+  // Generate year options (current year + next 2 years)
+  const getYearOptions = () => {
+    const currentYear = new Date().getFullYear();
+    return [currentYear, currentYear + 1, currentYear + 2];
+  };
+  
+  // Generate month options (filter out past months for current year)
+  const getMonthOptions = () => {
+    const months = [
+      { value: "01", label: "January" },
+      { value: "02", label: "February" },
+      { value: "03", label: "March" },
+      { value: "04", label: "April" },
+      { value: "05", label: "May" },
+      { value: "06", label: "June" },
+      { value: "07", label: "July" },
+      { value: "08", label: "August" },
+      { value: "09", label: "September" },
+      { value: "10", label: "October" },
+      { value: "11", label: "November" },
+      { value: "12", label: "December" }
+    ];
+    
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    
+    // If selected year is current year, filter out past months
+    if (deleteYear && parseInt(deleteYear) === currentYear) {
+      return months.filter(m => parseInt(m.value) >= currentMonth);
+    }
+    
+    return months;
   };
 
   const handleAllocateOverflow = async (idx) => {
@@ -852,17 +891,43 @@ const CPC = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Selection Form */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-zinc-50 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-zinc-50 rounded-lg">
+                <div>
+                  <Label>Year *</Label>
+                  <Select value={deleteYear || "_none"} onValueChange={(v) => {
+                    setDeleteYear(v === "_none" ? "" : v);
+                    // Reset month if year changes to ensure valid month selection
+                    setDeleteMonthNum("");
+                  }}>
+                    <SelectTrigger data-testid="delete-year-select">
+                      <SelectValue placeholder="Select year..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Select year...</SelectItem>
+                      {getYearOptions().map(year => (
+                        <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
                 <div>
                   <Label>Month *</Label>
-                  <Input
-                    type="month"
-                    value={deleteMonth}
-                    onChange={(e) => setDeleteMonth(e.target.value)}
-                    min={getMinMonth()}
-                    className="font-mono"
-                    data-testid="delete-month-input"
-                  />
+                  <Select 
+                    value={deleteMonthNum || "_none"} 
+                    onValueChange={(v) => setDeleteMonthNum(v === "_none" ? "" : v)}
+                    disabled={!deleteYear}
+                  >
+                    <SelectTrigger data-testid="delete-month-select">
+                      <SelectValue placeholder={deleteYear ? "Select month..." : "Select year first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Select month...</SelectItem>
+                      {getMonthOptions().map(m => (
+                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground mt-1">Cannot select past months</p>
                 </div>
                 
@@ -990,11 +1055,11 @@ const CPC = () => {
               )}
               
               {/* Empty State */}
-              {!deleteMonth && !deleteBranch && (
+              {(!deleteYear || !deleteMonthNum) && !deleteBranch && (
                 <Card className="bg-zinc-50">
                   <CardContent className="p-8 text-center text-muted-foreground">
                     <Calendar className="w-8 h-8 mx-auto mb-2" />
-                    <p>Select a month and branch to preview schedules for deletion</p>
+                    <p>Select year, month, and branch to preview schedules for deletion</p>
                   </CardContent>
                 </Card>
               )}
