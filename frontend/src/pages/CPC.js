@@ -12,13 +12,14 @@ import {
   ClipboardList,
   Package,
   ExternalLink,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +90,14 @@ const CPC = () => {
   const [forecastLots, setForecastLots] = useState([]);
   const [selectedForecast, setSelectedForecast] = useState(null);
   const [loadingForecastLots, setLoadingForecastLots] = useState(false);
+  
+  // Delete Schedule tab state
+  const [deleteMonth, setDeleteMonth] = useState("");
+  const [deleteBranch, setDeleteBranch] = useState("");
+  const [deletePreview, setDeletePreview] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   
   // Loading
   const [loading, setLoading] = useState(true);
@@ -161,6 +170,62 @@ const CPC = () => {
     } catch (error) {
       console.error("Failed to fetch available capacity:", error);
     }
+  };
+
+  // ===== Delete Schedule Functions =====
+  const fetchDeletePreview = async () => {
+    if (!deleteMonth || !deleteBranch) {
+      setDeletePreview(null);
+      return;
+    }
+    
+    setDeleteLoading(true);
+    try {
+      const res = await axios.get(`${API}/cpc/production-schedules/preview-delete?month=${deleteMonth}&branch=${encodeURIComponent(deleteBranch)}`);
+      setDeletePreview(res.data);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        toast.error(detail);
+      }
+      setDeletePreview(null);
+    }
+    setDeleteLoading(false);
+  };
+
+  useEffect(() => {
+    if (deleteMonth && deleteBranch) {
+      fetchDeletePreview();
+    } else {
+      setDeletePreview(null);
+    }
+  }, [deleteMonth, deleteBranch]);
+
+  const handleDeleteSchedules = async () => {
+    if (!deleteMonth || !deleteBranch) return;
+    
+    setDeleting(true);
+    try {
+      const res = await axios.post(`${API}/cpc/production-schedules/bulk-soft-delete`, {
+        month: deleteMonth,
+        branch: deleteBranch
+      });
+      toast.success(res.data.message);
+      setShowDeleteConfirmDialog(false);
+      setDeleteMonth("");
+      setDeleteBranch("");
+      setDeletePreview(null);
+      fetchAllData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete schedules");
+    }
+    setDeleting(false);
+  };
+
+  // Get minimum month for delete (current month)
+  const getMinMonth = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   };
 
   const handleAllocateOverflow = async (idx) => {
@@ -327,6 +392,10 @@ const CPC = () => {
           <TabsTrigger value="schedules" className="uppercase text-xs tracking-wide" data-testid="schedules-tab">
             <Calendar className="w-4 h-4 mr-2" />
             Production Schedule
+          </TabsTrigger>
+          <TabsTrigger value="delete-schedule" className="uppercase text-xs tracking-wide text-red-600" data-testid="delete-schedule-tab">
+            <Trash2 className="w-4 h-4 mr-2" />
+            Delete Schedule
           </TabsTrigger>
         </TabsList>
 
@@ -763,6 +832,171 @@ const CPC = () => {
                     </Card>
                   ))}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Delete Schedule Tab */}
+        <TabsContent value="delete-schedule" data-testid="delete-schedule-content">
+          <Card className="border-red-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <Trash2 className="w-5 h-5" />
+                Delete Production Schedules
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Soft-delete schedules for a month and branch. Deleted schedules will not appear in planning.
+                When new schedules are created, completed quantities will be auto-populated.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Selection Form */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-zinc-50 rounded-lg">
+                <div>
+                  <Label>Month *</Label>
+                  <Input
+                    type="month"
+                    value={deleteMonth}
+                    onChange={(e) => setDeleteMonth(e.target.value)}
+                    min={getMinMonth()}
+                    className="font-mono"
+                    data-testid="delete-month-input"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Cannot select past months</p>
+                </div>
+                
+                <div>
+                  <Label>Branch *</Label>
+                  <Select value={deleteBranch || "_none"} onValueChange={(v) => setDeleteBranch(v === "_none" ? "" : v)}>
+                    <SelectTrigger data-testid="delete-branch-select">
+                      <SelectValue placeholder="Select branch..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Select a branch...</SelectItem>
+                      {availableBranches.map(b => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="flex items-end">
+                  <Button
+                    variant="destructive"
+                    disabled={!deleteMonth || !deleteBranch || deleteLoading || !deletePreview?.summary?.total_count}
+                    onClick={() => setShowDeleteConfirmDialog(true)}
+                    className="w-full"
+                    data-testid="delete-schedules-btn"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Schedules
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Loading State */}
+              {deleteLoading && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin inline-block w-6 h-6 border-2 border-current border-t-transparent rounded-full mb-2" />
+                  <p>Loading preview...</p>
+                </div>
+              )}
+              
+              {/* Preview Section */}
+              {deletePreview && !deleteLoading && (
+                <div className="space-y-4">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Card className="border-red-200 bg-red-50">
+                      <CardContent className="p-4 text-center">
+                        <p className="text-3xl font-bold text-red-600">{deletePreview.summary?.total_count || 0}</p>
+                        <p className="text-xs text-red-700">Schedules to Delete</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <p className="text-3xl font-bold text-amber-600">{deletePreview.summary?.schedules_with_completion || 0}</p>
+                        <p className="text-xs text-muted-foreground">With Completed Qty</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <p className="text-3xl font-bold">{deletePreview.summary?.total_target_quantity?.toLocaleString() || 0}</p>
+                        <p className="text-xs text-muted-foreground">Total Target Qty</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <p className="text-3xl font-bold text-green-600">{deletePreview.summary?.total_completed_quantity?.toLocaleString() || 0}</p>
+                        <p className="text-xs text-muted-foreground">Total Completed Qty</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  {/* Preview Table */}
+                  {deletePreview.schedules?.length > 0 ? (
+                    <Card>
+                      <CardHeader className="py-3 px-4 bg-zinc-50 border-b">
+                        <CardTitle className="text-sm">Preview: Schedules to be deleted</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0 max-h-[400px] overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-zinc-100 sticky top-0">
+                            <tr>
+                              <th className="py-2 px-3 text-left font-medium">Schedule Code</th>
+                              <th className="py-2 px-3 text-left font-medium">SKU</th>
+                              <th className="py-2 px-3 text-left font-medium">Date</th>
+                              <th className="py-2 px-3 text-right font-medium">Target</th>
+                              <th className="py-2 px-3 text-right font-medium">Completed</th>
+                              <th className="py-2 px-3 text-center font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {deletePreview.schedules.map((s, idx) => (
+                              <tr key={s.id || idx} className="hover:bg-zinc-50">
+                                <td className="py-2 px-3 font-mono text-xs">{s.schedule_code}</td>
+                                <td className="py-2 px-3">
+                                  <div className="font-mono text-xs">{s.sku_id}</div>
+                                  <div className="text-xs text-muted-foreground truncate max-w-[150px]">{s.sku_description}</div>
+                                </td>
+                                <td className="py-2 px-3 font-mono text-xs">
+                                  {s.target_date ? new Date(s.target_date).toLocaleDateString() : '-'}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono">{s.target_quantity?.toLocaleString()}</td>
+                                <td className={`py-2 px-3 text-right font-mono ${s.completed_quantity > 0 ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                                  {s.completed_quantity?.toLocaleString() || 0}
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <Badge variant={s.status === 'COMPLETED' ? 'default' : 'secondary'} className="text-xs">
+                                    {s.status}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card className="bg-zinc-50">
+                      <CardContent className="p-8 text-center text-muted-foreground">
+                        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
+                        <p>No schedules found for {deleteBranch} in {deleteMonth}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+              
+              {/* Empty State */}
+              {!deleteMonth && !deleteBranch && (
+                <Card className="bg-zinc-50">
+                  <CardContent className="p-8 text-center text-muted-foreground">
+                    <Calendar className="w-8 h-8 mx-auto mb-2" />
+                    <p>Select a month and branch to preview schedules for deletion</p>
+                  </CardContent>
+                </Card>
               )}
             </CardContent>
           </Card>
@@ -1372,6 +1606,56 @@ const CPC = () => {
               Close
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirmDialog} onOpenChange={setShowDeleteConfirmDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Schedule Deletion
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm">
+                Are you sure you want to delete <strong className="text-red-600">{deletePreview?.summary?.total_count || 0} production schedules</strong> for:
+              </p>
+              <ul className="mt-2 text-sm space-y-1">
+                <li><strong>Branch:</strong> {deleteBranch}</li>
+                <li><strong>Month:</strong> {deleteMonth}</li>
+              </ul>
+            </div>
+            
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Schedules will be marked as "DELETED" (soft delete). 
+                {deletePreview?.summary?.schedules_with_completion > 0 && (
+                  <span> {deletePreview.summary.schedules_with_completion} schedule(s) have completed quantities that will be preserved for new schedules.</span>
+                )}
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowDeleteConfirmDialog(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteSchedules}
+              disabled={deleting}
+              data-testid="confirm-delete-btn"
+            >
+              {deleting ? "Deleting..." : "Yes, Delete Schedules"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
