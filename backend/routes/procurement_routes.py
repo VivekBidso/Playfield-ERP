@@ -405,7 +405,7 @@ async def create_ibt_transfer(data: IBTCreate):
         "quantity": data.quantity,
         "dispatched_quantity": 0,
         "received_quantity": 0,
-        "status": "INITIATED",
+        "status": "READY_FOR_DISPATCH",  # Skip approval - ready for dispatch immediately
         "initiated_at": datetime.now(timezone.utc).isoformat(),
         "notes": data.notes,
         # Transit details
@@ -426,45 +426,27 @@ async def create_ibt_transfer(data: IBTCreate):
 
 @router.put("/ibt-transfers/{transfer_id}/approve")
 async def approve_ibt_transfer(transfer_id: str):
-    """Approve IBT transfer - validates inventory still available"""
+    """
+    DEPRECATED: Approval step is no longer required.
+    IBT transfers go directly from INITIATED/READY_FOR_DISPATCH to dispatch.
+    This endpoint is kept for backward compatibility but just returns success.
+    """
     transfer = await db.ibt_transfers.find_one({"id": transfer_id})
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
     
-    if transfer.get("status") != "INITIATED":
-        raise HTTPException(status_code=400, detail=f"Cannot approve transfer in {transfer.get('status')} status")
+    # If already ready for dispatch or beyond, just return success
+    if transfer.get("status") in ["READY_FOR_DISPATCH", "APPROVED", "IN_TRANSIT", "RECEIVED", "COMPLETED"]:
+        return {"message": "Transfer is already ready for dispatch", "transfer_code": transfer.get("transfer_code")}
     
-    # Re-validate inventory
-    if transfer["transfer_type"] == "RM":
-        source_inv = await db.branch_rm_inventory.find_one(
-            {"rm_id": transfer["item_id"], "branch": transfer["source_branch"]},
-            {"_id": 0, "current_stock": 1}
-        )
-    else:
-        source_inv = await db.branch_sku_inventory.find_one(
-            {"buyer_sku_id": transfer["item_id"], "branch": transfer["source_branch"]},
-            {"_id": 0, "current_stock": 1}
+    # For legacy INITIATED status, update to READY_FOR_DISPATCH
+    if transfer.get("status") == "INITIATED":
+        await db.ibt_transfers.update_one(
+            {"id": transfer_id},
+            {"$set": {"status": "READY_FOR_DISPATCH"}}
         )
     
-    available_stock = source_inv.get("current_stock", 0) if source_inv else 0
-    
-    if available_stock < transfer["quantity"]:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "INSUFFICIENT_INVENTORY",
-                "message": f"Inventory reduced since initiation. Only {available_stock} available.",
-                "available": available_stock,
-                "requested": transfer["quantity"]
-            }
-        )
-    
-    await db.ibt_transfers.update_one(
-        {"id": transfer_id},
-        {"$set": {"status": "APPROVED", "approved_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    return {"message": "Transfer approved", "transfer_code": transfer.get("transfer_code")}
+    return {"message": "Transfer ready for dispatch", "transfer_code": transfer.get("transfer_code")}
 
 
 @router.put("/ibt-transfers/{transfer_id}/dispatch")
@@ -483,8 +465,10 @@ async def dispatch_ibt_transfer(
     if not transfer:
         raise HTTPException(status_code=404, detail="Transfer not found")
     
-    if transfer.get("status") != "APPROVED":
-        raise HTTPException(status_code=400, detail=f"Cannot dispatch transfer in {transfer.get('status')} status. Must be APPROVED first.")
+    # Allow dispatch from INITIATED, READY_FOR_DISPATCH, or APPROVED (legacy) status
+    allowed_statuses = ["INITIATED", "READY_FOR_DISPATCH", "APPROVED"]
+    if transfer.get("status") not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Cannot dispatch transfer in {transfer.get('status')} status.")
     
     # Final inventory check before deduction
     if transfer["transfer_type"] == "RM":

@@ -200,20 +200,8 @@ const IBT = () => {
     setAvailableStock(null);
   };
 
-  const handleApprove = async (transferId) => {
-    try {
-      await axios.put(`${API}/ibt-transfers/${transferId}/approve`, {}, { headers: getHeaders() });
-      toast.success("Transfer approved");
-      fetchAllData();
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      if (detail?.error === "INSUFFICIENT_INVENTORY") {
-        toast.error(`Cannot approve: Only ${detail.available} available`);
-      } else {
-        toast.error(typeof detail === 'string' ? detail : "Failed to approve");
-      }
-    }
-  };
+  // Note: Approval step removed - IBT can be dispatched directly after creation
+  // The handleApprove function is kept for backward compatibility but is no longer used in UI
 
   const openDispatchDialog = (transfer) => {
     setSelectedTransfer(transfer);
@@ -309,18 +297,21 @@ const IBT = () => {
   const getStatusBadge = (status) => {
     const colors = {
       INITIATED: "bg-gray-100 text-gray-700",
-      APPROVED: "bg-blue-100 text-blue-700",
+      READY_FOR_DISPATCH: "bg-blue-100 text-blue-700",
+      APPROVED: "bg-blue-100 text-blue-700", // Legacy support
       IN_TRANSIT: "bg-purple-100 text-purple-700",
       COMPLETED: "bg-green-100 text-green-700",
       CANCELLED: "bg-red-100 text-red-700"
     };
-    return <Badge className={colors[status] || "bg-gray-200"}>{status?.replace("_", " ")}</Badge>;
+    const displayStatus = status === "READY_FOR_DISPATCH" ? "READY" : status?.replace("_", " ");
+    return <Badge className={colors[status] || "bg-gray-200"}>{displayStatus}</Badge>;
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
       case 'INITIATED': return <Clock className="w-4 h-4 text-gray-500" />;
-      case 'APPROVED': return <CheckCircle className="w-4 h-4 text-blue-500" />;
+      case 'READY_FOR_DISPATCH': return <CheckCircle className="w-4 h-4 text-blue-500" />;
+      case 'APPROVED': return <CheckCircle className="w-4 h-4 text-blue-500" />; // Legacy
       case 'IN_TRANSIT': return <Truck className="w-4 h-4 text-purple-500" />;
       case 'COMPLETED': return <Package className="w-4 h-4 text-green-500" />;
       case 'CANCELLED': return <XCircle className="w-4 h-4 text-red-500" />;
@@ -341,13 +332,12 @@ const IBT = () => {
 
   const filteredTransfers = transfers.filter(t => {
     if (filter === "all") return true;
-    if (filter === "pending") return t.status === "INITIATED" || t.status === "APPROVED";
+    if (filter === "pending") return t.status === "INITIATED" || t.status === "READY_FOR_DISPATCH" || t.status === "APPROVED";
     if (filter === "in_transit") return t.status === "IN_TRANSIT";
     if (filter === "completed") return t.status === "COMPLETED";
     return true;
   });
 
-  const canApprove = user?.role === "master_admin" || user?.role === "MASTER_ADMIN";
   const pendingShortages = shortages.filter(s => s.status === "PENDING_INVESTIGATION").length;
 
   if (loading) {
@@ -397,9 +387,9 @@ const IBT = () => {
         <Card className={`cursor-pointer ${filter === 'pending' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('pending')}>
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold text-yellow-600">
-              {transfers.filter(t => t.status === "INITIATED" || t.status === "APPROVED").length}
+              {transfers.filter(t => t.status === "INITIATED" || t.status === "READY_FOR_DISPATCH" || t.status === "APPROVED").length}
             </p>
-            <p className="text-sm text-zinc-500">Pending</p>
+            <p className="text-sm text-zinc-500">Ready to Dispatch</p>
           </CardContent>
         </Card>
         <Card className={`cursor-pointer ${filter === 'in_transit' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('in_transit')}>
@@ -502,13 +492,8 @@ const IBT = () => {
                             <Eye className="w-4 h-4" />
                           </Button>
                           
-                          {transfer.status === "INITIATED" && canApprove && (
-                            <Button size="sm" variant="outline" onClick={() => handleApprove(transfer.id)}>
-                              Approve
-                            </Button>
-                          )}
-                          
-                          {transfer.status === "APPROVED" && (
+                          {/* Dispatch button - available immediately after creation */}
+                          {(transfer.status === "INITIATED" || transfer.status === "READY_FOR_DISPATCH" || transfer.status === "APPROVED") && (
                             <Button size="sm" variant="outline" onClick={() => openDispatchDialog(transfer)}>
                               <Send className="w-4 h-4 mr-1" />
                               Dispatch
@@ -522,7 +507,7 @@ const IBT = () => {
                             </Button>
                           )}
                           
-                          {(transfer.status === "INITIATED" || transfer.status === "APPROVED") && (
+                          {(transfer.status === "INITIATED" || transfer.status === "READY_FOR_DISPATCH" || transfer.status === "APPROVED") && (
                             <Button size="sm" variant="ghost" className="text-red-500" onClick={() => handleCancel(transfer.id)}>
                               <XCircle className="w-4 h-4" />
                             </Button>

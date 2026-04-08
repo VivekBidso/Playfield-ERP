@@ -2,6 +2,41 @@
 
 ## April 7, 2026
 
+### IBT Flow Simplification
+
+**Deployment: IBT Workflow Update**
+
+Removed the approval step from Inter-Branch Transfer (IBT) flow per user request:
+
+**Before:**
+1. Branch Ops initiates IBT → Status: `INITIATED`
+2. Master Admin approves → Status: `APPROVED`
+3. Logistics dispatches → Status: `IN_TRANSIT`
+4. Destination receives → Status: `COMPLETED`
+
+**After (Simplified):**
+1. Branch Ops initiates IBT → Status: `READY_FOR_DISPATCH`
+2. Logistics dispatches → Status: `IN_TRANSIT`
+3. Destination receives → Status: `COMPLETED`
+
+#### Changes Made
+- **Backend** (`procurement_routes.py`):
+  - New IBT transfers now get status `READY_FOR_DISPATCH` instead of `INITIATED`
+  - Dispatch endpoint now accepts `INITIATED`, `READY_FOR_DISPATCH`, or `APPROVED` status
+  - Approve endpoint deprecated (kept for backward compatibility, just returns success)
+  
+- **Frontend** (`IBT.js`):
+  - Removed "Approve" button from the UI
+  - "Dispatch" button now shows immediately after IBT creation
+  - Updated status badges to show "READY" for `READY_FOR_DISPATCH` status
+  - "Pending" card renamed to "Ready to Dispatch"
+
+#### Backward Compatibility
+- Existing `INITIATED` and `APPROVED` transfers can still be dispatched
+- Legacy approve endpoint returns success without blocking
+
+---
+
 ### System Design Documentation
 
 **Deployment: Documentation Update**
