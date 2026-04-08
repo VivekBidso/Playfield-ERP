@@ -61,7 +61,10 @@ const IBT = () => {
     expected_arrival: ""
   });
   
-  // Multi-item support
+  // Multi-item support - each row has item_id, quantity, and stock info
+  const [itemRows, setItemRows] = useState([{ item_id: "", quantity: "", availableStock: null }]);
+  
+  // Legacy support - keep for backward compatibility
   const [itemsToTransfer, setItemsToTransfer] = useState([]);
   const [currentItem, setCurrentItem] = useState({ item_id: "", quantity: 0 });
   
@@ -135,72 +138,58 @@ const IBT = () => {
     }
   };
   
-  // Check stock for current item being added
-  const checkCurrentItemStock = async () => {
-    if (!form.source_branch || !currentItem.item_id) {
-      setAvailableStock(null);
+  // Check stock for a specific item row
+  const checkRowStock = async (rowIndex, itemId) => {
+    if (!form.source_branch || !itemId) {
       return;
     }
-    setCheckingStock(true);
-    const stock = await checkInventory(currentItem.item_id);
-    setAvailableStock(stock);
-    setCheckingStock(false);
+    const stock = await checkInventory(itemId);
+    setItemRows(prev => {
+      const updated = [...prev];
+      updated[rowIndex] = { ...updated[rowIndex], availableStock: stock };
+      return updated;
+    });
   };
-
-  useEffect(() => {
-    checkCurrentItemStock();
-  }, [form.source_branch, currentItem.item_id, form.transfer_type]);
   
-  // Add item to transfer list
-  const handleAddItem = async () => {
-    if (!currentItem.item_id || currentItem.quantity <= 0) {
-      toast.error("Select an item and enter a valid quantity");
-      return;
-    }
+  // Update item row
+  const updateItemRow = (index, field, value) => {
+    setItemRows(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
     
-    // Check if item already added
-    if (itemsToTransfer.some(i => i.item_id === currentItem.item_id)) {
-      toast.error("Item already added to transfer");
-      return;
+    // Check stock when item changes
+    if (field === 'item_id' && value) {
+      checkRowStock(index, value);
     }
-    
-    // Validate stock
-    const stock = await checkInventory(currentItem.item_id);
-    if (stock !== null && currentItem.quantity > stock) {
-      toast.error(`Insufficient stock. Only ${stock} available.`);
-      return;
-    }
-    
-    // Get item name for display
-    let itemName = currentItem.item_id;
-    if (form.transfer_type === "RM") {
-      const rm = rawMaterials.find(r => r.rm_id === currentItem.item_id);
-      itemName = rm ? `${rm.rm_id} - ${rm.description?.substring(0, 30) || ''}` : currentItem.item_id;
+  };
+  
+  // Add new item row
+  const addItemRow = () => {
+    setItemRows(prev => [...prev, { item_id: "", quantity: "", availableStock: null }]);
+  };
+  
+  // Remove item row
+  const removeItemRow = (index) => {
+    if (itemRows.length === 1) {
+      // Don't remove the last row, just clear it
+      setItemRows([{ item_id: "", quantity: "", availableStock: null }]);
     } else {
-      const sku = buyerSkus.find(s => s.buyer_sku_id === currentItem.item_id);
-      itemName = sku ? `${sku.buyer_sku_id} - ${sku.name?.substring(0, 30) || ''}` : currentItem.item_id;
+      setItemRows(prev => prev.filter((_, i) => i !== index));
     }
-    
-    setItemsToTransfer([...itemsToTransfer, {
-      item_id: currentItem.item_id,
-      item_name: itemName,
-      quantity: parseFloat(currentItem.quantity),
-      available_stock: stock
-    }]);
-    
-    setCurrentItem({ item_id: "", quantity: 0 });
-    setAvailableStock(null);
-    toast.success("Item added to transfer");
   };
   
-  // Remove item from transfer list
-  const handleRemoveItem = (itemId) => {
-    setItemsToTransfer(itemsToTransfer.filter(i => i.item_id !== itemId));
+  // Get valid items from rows (items with both item_id and quantity)
+  const getValidItems = () => {
+    return itemRows.filter(row => row.item_id && row.quantity && parseFloat(row.quantity) > 0);
   };
 
   const handleCreateTransfer = async () => {
-    if (!form.source_branch || !form.destination_branch || itemsToTransfer.length === 0) {
-      toast.error("Please select branches and add at least one item");
+    const validItems = getValidItems();
+    
+    if (!form.source_branch || !form.destination_branch || validItems.length === 0) {
+      toast.error("Please select branches and add at least one item with quantity");
       return;
     }
     
@@ -209,13 +198,21 @@ const IBT = () => {
       return;
     }
     
+    // Validate stock for all items
+    for (const item of validItems) {
+      if (item.availableStock !== null && parseFloat(item.quantity) > item.availableStock) {
+        toast.error(`Insufficient stock for ${item.item_id}. Only ${item.availableStock} available.`);
+        return;
+      }
+    }
+    
     setSubmitting(true);
     try {
       const res = await axios.post(`${API}/ibt-transfers`, {
         transfer_type: form.transfer_type,
         source_branch: form.source_branch,
         destination_branch: form.destination_branch,
-        items: itemsToTransfer.map(i => ({ item_id: i.item_id, quantity: i.quantity })),
+        items: validItems.map(i => ({ item_id: i.item_id, quantity: parseFloat(i.quantity) })),
         notes: form.notes,
         vehicle_number: form.vehicle_number || null,
         driver_name: form.driver_name || null,
@@ -223,7 +220,7 @@ const IBT = () => {
         expected_arrival: form.expected_arrival || null
       }, { headers: getHeaders() });
       
-      toast.success(`Transfer ${res.data.transfer?.transfer_code} created with ${itemsToTransfer.length} item(s)`);
+      toast.success(`Transfer ${res.data.transfer?.transfer_code} created with ${validItems.length} item(s)`);
       setShowCreateDialog(false);
       resetForm();
       fetchAllData();
@@ -249,6 +246,7 @@ const IBT = () => {
       driver_contact: "",
       expected_arrival: ""
     });
+    setItemRows([{ item_id: "", quantity: "", availableStock: null }]);
     setItemsToTransfer([]);
     setCurrentItem({ item_id: "", quantity: 0 });
     setAvailableStock(null);
@@ -640,16 +638,16 @@ const IBT = () => {
 
       {/* Create Transfer Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Create Inter-Branch Transfer</DialogTitle>
             <DialogDescription>Transfer RM or Finished Goods between branches</DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
             <div>
               <Label>Transfer Type</Label>
-              <Select value={form.transfer_type} onValueChange={(v) => setForm({ ...form, transfer_type: v, item_id: "" })}>
+              <Select value={form.transfer_type} onValueChange={(v) => { setForm({ ...form, transfer_type: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -663,7 +661,7 @@ const IBT = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Source Branch *</Label>
-                <Select value={form.source_branch} onValueChange={(v) => { setForm({ ...form, source_branch: v }); setItemsToTransfer([]); }}>
+                <Select value={form.source_branch} onValueChange={(v) => { setForm({ ...form, source_branch: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="From..." />
                   </SelectTrigger>
@@ -691,101 +689,91 @@ const IBT = () => {
             
             <Separator />
             
-            {/* Items Section */}
+            {/* Inline Item Rows */}
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <Label className="text-base font-medium">Items to Transfer</Label>
-                <Badge variant="outline">{itemsToTransfer.length} item(s)</Badge>
-              </div>
-              
-              {/* Added Items List */}
-              {itemsToTransfer.length > 0 && (
-                <div className="bg-zinc-50 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                  {itemsToTransfer.map((item, idx) => (
-                    <div key={item.item_id} className="flex items-center justify-between bg-white p-2 rounded border">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.item_name}</p>
-                        <p className="text-xs text-zinc-500">Qty: {item.quantity}</p>
-                      </div>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="text-red-500 hover:text-red-700 ml-2"
-                        onClick={() => handleRemoveItem(item.item_id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {/* Add Item Form */}
-              <div className="bg-blue-50 p-3 rounded-lg space-y-3">
-                <p className="text-sm font-medium text-blue-700">Add Item</p>
-                <div>
-                  <Label className="text-xs">Select Item</Label>
-                  <Select 
-                    value={currentItem.item_id} 
-                    onValueChange={(v) => setCurrentItem({ ...currentItem, item_id: v })}
-                    disabled={!form.source_branch}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={form.source_branch ? "Select item..." : "Select source branch first"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {form.transfer_type === "RM" 
-                        ? rawMaterials
-                            .filter(rm => !itemsToTransfer.some(i => i.item_id === rm.rm_id))
-                            .slice(0, 200).map(rm => (
-                              <SelectItem key={rm.rm_id} value={rm.rm_id}>
-                                {rm.rm_id} - {rm.description?.substring(0, 40)}
-                              </SelectItem>
-                            ))
-                        : buyerSkus
-                            .filter(sku => !itemsToTransfer.some(i => i.item_id === sku.buyer_sku_id))
-                            .slice(0, 200).map(sku => (
-                              <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
-                                {sku.buyer_sku_id} - {sku.name?.substring(0, 40)}
-                              </SelectItem>
-                            ))
-                      }
-                    </SelectContent>
-                  </Select>
+              {itemRows.map((row, index) => (
+                <div key={index} className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <Label className="text-xs text-zinc-500">Item {index + 1}</Label>
+                    <Select 
+                      value={row.item_id} 
+                      onValueChange={(v) => updateItemRow(index, 'item_id', v)}
+                      disabled={!form.source_branch}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={form.source_branch ? "Select item..." : "Select source branch first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {form.transfer_type === "RM" 
+                          ? rawMaterials
+                              .filter(rm => !itemRows.some((r, i) => i !== index && r.item_id === rm.rm_id))
+                              .slice(0, 200).map(rm => (
+                                <SelectItem key={rm.rm_id} value={rm.rm_id}>
+                                  {rm.rm_id} - {rm.description?.substring(0, 30)}
+                                </SelectItem>
+                              ))
+                          : buyerSkus
+                              .filter(sku => !itemRows.some((r, i) => i !== index && r.item_id === sku.buyer_sku_id))
+                              .slice(0, 200).map(sku => (
+                                <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
+                                  {sku.buyer_sku_id} - {sku.name?.substring(0, 30)}
+                                </SelectItem>
+                              ))
+                        }
+                      </SelectContent>
+                    </Select>
+                    {row.availableStock !== null && row.item_id && (
+                      <p className={`text-xs mt-1 ${row.availableStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        Available: {row.availableStock}
+                      </p>
+                    )}
+                  </div>
                   
-                  {availableStock !== null && form.source_branch && currentItem.item_id && (
-                    <p className={`text-xs mt-1 ${availableStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      Available at {form.source_branch}: {availableStock}
-                    </p>
-                  )}
-                </div>
-                
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <Label className="text-xs">Quantity</Label>
+                  <div className="w-24">
+                    <Label className="text-xs text-zinc-500">Qty</Label>
                     <Input 
                       type="number" 
                       min="0"
-                      placeholder="Enter qty"
-                      value={currentItem.quantity || ""}
-                      onChange={(e) => setCurrentItem({ ...currentItem, quantity: e.target.value })}
-                      className={currentItem.quantity > availableStock && availableStock !== null ? 'border-red-500' : ''}
+                      placeholder="Qty"
+                      value={row.quantity}
+                      onChange={(e) => updateItemRow(index, 'quantity', e.target.value)}
+                      className={row.availableStock !== null && parseFloat(row.quantity) > row.availableStock ? 'border-red-500' : ''}
                     />
                   </div>
-                  <Button 
-                    type="button"
-                    onClick={handleAddItem}
-                    disabled={!currentItem.item_id || !currentItem.quantity || currentItem.quantity <= 0}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add
-                  </Button>
+                  
+                  {/* Show delete button for all rows except first if it's the only one */}
+                  {(itemRows.length > 1 || row.item_id) && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-red-500 hover:text-red-700 mt-5"
+                      onClick={() => removeItemRow(index)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                  
+                  {/* Show Add button only on the last row */}
+                  {index === itemRows.length - 1 && (
+                    <Button 
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-5"
+                      onClick={addItemRow}
+                      disabled={!row.item_id || !row.quantity}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </Button>
+                  )}
+                  
+                  {/* Placeholder for alignment when not the last row */}
+                  {index !== itemRows.length - 1 && (
+                    <div className="w-16" />
+                  )}
                 </div>
-                {currentItem.quantity > availableStock && availableStock !== null && (
-                  <p className="text-xs text-red-600">Exceeds available stock!</p>
-                )}
-              </div>
+              ))}
             </div>
             
             <Separator />
@@ -840,15 +828,15 @@ const IBT = () => {
             </div>
           </div>
           
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 pt-4 border-t">
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); resetForm(); }}>
               Cancel
             </Button>
             <Button 
               onClick={handleCreateTransfer} 
-              disabled={submitting || !form.source_branch || !form.destination_branch || itemsToTransfer.length === 0}
+              disabled={submitting || !form.source_branch || !form.destination_branch || getValidItems().length === 0}
             >
-              {submitting ? "Creating..." : `Create Transfer (${itemsToTransfer.length} items)`}
+              {submitting ? "Creating..." : `Create Transfer (${getValidItems().length} item${getValidItems().length !== 1 ? 's' : ''})`}
             </Button>
           </DialogFooter>
         </DialogContent>

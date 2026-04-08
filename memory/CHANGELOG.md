@@ -2,6 +2,33 @@
 
 ## April 8, 2026
 
+### Multi-Item IBT - UI Redesign
+
+**Deployment: IBT Create Form UX Improvement**
+
+Redesigned the IBT Create Transfer dialog based on user feedback:
+
+**Before (Issues):**
+- Form was too long, submit button went out of viewport
+- Separate "Add Item" blue box was confusing
+- Required clicking "Add" before items appeared
+
+**After (Improved UX):**
+- Dialog opens with ONE inline item row ready to fill
+- User fills Item dropdown + Quantity directly
+- Click "+ Add" to add another row below (inline)
+- Dialog body is scrollable if content exceeds viewport (max-h: 85vh)
+- Footer with Cancel/Create buttons stays fixed at bottom
+- Each item row shows available stock and has delete button
+
+**Changes:**
+- New state: `itemRows` array with inline editing
+- Helper functions: `updateItemRow()`, `addItemRow()`, `removeItemRow()`, `getValidItems()`
+- Dialog uses flex layout with `overflow-y-auto` for scrollable body
+- Fixed footer with `flex-shrink-0` and border-top
+
+---
+
 ### Multi-Item IBT Transfers
 
 **Deployment: IBT Enhancement**
