@@ -1,0 +1,83 @@
+{
+  "summary": "CPC Delete Production Schedule feature testing completed. Backend: 13/14 tests passed (1 skipped due to capacity constraints). Frontend: All UI elements verified and working correctly. Fixed a bug where DELETED schedules were appearing in the branch-schedules endpoint.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cpc_delete_schedule.py",
+    "/app/test_reports/pytest/pytest_cpc_delete_schedule.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "All backend API tests passed - Delete Schedule feature fully functional",
+    "GET /api/production-schedules/preview-delete - Returns schedules for given month and branch with summary stats",
+    "POST /api/production-schedules/bulk-soft-delete - Marks schedules as DELETED without hard deleting",
+    "GET /api/production-schedules/deleted-completions - Returns completed quantities from deleted schedules for auto-population",
+    "GET /api/production-schedules - Correctly excludes DELETED schedules",
+    "GET /api/cpc/branch-schedules - Fixed to exclude DELETED schedules (was missing this filter)",
+    "Frontend Delete Schedule tab renders correctly with month picker and branch dropdown",
+    "Summary cards show correct counts (total schedules, schedules with completed qty, total target qty, total completed qty)",
+    "Preview table shows schedule details with correct status badges",
+    "Confirmation dialog shows warning about soft-delete and requires explicit confirmation",
+    "Success toast message appears after deletion",
+    "Form resets after successful deletion"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cpc_delete_schedule.py",
+    "/app/backend/routes/cpc_routes.py"
+  ],
+  "success_rate": {
+    "backend": "93% (13/14 tests passed, 1 skipped)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "admin_user": {"email": "admin@factory.com", "password": "bidso123", "role": "master_admin"}
+  },
+  "seed_data_creation": "Test schedules created during testing with SKU FC_KS_BE_115 and branch Unit 1 Vedica",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "CPC Delete Production Schedule feature fully tested. Key verifications: 1) GET /api/production-schedules/preview-delete?month=YYYY-MM&branch=Name returns schedules for preview with summary stats. 2) POST /api/production-schedules/bulk-soft-delete sets status to 'DELETED' and records deletion metadata. 3) GET /api/production-schedules/deleted-completions returns completed quantities from deleted schedules. 4) Deleted schedules are excluded from /api/production-schedules and /api/cpc/branch-schedules. 5) Frontend has Delete Schedule tab with month picker, branch dropdown, summary cards, preview table, and confirmation dialog. 6) Test month: 2026-04, Test branch: Unit 1 Vedica.",
+  "features_tested": {
+    "backend_api": {
+      "GET /api/production-schedules/preview-delete": "PASS - Returns schedules for given month and branch",
+      "GET /api/production-schedules/preview-delete (invalid month)": "PASS - Returns 400 error",
+      "GET /api/production-schedules/preview-delete (past month)": "PASS - Returns 400 error",
+      "GET /api/production-schedules/preview-delete (missing params)": "PASS - Returns 422 error",
+      "POST /api/production-schedules/bulk-soft-delete": "PASS - Marks schedules as DELETED",
+      "POST /api/production-schedules/bulk-soft-delete (invalid month)": "PASS - Returns 400 error",
+      "POST /api/production-schedules/bulk-soft-delete (past month)": "PASS - Returns 400 error",
+      "POST /api/production-schedules/bulk-soft-delete (no schedules)": "PASS - Returns 0 deleted count",
+      "GET /api/production-schedules (excludes DELETED)": "PASS - No DELETED schedules in response",
+      "GET /api/production-schedules/deleted-completions": "PASS - Returns completed quantities",
+      "GET /api/production-schedules/deleted-completions (invalid month)": "PASS - Returns 400 error",
+      "GET /api/production-schedules/deleted-completions (missing params)": "PASS - Returns 422 error",
+      "GET /api/branches/capacity": "PASS - Returns branch capacities",
+      "GET /api/cpc/branch-schedules (excludes DELETED)": "PASS - Fixed to exclude DELETED schedules"
+    },
+    "frontend_ui": {
+      "CPC page loads at /cpc": "PASS",
+      "Delete Schedule tab (data-testid='delete-schedule-tab')": "PASS",
+      "Delete Schedule content (data-testid='delete-schedule-content')": "PASS",
+      "Month input (data-testid='delete-month-input')": "PASS",
+      "Branch select (data-testid='delete-branch-select')": "PASS",
+      "Delete Schedules button (data-testid='delete-schedules-btn')": "PASS",
+      "Summary cards (4 cards with counts)": "PASS",
+      "Preview table with schedule details": "PASS",
+      "Confirmation dialog with warning": "PASS",
+      "Success toast after deletion": "PASS"
+    }
+  },
+  "bug_fixed": {
+    "description": "DELETED schedules were appearing in /api/cpc/branch-schedules endpoint",
+    "root_cause": "Query filter only excluded CANCELLED status, not DELETED",
+    "fix_applied": "Changed status filter from {\"$ne\": \"CANCELLED\"} to {\"$nin\": [\"CANCELLED\", \"DELETED\"]}",
+    "file_modified": "/app/backend/routes/cpc_routes.py",
+    "line_number": 1553
+  }
+}

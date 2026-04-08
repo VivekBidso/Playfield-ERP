@@ -181,7 +181,7 @@ const CPC = () => {
     
     setDeleteLoading(true);
     try {
-      const res = await axios.get(`${API}/cpc/production-schedules/preview-delete?month=${deleteMonth}&branch=${encodeURIComponent(deleteBranch)}`);
+      const res = await axios.get(`${API}/production-schedules/preview-delete?month=${deleteMonth}&branch=${encodeURIComponent(deleteBranch)}`);
       setDeletePreview(res.data);
     } catch (error) {
       const detail = error.response?.data?.detail;
@@ -206,7 +206,7 @@ const CPC = () => {
     
     setDeleting(true);
     try {
-      const res = await axios.post(`${API}/cpc/production-schedules/bulk-soft-delete`, {
+      const res = await axios.post(`${API}/production-schedules/bulk-soft-delete`, {
         month: deleteMonth,
         branch: deleteBranch
       });
@@ -874,8 +874,8 @@ const CPC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none">Select a branch...</SelectItem>
-                      {availableBranches.map(b => (
-                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      {branchCapacities.map(b => (
+                        <SelectItem key={b.branch} value={b.branch}>{b.branch}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

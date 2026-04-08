@@ -27,8 +27,6 @@ try:
 except ImportError:
     pd = None
 
-router = APIRouter(tags=["CPC - Central Production Control"])
-
 def serialize_doc(doc):
     if doc and 'created_at' in doc and isinstance(doc['created_at'], str):
         doc['created_at'] = datetime.fromisoformat(doc['created_at'])
@@ -1121,185 +1119,6 @@ async def cancel_production_schedule(schedule_id: str):
     return {"message": f"Production schedule {schedule.get('schedule_code')} cancelled"}
 
 
-# ===== Soft Delete Production Schedules =====
-
-class BulkSoftDeleteRequest(BaseModel):
-    month: str  # Format: YYYY-MM
-    branch: str
-
-
-@router.get("/production-schedules/preview-delete")
-async def preview_delete_schedules(month: str, branch: str):
-    """
-    Preview schedules that will be soft-deleted for a given month and branch.
-    Returns list of schedules with their completed quantities.
-    """
-    # Validate month format
-    try:
-        year, month_num = month.split("-")
-        year = int(year)
-        month_num = int(month_num)
-        month_start = datetime(year, month_num, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
-        # Calculate month end
-        if month_num == 12:
-            month_end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        else:
-            month_end = datetime(year, month_num + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
-    
-    # Check if month is in the past
-    today = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if month_start < today:
-        raise HTTPException(status_code=400, detail="Cannot delete schedules for past months")
-    
-    # Get schedules for this month and branch (excluding already deleted)
-    schedules = await db.production_schedules.find({
-        "branch": branch,
-        "target_date": {"$gte": month_start, "$lt": month_end},
-        "status": {"$ne": "DELETED"}
-    }, {"_id": 0}).sort("target_date", 1).to_list(5000)
-    
-    # Calculate summary
-    total_count = len(schedules)
-    completed_count = sum(1 for s in schedules if s.get("completed_quantity", 0) > 0)
-    total_target = sum(s.get("target_quantity", 0) for s in schedules)
-    total_completed = sum(s.get("completed_quantity", 0) for s in schedules)
-    
-    return {
-        "month": month,
-        "branch": branch,
-        "schedules": [serialize_doc(s) for s in schedules],
-        "summary": {
-            "total_count": total_count,
-            "schedules_with_completion": completed_count,
-            "total_target_quantity": total_target,
-            "total_completed_quantity": total_completed
-        }
-    }
-
-
-@router.post("/production-schedules/bulk-soft-delete")
-async def bulk_soft_delete_schedules(data: BulkSoftDeleteRequest):
-    """
-    Soft-delete all production schedules for a given month and branch.
-    Sets status to 'DELETED' and records deletion metadata.
-    Completed quantities are preserved for auto-population when new schedules are created.
-    """
-    # Validate month format
-    try:
-        year, month_num = data.month.split("-")
-        year = int(year)
-        month_num = int(month_num)
-        month_start = datetime(year, month_num, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
-        if month_num == 12:
-            month_end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        else:
-            month_end = datetime(year, month_num + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
-    
-    # Check if month is in the past
-    today = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if month_start < today:
-        raise HTTPException(status_code=400, detail="Cannot delete schedules for past months")
-    
-    # Get count before deletion
-    count = await db.production_schedules.count_documents({
-        "branch": data.branch,
-        "target_date": {"$gte": month_start, "$lt": month_end},
-        "status": {"$ne": "DELETED"}
-    })
-    
-    if count == 0:
-        return {
-            "message": "No schedules found to delete",
-            "deleted_count": 0
-        }
-    
-    # Soft delete - mark as DELETED
-    result = await db.production_schedules.update_many(
-        {
-            "branch": data.branch,
-            "target_date": {"$gte": month_start, "$lt": month_end},
-            "status": {"$ne": "DELETED"}
-        },
-        {
-            "$set": {
-                "status": "DELETED",
-                "deleted_at": datetime.now(timezone.utc),
-                "previous_status": "$status"  # Store previous status for reference
-            }
-        }
-    )
-    
-    return {
-        "message": f"Successfully soft-deleted {result.modified_count} schedules for {data.branch} in {data.month}",
-        "deleted_count": result.modified_count,
-        "month": data.month,
-        "branch": data.branch
-    }
-
-
-@router.get("/production-schedules/deleted-completions")
-async def get_deleted_completions(month: str, branch: str):
-    """
-    Get completed quantities from deleted schedules for auto-population.
-    Used when creating new schedules to recover completed work.
-    Returns a map of (target_date, sku_id) -> {completed_quantity, schedule_id}
-    """
-    try:
-        year, month_num = month.split("-")
-        year = int(year)
-        month_num = int(month_num)
-        month_start = datetime(year, month_num, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
-        if month_num == 12:
-            month_end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        else:
-            month_end = datetime(year, month_num + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
-    
-    # Get deleted schedules with completed quantities > 0
-    deleted_schedules = await db.production_schedules.find({
-        "branch": branch,
-        "target_date": {"$gte": month_start, "$lt": month_end},
-        "status": "DELETED",
-        "completed_quantity": {"$gt": 0}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Create a map for easy lookup
-    completions = {}
-    for s in deleted_schedules:
-        target_date = s.get("target_date")
-        if isinstance(target_date, datetime):
-            date_key = target_date.strftime("%Y-%m-%d")
-        else:
-            date_key = str(target_date)[:10]
-        
-        sku_id = s.get("sku_id")
-        key = f"{date_key}_{sku_id}"
-        
-        completions[key] = {
-            "completed_quantity": s.get("completed_quantity", 0),
-            "deleted_schedule_id": s.get("id"),
-            "deleted_schedule_code": s.get("schedule_code"),
-            "target_date": date_key,
-            "sku_id": sku_id,
-            "original_target_quantity": s.get("target_quantity", 0)
-        }
-    
-    return {
-        "month": month,
-        "branch": branch,
-        "completions": completions,
-        "count": len(completions)
-    }
-
-
 # Legacy endpoint - kept for backward compatibility but simplified
 @router.put("/branch-allocations/{allocation_id}/start")
 async def start_production(allocation_id: str):
@@ -1728,10 +1547,10 @@ async def get_branch_wise_schedules(
     else:
         end = today + timedelta(days=14)
     
-    # Build query
+    # Build query - exclude CANCELLED and DELETED schedules
     query = {
         "target_date": {"$gte": start, "$lt": end},
-        "status": {"$ne": "CANCELLED"}
+        "status": {"$nin": ["CANCELLED", "DELETED"]}
     }
     if branch:
         query["branch"] = branch
