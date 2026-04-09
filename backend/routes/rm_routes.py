@@ -95,6 +95,72 @@ async def enrich_rms_with_description(rms: list) -> list:
     return rms
 
 
+@router.post("/raw-materials/backfill-descriptions")
+async def backfill_rm_descriptions():
+    """
+    One-time backfill endpoint to compute and permanently store descriptions
+    for all raw materials in the database. Call this once after deployment.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get all RMs without a description (or with empty description)
+    query = {
+        "$or": [
+            {"description": {"$exists": False}},
+            {"description": None},
+            {"description": ""}
+        ]
+    }
+    
+    rms_to_update = await db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "category": 1, "category_data": 1}).to_list(50000)
+    logger.info(f"Backfill: Found {len(rms_to_update)} RMs needing description update")
+    
+    if not rms_to_update:
+        return {
+            "success": True,
+            "message": "All RMs already have descriptions",
+            "updated": 0,
+            "skipped": 0
+        }
+    
+    # Pre-load all category formats
+    categories_needed = set(rm.get("category", "") for rm in rms_to_update)
+    category_formats = {}
+    for cat in categories_needed:
+        if cat:
+            category_formats[cat] = await get_category_name_format(cat)
+    
+    updated = 0
+    skipped = 0
+    
+    for rm in rms_to_update:
+        rm_id = rm.get("rm_id")
+        category = rm.get("category", "")
+        name_format = category_formats.get(category, [])
+        
+        # Compute description
+        description = compute_rm_description(rm, name_format)
+        
+        if description:
+            await db.raw_materials.update_one(
+                {"rm_id": rm_id},
+                {"$set": {"description": description}}
+            )
+            updated += 1
+        else:
+            skipped += 1
+    
+    logger.info(f"Backfill complete: {updated} updated, {skipped} skipped")
+    
+    return {
+        "success": True,
+        "message": f"Backfill complete. Updated {updated} RMs, skipped {skipped} (no data to generate description)",
+        "updated": updated,
+        "skipped": skipped
+    }
+
+
 @router.get("/raw-materials/filter-options")
 async def get_filter_options():
     """Get distinct values for filter dropdowns"""
@@ -167,9 +233,14 @@ async def create_raw_material(input: RawMaterialCreate, current_user: User = Dep
     doc = rm.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     doc['created_by'] = current_user.id
-    await db.raw_materials.insert_one(doc)
     
-    return rm
+    # Compute and store description at creation time
+    name_format = await get_category_name_format(input.category)
+    computed_desc = compute_rm_description(doc, name_format)
+    if computed_desc:
+        doc['description'] = computed_desc
+    
+    await db.raw_materials.insert_one(doc)
     
     return rm
 
@@ -308,6 +379,13 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
             
             doc = rm.model_dump()
             doc['created_at'] = doc['created_at'].isoformat()
+            
+            # Compute and store description at creation time
+            name_format = await get_category_name_format(category)
+            computed_desc = compute_rm_description(doc, name_format)
+            if computed_desc:
+                doc['description'] = computed_desc
+            
             await db.raw_materials.insert_one(doc)
             created += 1
             
@@ -315,7 +393,7 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
             created_rms.append({
                 "rm_id": rm_id,
                 "category": category,
-                "name": category_data.get("name") or category_data.get("part_name") or category_data.get("type") or "-"
+                "name": computed_desc or category_data.get("name") or category_data.get("part_name") or category_data.get("type") or "-"
             })
             
         except Exception as e:

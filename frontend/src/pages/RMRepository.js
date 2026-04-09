@@ -759,6 +759,27 @@ const RMRepository = () => {
     }
   };
 
+  const [backfilling, setBackfilling] = useState(false);
+  
+  const handleBackfillDescriptions = async () => {
+    if (!window.confirm("This will compute and permanently store descriptions for all RMs that don't have one. Continue?")) {
+      return;
+    }
+    
+    setBackfilling(true);
+    try {
+      toast.info("Starting description backfill...");
+      const response = await axios.post(`${API}/raw-materials/backfill-descriptions`);
+      const { updated, skipped, message } = response.data;
+      toast.success(message || `Updated ${updated} RMs, skipped ${skipped}`, { duration: 5000 });
+      fetchMaterials(); // Refresh to show new descriptions
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const formatFieldName = (field) => {
     return field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   };
@@ -802,6 +823,18 @@ const RMRepository = () => {
                 Add RM
               </Button>
             </>
+          )}
+          {isAdmin && (
+            <Button 
+              onClick={handleBackfillDescriptions}
+              variant="outline"
+              disabled={backfilling}
+              className="flex items-center gap-2"
+              data-testid="backfill-descriptions-btn"
+            >
+              <Database className="h-4 w-4" />
+              {backfilling ? "Backfilling..." : "Backfill Descriptions"}
+            </Button>
           )}
           <Button 
             onClick={handleExportRepository}
