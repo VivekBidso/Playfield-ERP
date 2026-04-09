@@ -1,5 +1,115 @@
 # Changelog - Factory OPS
 
+## April 9, 2026
+
+### CPC Delete Production Schedule - Orphaned Completions Recovery
+
+**Deployment: Full Completed Quantity Recovery**
+
+Fixed the CPC Delete + Re-upload workflow to properly recover ALL completed work:
+
+**Scenario Fixed:**
+```
+1. Delete April schedules:
+   - SKU_A: completed_quantity = 500
+   - SKU_B: completed_quantity = 300
+   
+2. Upload new schedule with only SKU_A
+
+3. Before: SKU_B's 300 completed units were LOST
+   After: SKU_B auto-recovered with target=300, completed=300, status=COMPLETED
+```
+
+**Two-Part Recovery Logic:**
+1. **Matching SKUs**: If deleted SKU appears in new upload → copy completed_quantity
+2. **Orphaned SKUs**: If deleted SKU NOT in new upload but has completed work → auto-create schedule
+
+**New Schedule Fields:**
+- `replaced_schedule_id` - Links to original deleted schedule
+- `replaced_schedule_code` - Reference code for audit trail
+- Status = `COMPLETED` for auto-recovered orphans
+
+**Result Excel:**
+- Now includes "RECOVERED" status rows for auto-created orphan schedules
+
+---
+
+### Database Explorer - Admin Tool
+
+**Deployment: New Admin Page `/db-explorer`**
+
+Added a Database Explorer for Master Admins to browse and query MongoDB:
+
+**Features:**
+- **Database Overview**: Cards showing all databases with collection/document counts
+- **Browse Tab**: Click any collection to view documents with expandable JSON
+- **Search Tab**: Search by any field (exact or contains match)
+- **Compare DBs Tab**: Compare a document across ALL databases
+- **Aggregate Tab**: Group by any field to see value distributions
+
+**Bug Fixed:**
+- Initially showed "No databases found" in production
+- Cause: Hardcoded database names in whitelist
+- Fix: Changed to dynamic discovery (exclude only system DBs: admin, config, local)
+
+**Files Created:**
+- `/app/backend/routes/admin_db_routes.py`
+- `/app/frontend/src/pages/DBExplorer.js`
+
+---
+
+### CPC Delete Schedule - Month/Year Dropdowns
+
+**Deployment: UI Improvement**
+
+Replaced the native `type="month"` input with two dropdown selectors:
+
+**Changes:**
+- **Year Dropdown**: Shows current year + next 2 years
+- **Month Dropdown**: Shows months, filters out past months for current year
+- Month disabled until year is selected
+- Added Download button alongside Delete button
+
+---
+
+### Branch Ops - Exclude Deleted Schedules
+
+**Deployment: Bug Fix**
+
+Fixed Branch Ops page showing DELETED schedules:
+
+**Change:**
+- Modified `/api/branch-ops/schedules` query
+- Changed filter from `{"$ne": "CANCELLED"}` to `{"$nin": ["CANCELLED", "DELETED"]}`
+
+---
+
+### RM Repository Data Enrichment (factory_ops Database)
+
+**Deployment: Production Data Migration**
+
+Enriched the `factory_ops` database (production environment) with missing data:
+
+**Phase 1 - Basic Fields:**
+| Field | Before | After |
+|-------|--------|-------|
+| description | 0% | 100% |
+| source_type | 0% | 100% |
+| bom_level | 0% | 100% |
+
+**Phase 2 - Category Data Migration:**
+- Migrated `category_data` from `test_database` to `factory_ops`
+- 2,455 RMs now have full category_data (type, colour, model_name, specs, etc.)
+- Descriptions now show rich format: `Maroon_31177 | Scooter Universal | LED Wheels`
+
+**Phase 3 - Vertical Assignment:**
+| Field | Coverage |
+|-------|----------|
+| vertical_ids | 100% (all 2,455 RMs) |
+| model_ids | 9% (225 RMs - limited by name matching) |
+
+---
+
 ## April 8, 2026
 
 ### RM Description Fix - All Views
