@@ -33,6 +33,7 @@ import ColorDevelopment from "@/pages/ColorDevelopment";
 import RMShortage from "@/pages/RMShortage";
 import RMProduction from "@/pages/RMProduction";
 import Inventory from "@/pages/Inventory";
+import DBExplorer from "@/pages/DBExplorer";
 import { Toaster } from "@/components/ui/sonner";
 import useAuthStore from "@/store/authStore";
 import axios from "axios";
@@ -116,6 +117,7 @@ function App() {
             <Route path="demand-hub" element={<DemandHub />} />
             <Route path="demand-sku-view" element={<DemandSKUView />} />
             <Route path="color-development" element={<ColorDevelopment />} />
+            <Route path="db-explorer" element={<AdminRoute><DBExplorer /></AdminRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>

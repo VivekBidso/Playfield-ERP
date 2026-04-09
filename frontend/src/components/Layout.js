@@ -27,7 +27,8 @@ import {
   List,
   Palette,
   AlertTriangle,
-  Warehouse
+  Warehouse,
+  Database
 } from "lucide-react";
 import BranchSelector from "@/components/BranchSelector";
 import useAuthStore from "@/store/authStore";
@@ -90,6 +91,7 @@ const Layout = () => {
     { path: "/events", label: "Event System", icon: Activity, show: isAdmin },
     // Dispatch Legacy page removed - use Dispatch Lots instead
     { path: "/reports", label: "Reports", icon: FileText, show: true },
+    { path: "/db-explorer", label: "DB Explorer", icon: Database, show: isAdmin },
   ];
 
   const handleLogout = () => {
