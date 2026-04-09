@@ -37,6 +37,10 @@ const CPC = () => {
   const [forecastSummary, setForecastSummary] = useState(null);
   const [branchCapacities, setBranchCapacities] = useState([]);
   const [branchSchedules, setBranchSchedules] = useState([]);
+  const [flattenedSchedules, setFlattenedSchedules] = useState([]);
+  const [scheduleSortField, setScheduleSortField] = useState("target_date");
+  const [scheduleSortOrder, setScheduleSortOrder] = useState("asc");
+  const [scheduleStatusFilter, setScheduleStatusFilter] = useState("");
   
   // Dialog states
   const [showScheduleFromForecastDialog, setShowScheduleFromForecastDialog] = useState(false);
@@ -361,10 +365,83 @@ const CPC = () => {
       
       const res = await axios.get(url);
       setBranchSchedules(res.data);
+      
+      // Flatten the grouped data for table view
+      const flattened = [];
+      res.data.forEach(bs => {
+        bs.schedules.forEach(s => {
+          flattened.push({
+            ...s,
+            branch: bs.branch,
+            date: bs.date,
+            date_raw: bs.date_raw || bs.date,
+            capacity: bs.capacity,
+            utilization_percent: bs.utilization_percent
+          });
+        });
+      });
+      setFlattenedSchedules(flattened);
     } catch (error) {
       toast.error("Failed to fetch schedules");
     }
   };
+  
+  // Sort and filter flattened schedules
+  const getSortedSchedules = () => {
+    let filtered = [...flattenedSchedules];
+    
+    // Apply status filter
+    if (scheduleStatusFilter) {
+      filtered = filtered.filter(s => s.status === scheduleStatusFilter);
+    }
+    
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aVal = a[scheduleSortField];
+      let bVal = b[scheduleSortField];
+      
+      // Handle date sorting
+      if (scheduleSortField === "target_date" || scheduleSortField === "date") {
+        aVal = new Date(a.date_raw || a.target_date || a.date);
+        bVal = new Date(b.date_raw || b.target_date || b.date);
+      }
+      
+      // Handle numeric sorting
+      if (scheduleSortField === "target_quantity" || scheduleSortField === "completed_quantity") {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+      }
+      
+      if (aVal < bVal) return scheduleSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return scheduleSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+    
+    return filtered;
+  };
+  
+  const handleScheduleSort = (field) => {
+    if (scheduleSortField === field) {
+      setScheduleSortOrder(scheduleSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setScheduleSortField(field);
+      setScheduleSortOrder("asc");
+    }
+  };
+  
+  const SortHeader = ({ field, children }) => (
+    <th 
+      className="p-3 text-left font-semibold cursor-pointer hover:bg-zinc-100 select-none"
+      onClick={() => handleScheduleSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {children}
+        {scheduleSortField === field && (
+          <span className="text-xs">{scheduleSortOrder === "asc" ? "↑" : "↓"}</span>
+        )}
+      </div>
+    </th>
+  );
 
   const fetchForecastDispatchLots = async (forecast) => {
     setLoadingForecastLots(true);
@@ -808,13 +885,13 @@ const CPC = () => {
                 <div>
                   <CardTitle className="text-lg font-bold flex items-center gap-2">
                     <Calendar className="w-5 h-5" />
-                    Branch-wise Production Schedule
+                    Production Schedules
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    View per-day production schedules by branch
+                    {flattenedSchedules.length} schedules found
                   </p>
                 </div>
-                <div className="flex gap-2 items-end">
+                <div className="flex gap-2 items-end flex-wrap">
                   <div>
                     <Label className="text-xs">Start Date</Label>
                     <Input 
@@ -847,6 +924,20 @@ const CPC = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div>
+                    <Label className="text-xs">Status</Label>
+                    <Select value={scheduleStatusFilter || "_all"} onValueChange={(v) => setScheduleStatusFilter(v === "_all" ? "" : v)}>
+                      <SelectTrigger className="w-36">
+                        <SelectValue placeholder="All Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All Status</SelectItem>
+                        <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                        <SelectItem value="COMPLETED">Completed</SelectItem>
+                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button onClick={fetchBranchSchedules} className="uppercase text-xs">
                     Apply Filter
                   </Button>
@@ -854,79 +945,47 @@ const CPC = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {branchSchedules.length === 0 ? (
+              {flattenedSchedules.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-400" />
                   No production schedules found for the selected period
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {branchSchedules.map((bs, idx) => (
-                    <Card key={`${bs.branch}-${bs.date}-${idx}`} className="border-l-4 border-l-blue-500">
-                      <CardHeader className="py-3">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-4">
-                            <div>
-                              <div className="font-bold font-mono">{bs.branch}</div>
-                              <div className="text-sm text-muted-foreground">{bs.date}</div>
-                            </div>
-                            {bs.capacity_source === 'daily_override' && (
-                              <Badge variant="outline" className="text-xs">Daily Override</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <div className="text-sm text-muted-foreground">Capacity</div>
-                              <div className="font-mono font-bold">{bs.capacity}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm text-muted-foreground">Scheduled</div>
-                              <div className="font-mono font-bold text-blue-600">{bs.total_scheduled}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm text-muted-foreground">Available</div>
-                              <div className={`font-mono font-bold ${bs.available > 0 ? 'text-green-600' : 'text-red-600'}`}>{bs.available}</div>
-                            </div>
-                            <div className="w-20">
-                              <Progress value={bs.utilization_percent} className="h-2" />
-                              <div className="text-xs text-center mt-1">{bs.utilization_percent}%</div>
-                            </div>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b">
-                              <th className="py-2 text-left font-mono text-xs uppercase">Schedule</th>
-                              <th className="py-2 text-left font-mono text-xs uppercase">Forecast</th>
-                              <th className="py-2 text-left font-mono text-xs uppercase">SKU</th>
-                              <th className="py-2 text-right font-mono text-xs uppercase">Qty</th>
-                              <th className="py-2 text-right font-mono text-xs uppercase">Completed</th>
-                              <th className="py-2 text-center font-mono text-xs uppercase">Priority</th>
-                              <th className="py-2 text-center font-mono text-xs uppercase">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {bs.schedules.map((s, sidx) => (
-                              <tr key={sidx} className="border-b last:border-0">
-                                <td className="py-2 font-mono font-bold">{s.schedule_code}</td>
-                                <td className="py-2 font-mono text-blue-600">{s.forecast_code || '-'}</td>
-                                <td className="py-2">
-                                  <div className="font-mono">{s.sku_id}</div>
-                                  <div className="text-xs text-muted-foreground truncate max-w-[200px]">{s.sku_description}</div>
-                                </td>
-                                <td className="py-2 text-right font-mono">{s.target_quantity}</td>
-                                <td className="py-2 text-right font-mono text-green-600">{s.completed_quantity || 0}</td>
-                                <td className="py-2 text-center">{getPriorityBadge(s.priority)}</td>
-                                <td className="py-2 text-center">{getStatusBadge(s.status)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </CardContent>
-                    </Card>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-50 border-b">
+                      <tr>
+                        <SortHeader field="schedule_code">Schedule Code</SortHeader>
+                        <SortHeader field="branch">Branch</SortHeader>
+                        <SortHeader field="date">Date</SortHeader>
+                        <SortHeader field="sku_id">SKU ID</SortHeader>
+                        <th className="p-3 text-left font-semibold">Description</th>
+                        <SortHeader field="target_quantity">Target Qty</SortHeader>
+                        <SortHeader field="completed_quantity">Completed</SortHeader>
+                        <SortHeader field="priority">Priority</SortHeader>
+                        <SortHeader field="status">Status</SortHeader>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getSortedSchedules().map((s, idx) => (
+                        <tr key={`${s.schedule_code}-${idx}`} className="border-b hover:bg-zinc-50">
+                          <td className="p-3 font-mono font-bold text-blue-600">{s.schedule_code}</td>
+                          <td className="p-3">
+                            <Badge variant="outline">{s.branch}</Badge>
+                          </td>
+                          <td className="p-3 font-mono">{s.date}</td>
+                          <td className="p-3 font-mono">{s.sku_id}</td>
+                          <td className="p-3 text-zinc-600 max-w-xs truncate" title={s.sku_description}>
+                            {s.sku_description || "-"}
+                          </td>
+                          <td className="p-3 text-right font-bold">{s.target_quantity?.toLocaleString()}</td>
+                          <td className="p-3 text-right font-bold text-green-600">{(s.completed_quantity || 0).toLocaleString()}</td>
+                          <td className="p-3 text-center">{getPriorityBadge(s.priority)}</td>
+                          <td className="p-3 text-center">{getStatusBadge(s.status)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>
