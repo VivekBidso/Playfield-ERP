@@ -2341,6 +2341,55 @@ async def upload_production_plan_excel(
     # Process with FIFO allocation
     created_count = 0
     
+    # Pre-load deleted completions for auto-population
+    # Group all months/branches we need
+    months_branches_needed = set()
+    for key, group in date_branch_groups.items():
+        date_obj = datetime.strptime(group["date_iso"], "%Y-%m-%d")
+        month_key = date_obj.strftime("%Y-%m")
+        months_branches_needed.add((month_key, group["branch_name"]))
+    
+    # Load all deleted completions
+    deleted_completions_map = {}  # key: "{date}_{sku_id}" -> {completed_quantity, deleted_schedule_id}
+    for month, branch in months_branches_needed:
+        try:
+            year, month_num = month.split("-")
+            year = int(year)
+            month_num = int(month_num)
+            month_start = datetime(year, month_num, 1, 0, 0, 0, tzinfo=timezone.utc)
+            
+            if month_num == 12:
+                month_end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+            else:
+                month_end = datetime(year, month_num + 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+            
+            deleted_schedules = await db.production_schedules.find({
+                "branch": branch,
+                "target_date": {"$gte": month_start, "$lt": month_end},
+                "status": "DELETED",
+                "completed_quantity": {"$gt": 0}
+            }, {"_id": 0}).to_list(5000)
+            
+            for s in deleted_schedules:
+                target_date = s.get("target_date")
+                if isinstance(target_date, datetime):
+                    date_key = target_date.strftime("%Y-%m-%d")
+                else:
+                    date_key = str(target_date)[:10]
+                
+                sku_id = s.get("sku_id")
+                lookup_key = f"{date_key}_{sku_id}_{branch}"
+                
+                deleted_completions_map[lookup_key] = {
+                    "completed_quantity": s.get("completed_quantity", 0),
+                    "deleted_schedule_id": s.get("id"),
+                    "deleted_schedule_code": s.get("schedule_code")
+                }
+        except Exception as e:
+            logger.warning(f"Failed to load deleted completions for {month}/{branch}: {e}")
+    
+    logger.info(f"Loaded {len(deleted_completions_map)} deleted completions for auto-population")
+    
     for key, group in date_branch_groups.items():
         capacity = group["capacity"]
         existing_scheduled = group["existing_scheduled"]
@@ -2394,6 +2443,21 @@ async def upload_production_plan_excel(
             count = await db.production_schedules.count_documents({})
             schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
             
+            # Check for deleted completion to auto-populate completed_quantity
+            date_key = pr["target_date"].strftime("%Y-%m-%d") if isinstance(pr["target_date"], datetime) else str(pr["target_date"])[:10]
+            completion_lookup_key = f"{date_key}_{pr['sku_id']}_{pr['branch_name']}"
+            deleted_completion = deleted_completions_map.get(completion_lookup_key)
+            
+            completed_qty = 0
+            replaced_schedule_id = None
+            replaced_schedule_code = None
+            
+            if deleted_completion:
+                completed_qty = deleted_completion.get("completed_quantity", 0)
+                replaced_schedule_id = deleted_completion.get("deleted_schedule_id")
+                replaced_schedule_code = deleted_completion.get("deleted_schedule_code")
+                logger.info(f"Auto-populating completed_quantity={completed_qty} from deleted schedule {replaced_schedule_code} for {pr['sku_id']} on {date_key}")
+            
             schedule = {
                 "id": str(uuid.uuid4()),
                 "schedule_code": schedule_code,
@@ -2404,16 +2468,23 @@ async def upload_production_plan_excel(
                 "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
                 "target_quantity": allocated_qty,
                 "allocated_quantity": allocated_qty,
-                "completed_quantity": 0,
+                "completed_quantity": completed_qty,
                 "target_date": pr["target_date"],
                 "priority": "MEDIUM",
-                "status": "SCHEDULED",
-                "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else ""),
+                "status": "COMPLETED" if completed_qty >= allocated_qty else "SCHEDULED",
+                "replaced_schedule_id": replaced_schedule_id,
+                "replaced_schedule_code": replaced_schedule_code,
+                "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else "") + (f" | Recovered {completed_qty} completed from deleted schedule {replaced_schedule_code}" if replaced_schedule_code else ""),
                 "created_at": datetime.now(timezone.utc)
             }
             
             await db.production_schedules.insert_one(schedule)
             result["schedule_code"] = schedule_code
+            
+            # Add completion info to result
+            if completed_qty > 0:
+                result["remarks"] += f" | Auto-populated {completed_qty} completed units from deleted schedule"
+            
             created_count += 1
             
             # Update available capacity
