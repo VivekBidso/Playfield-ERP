@@ -53,11 +53,18 @@ export default function DBExplorer() {
   // Aggregate state
   const [groupByField, setGroupByField] = useState("");
   const [aggregateResults, setAggregateResults] = useState(null);
+  const [error, setError] = useState(null);
 
-  // Check access
-  const isAdmin = user?.role?.toLowerCase()?.includes('admin') || user?.role === 'MASTER_ADMIN';
+  // Check access - handle multiple role formats
+  const isAdmin = user?.role?.toLowerCase()?.includes('admin') || 
+                  user?.role === 'MASTER_ADMIN' ||
+                  user?.role === 'master_admin' ||
+                  user?.roles?.some(r => r.toLowerCase().includes('admin'));
 
   useEffect(() => {
+    // Always try to fetch on mount for admins, plus debug info
+    console.log("DBExplorer - User:", user);
+    console.log("DBExplorer - isAdmin:", isAdmin);
     if (isAdmin) {
       fetchDatabases();
     }
@@ -79,14 +86,18 @@ export default function DBExplorer() {
 
   const fetchDatabases = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await axios.get(`${API}/admin/db-explorer/databases`);
-      setDatabases(res.data.databases);
-      if (res.data.databases.length > 0 && !selectedDb) {
+      console.log("DBExplorer - API Response:", res.data);
+      setDatabases(res.data.databases || []);
+      if (res.data.databases?.length > 0 && !selectedDb) {
         setSelectedDb(res.data.databases[0].name);
       }
-    } catch (error) {
-      toast.error("Failed to fetch databases");
+    } catch (err) {
+      console.error("DBExplorer - API Error:", err);
+      setError(err.response?.data?.detail || err.message || "Failed to fetch databases");
+      toast.error("Failed to fetch databases: " + (err.response?.data?.detail || err.message));
     }
     setLoading(false);
   };
@@ -195,6 +206,8 @@ export default function DBExplorer() {
         <Database className="w-16 h-16 mx-auto text-gray-300 mb-4" />
         <h2 className="text-xl font-bold text-gray-700">Access Denied</h2>
         <p className="text-gray-500">Database Explorer is only available to administrators.</p>
+        <p className="text-xs text-gray-400 mt-2">Role: {user?.role || 'none'}</p>
+        <Button className="mt-4" onClick={fetchDatabases}>Try Loading Anyway</Button>
       </div>
     );
   }
@@ -216,7 +229,41 @@ export default function DBExplorer() {
         </Button>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <p className="text-red-700 font-medium">Error loading databases:</p>
+            <p className="text-red-600 text-sm">{error}</p>
+            <Button className="mt-2" size="sm" onClick={fetchDatabases}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading State */}
+      {loading && databases.length === 0 && (
+        <Card className="bg-zinc-50">
+          <CardContent className="p-8 text-center text-muted-foreground">
+            <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <p>Loading databases...</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && databases.length === 0 && (
+        <Card className="bg-zinc-50">
+          <CardContent className="p-8 text-center text-muted-foreground">
+            <Database className="w-8 h-8 mx-auto mb-2" />
+            <p>No databases found</p>
+            <p className="text-xs mt-2">This could mean the MongoDB connection is using a different URL in production.</p>
+            <Button className="mt-4" onClick={fetchDatabases}>Try Again</Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Database Cards */}
+      {databases.length > 0 && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {databases.map((db) => (
           <Card 
@@ -240,6 +287,7 @@ export default function DBExplorer() {
           </Card>
         ))}
       </div>
+      )}
 
       {/* Main Content */}
       {selectedDb && (
