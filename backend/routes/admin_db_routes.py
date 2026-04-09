@@ -15,7 +15,8 @@ MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(MONGO_URL)
 
 # Databases to expose (security - don't expose system DBs)
-ALLOWED_DATABASES = ['test_database', 'factory_ops', 'bidso_factory', 'bidso']
+# Will auto-discover non-system databases
+SYSTEM_DATABASES = ['admin', 'config', 'local']  # Always exclude these
 
 
 def serialize_doc(doc):
@@ -46,7 +47,8 @@ async def list_databases():
         
         databases = []
         for db_name in all_dbs:
-            if db_name not in ALLOWED_DATABASES:
+            # Skip system databases
+            if db_name in SYSTEM_DATABASES:
                 continue
                 
             db = client[db_name]
@@ -55,8 +57,11 @@ async def list_databases():
             # Get total document count
             total_docs = 0
             for coll in collections:
-                count = await db[coll].count_documents({})
-                total_docs += count
+                try:
+                    count = await db[coll].count_documents({})
+                    total_docs += count
+                except:
+                    pass
             
             databases.append({
                 "name": db_name,
@@ -75,8 +80,8 @@ async def list_databases():
 @router.get("/admin/db-explorer/databases/{db_name}/collections")
 async def list_collections(db_name: str):
     """List all collections in a database with document counts"""
-    if db_name not in ALLOWED_DATABASES:
-        raise HTTPException(status_code=403, detail=f"Access denied to database: {db_name}")
+    if db_name in SYSTEM_DATABASES:
+        raise HTTPException(status_code=403, detail=f"Access denied to system database: {db_name}")
     
     try:
         db = client[db_name]
@@ -121,8 +126,8 @@ async def query_collection(
     query: QueryRequest
 ):
     """Query a collection with filters"""
-    if db_name not in ALLOWED_DATABASES:
-        raise HTTPException(status_code=403, detail=f"Access denied to database: {db_name}")
+    if db_name in SYSTEM_DATABASES:
+        raise HTTPException(status_code=403, detail=f"Access denied to system database: {db_name}")
     
     try:
         db = client[db_name]
@@ -161,8 +166,8 @@ async def get_sample_documents(
     limit: int = Query(10, ge=1, le=100)
 ):
     """Get sample documents from a collection"""
-    if db_name not in ALLOWED_DATABASES:
-        raise HTTPException(status_code=403, detail=f"Access denied to database: {db_name}")
+    if db_name in SYSTEM_DATABASES:
+        raise HTTPException(status_code=403, detail=f"Access denied to system database: {db_name}")
     
     try:
         db = client[db_name]
@@ -192,8 +197,8 @@ async def search_collection(
     limit: int = Query(20, ge=1, le=100)
 ):
     """Search a collection by field value"""
-    if db_name not in ALLOWED_DATABASES:
-        raise HTTPException(status_code=403, detail=f"Access denied to database: {db_name}")
+    if db_name in SYSTEM_DATABASES:
+        raise HTTPException(status_code=403, detail=f"Access denied to system database: {db_name}")
     
     try:
         db = client[db_name]
@@ -229,7 +234,11 @@ async def compare_across_databases(
     """Compare a document across all databases"""
     results = []
     
-    for db_name in ALLOWED_DATABASES:
+    # Get all non-system databases dynamically
+    all_dbs = await client.list_database_names()
+    target_dbs = [db for db in all_dbs if db not in SYSTEM_DATABASES]
+    
+    for db_name in target_dbs:
         try:
             db = client[db_name]
             
@@ -280,8 +289,8 @@ async def aggregate_collection(
     limit: int = Query(20, ge=1, le=100)
 ):
     """Get aggregated counts by a field"""
-    if db_name not in ALLOWED_DATABASES:
-        raise HTTPException(status_code=403, detail=f"Access denied to database: {db_name}")
+    if db_name in SYSTEM_DATABASES:
+        raise HTTPException(status_code=403, detail=f"Access denied to system database: {db_name}")
     
     try:
         db = client[db_name]
