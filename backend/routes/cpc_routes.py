@@ -7,10 +7,14 @@ from typing import Optional, List
 import uuid
 import io
 import json
+import logging
 
 from database import db, BRANCHES
 from services.stock_origin_service import create_origin_entry
 from services import sku_service
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["CPC - Central Production Control"])
 
