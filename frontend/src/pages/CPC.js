@@ -235,16 +235,28 @@ const CPC = () => {
     }
     
     // Prepare data for Excel
-    const data = deletePreview.schedules.map(s => ({
-      "Schedule Code": s.schedule_code || "",
-      "SKU ID": s.sku_id || "",
-      "SKU Description": s.sku_description || "",
-      "Branch": s.branch || deleteBranch,
-      "Date": s.target_date ? new Date(s.target_date).toLocaleDateString() : "",
-      "Target Qty": s.target_quantity || 0,
-      "Completed Qty": s.completed_quantity || 0,
-      "Status": s.status || ""
-    }));
+    const data = deletePreview.schedules.map(s => {
+      // Format date as DD-MM-YYYY
+      let formattedDate = "";
+      if (s.target_date) {
+        const d = new Date(s.target_date);
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        formattedDate = `${day}-${month}-${year}`;
+      }
+      
+      return {
+        "Schedule Code": s.schedule_code || "",
+        "SKU ID": s.sku_id || "",
+        "SKU Description": s.sku_description || "",
+        "Branch": s.branch || deleteBranch,
+        "Date": formattedDate,
+        "Target Qty": s.target_quantity || 0,
+        "Completed Qty": s.completed_quantity || 0,
+        "Status": s.status || ""
+      };
+    });
     
     // Create CSV content
     const headers = Object.keys(data[0]);

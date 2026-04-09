@@ -2397,6 +2397,9 @@ async def upload_production_plan_excel(
     
     logger.info(f"Loaded {len(deleted_completions_map)} deleted completions for auto-population")
     
+    # Track which deleted completions have been used (for matching SKUs in upload)
+    used_completion_keys = set()
+    
     for key, group in date_branch_groups.items():
         capacity = group["capacity"]
         existing_scheduled = group["existing_scheduled"]
@@ -2446,65 +2449,122 @@ async def upload_production_plan_excel(
             result["allocated"] = allocated_qty
             result["not_allocated"] = overflow_qty
             
-            # Create schedule
-            count = await db.production_schedules.count_documents({})
-            schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
-            
-            # Check for deleted completion to auto-populate completed_quantity
+            # Check for deleted completion
             date_key = pr["target_date"].strftime("%Y-%m-%d") if isinstance(pr["target_date"], datetime) else str(pr["target_date"])[:10]
             completion_lookup_key = f"{date_key}_{pr['sku_id']}_{pr['branch_name']}"
             deleted_completion = deleted_completions_map.get(completion_lookup_key)
             
-            completed_qty = 0
-            replaced_schedule_id = None
-            replaced_schedule_code = None
-            
-            if deleted_completion:
+            # If there's a deleted completion with completed work, create TWO separate schedules
+            if deleted_completion and deleted_completion.get("completed_quantity", 0) > 0:
                 completed_qty = deleted_completion.get("completed_quantity", 0)
                 replaced_schedule_id = deleted_completion.get("deleted_schedule_id")
                 replaced_schedule_code = deleted_completion.get("deleted_schedule_code")
-                logger.info(f"Auto-populating completed_quantity={completed_qty} from deleted schedule {replaced_schedule_code} for {pr['sku_id']} on {date_key}")
-            
-            schedule = {
-                "id": str(uuid.uuid4()),
-                "schedule_code": schedule_code,
-                "forecast_id": None,
-                "dispatch_lot_id": None,
-                "branch": pr["branch_name"],
-                "sku_id": pr["sku_id"],
-                "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
-                "target_quantity": allocated_qty,
-                "allocated_quantity": allocated_qty,
-                "completed_quantity": completed_qty,
-                "target_date": pr["target_date"],
-                "priority": "MEDIUM",
-                "status": "COMPLETED" if completed_qty >= allocated_qty else "SCHEDULED",
-                "replaced_schedule_id": replaced_schedule_id,
-                "replaced_schedule_code": replaced_schedule_code,
-                "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else "") + (f" | Recovered {completed_qty} completed from deleted schedule {replaced_schedule_code}" if replaced_schedule_code else ""),
-                "created_at": datetime.now(timezone.utc)
-            }
-            
-            await db.production_schedules.insert_one(schedule)
-            result["schedule_code"] = schedule_code
-            
-            # Add completion info to result
-            if completed_qty > 0:
-                result["remarks"] += f" | Auto-populated {completed_qty} completed units from deleted schedule"
-            
-            created_count += 1
+                
+                logger.info(f"Creating 2 schedules for {pr['sku_id']} on {date_key}: 1) COMPLETED with {completed_qty} units, 2) SCHEDULED with {allocated_qty} units")
+                
+                # Schedule 1: COMPLETED schedule for recovered work
+                count = await db.production_schedules.count_documents({})
+                completed_schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+                
+                completed_schedule = {
+                    "id": str(uuid.uuid4()),
+                    "schedule_code": completed_schedule_code,
+                    "forecast_id": None,
+                    "dispatch_lot_id": None,
+                    "branch": pr["branch_name"],
+                    "sku_id": pr["sku_id"],
+                    "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
+                    "target_quantity": completed_qty,
+                    "allocated_quantity": completed_qty,
+                    "completed_quantity": completed_qty,
+                    "target_date": pr["target_date"],
+                    "priority": "MEDIUM",
+                    "status": "COMPLETED",
+                    "replaced_schedule_id": replaced_schedule_id,
+                    "replaced_schedule_code": replaced_schedule_code,
+                    "notes": f"Recovered from deleted schedule {replaced_schedule_code}",
+                    "created_at": datetime.now(timezone.utc)
+                }
+                
+                await db.production_schedules.insert_one(completed_schedule)
+                created_count += 1
+                
+                # Add recovered schedule to results
+                row_results.append({
+                    "row": f"{pr['row_num']}-R",
+                    "branch_id": pr["branch_name"],
+                    "date": pr["target_date"].strftime("%d-%m-%Y"),
+                    "buyer_sku_id": pr["sku_id"],
+                    "quantity": completed_qty,
+                    "status": "RECOVERED",
+                    "allocated": completed_qty,
+                    "not_allocated": 0,
+                    "schedule_code": completed_schedule_code,
+                    "remarks": f"Recovered {completed_qty} completed units from deleted schedule {replaced_schedule_code}"
+                })
+                
+                # Schedule 2: SCHEDULED schedule for new work (from uploaded file)
+                count = await db.production_schedules.count_documents({})
+                new_schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+                
+                new_schedule = {
+                    "id": str(uuid.uuid4()),
+                    "schedule_code": new_schedule_code,
+                    "forecast_id": None,
+                    "dispatch_lot_id": None,
+                    "branch": pr["branch_name"],
+                    "sku_id": pr["sku_id"],
+                    "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
+                    "target_quantity": allocated_qty,
+                    "allocated_quantity": allocated_qty,
+                    "completed_quantity": 0,
+                    "target_date": pr["target_date"],
+                    "priority": "MEDIUM",
+                    "status": "SCHEDULED",
+                    "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else ""),
+                    "created_at": datetime.now(timezone.utc)
+                }
+                
+                await db.production_schedules.insert_one(new_schedule)
+                result["schedule_code"] = new_schedule_code
+                result["remarks"] += f" | Also recovered {completed_qty} units as separate COMPLETED schedule {completed_schedule_code}"
+                created_count += 1
+                
+                # Mark this completion as used
+                used_completion_keys.add(completion_lookup_key)
+            else:
+                # No deleted completion - create single schedule as normal
+                count = await db.production_schedules.count_documents({})
+                schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+                
+                schedule = {
+                    "id": str(uuid.uuid4()),
+                    "schedule_code": schedule_code,
+                    "forecast_id": None,
+                    "dispatch_lot_id": None,
+                    "branch": pr["branch_name"],
+                    "sku_id": pr["sku_id"],
+                    "sku_description": pr["sku"].get("name", "") or pr["sku"].get("description", ""),
+                    "target_quantity": allocated_qty,
+                    "allocated_quantity": allocated_qty,
+                    "completed_quantity": 0,
+                    "target_date": pr["target_date"],
+                    "priority": "MEDIUM",
+                    "status": "SCHEDULED",
+                    "notes": f"Bulk upload Row {pr['row_num']}" + (f" (partial: {qty} requested, {allocated_qty} allocated)" if overflow_qty > 0 else ""),
+                    "created_at": datetime.now(timezone.utc)
+                }
+                
+                await db.production_schedules.insert_one(schedule)
+                result["schedule_code"] = schedule_code
+                created_count += 1
             
             # Update available capacity
             available -= allocated_qty
     
     # AUTO-RECOVER ORPHANED COMPLETIONS
     # Find deleted SKUs with completions that were NOT in the upload and create schedules for them
-    used_completion_keys = set()
-    for key, group in date_branch_groups.items():
-        for pr in group["rows"]:
-            date_key = pr["target_date"].strftime("%Y-%m-%d") if isinstance(pr["target_date"], datetime) else str(pr["target_date"])[:10]
-            used_completion_keys.add(f"{date_key}_{pr['sku_id']}_{pr['branch_name']}")
-    
+    # Note: used_completion_keys is populated above when matching SKUs are found
     orphaned_completions = {k: v for k, v in deleted_completions_map.items() if k not in used_completion_keys}
     
     if orphaned_completions:
