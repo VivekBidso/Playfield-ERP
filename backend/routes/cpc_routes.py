@@ -2383,7 +2383,10 @@ async def upload_production_plan_excel(
                 deleted_completions_map[lookup_key] = {
                     "completed_quantity": s.get("completed_quantity", 0),
                     "deleted_schedule_id": s.get("id"),
-                    "deleted_schedule_code": s.get("schedule_code")
+                    "deleted_schedule_code": s.get("schedule_code"),
+                    "target_date": date_key,
+                    "sku_id": sku_id,
+                    "branch": branch
                 }
         except Exception as e:
             logger.warning(f"Failed to load deleted completions for {month}/{branch}: {e}")
@@ -2490,6 +2493,108 @@ async def upload_production_plan_excel(
             # Update available capacity
             available -= allocated_qty
     
+    # AUTO-RECOVER ORPHANED COMPLETIONS
+    # Find deleted SKUs with completions that were NOT in the upload and create schedules for them
+    used_completion_keys = set()
+    for key, group in date_branch_groups.items():
+        for pr in group["rows"]:
+            date_key = pr["target_date"].strftime("%Y-%m-%d") if isinstance(pr["target_date"], datetime) else str(pr["target_date"])[:10]
+            used_completion_keys.add(f"{date_key}_{pr['sku_id']}_{pr['branch_name']}")
+    
+    orphaned_completions = {k: v for k, v in deleted_completions_map.items() if k not in used_completion_keys}
+    
+    if orphaned_completions:
+        logger.info(f"Found {len(orphaned_completions)} orphaned completions to auto-recover")
+        
+        for lookup_key, completion in orphaned_completions.items():
+            # Parse the key: "date_skuid_branch"
+            parts = lookup_key.rsplit("_", 2)  # Split from right to handle SKU IDs with underscores
+            if len(parts) < 3:
+                continue
+            
+            # Key format is "{date}_{sku_id}_{branch}" but sku_id might have underscores
+            # So we need to be smarter - use the completion data instead
+            date_key = completion.get("target_date") or parts[0]
+            sku_id = completion.get("sku_id")
+            branch = completion.get("branch")
+            
+            if not sku_id or not branch:
+                # Try to extract from the original deleted schedule
+                deleted_schedule = await db.production_schedules.find_one(
+                    {"id": completion.get("deleted_schedule_id")},
+                    {"_id": 0, "sku_id": 1, "branch": 1, "target_date": 1, "sku_description": 1}
+                )
+                if deleted_schedule:
+                    sku_id = deleted_schedule.get("sku_id")
+                    branch = deleted_schedule.get("branch")
+                    date_key = deleted_schedule.get("target_date")
+                    if isinstance(date_key, datetime):
+                        date_key = date_key.strftime("%Y-%m-%d")
+            
+            if not sku_id or not branch:
+                logger.warning(f"Cannot recover orphaned completion: {lookup_key}")
+                continue
+            
+            completed_qty = completion.get("completed_quantity", 0)
+            
+            # Create auto-recovered schedule
+            count = await db.production_schedules.count_documents({})
+            schedule_code = f"PS_{datetime.now(timezone.utc).strftime('%Y%m')}_{count + 1:04d}"
+            
+            # Parse date
+            try:
+                if isinstance(date_key, str):
+                    target_date = datetime.strptime(date_key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                else:
+                    target_date = date_key
+            except:
+                continue
+            
+            # Get SKU description
+            sku_doc = await db.buyer_skus.find_one({"buyer_sku_id": sku_id}, {"_id": 0, "name": 1, "description": 1})
+            sku_description = ""
+            if sku_doc:
+                sku_description = sku_doc.get("name") or sku_doc.get("description") or ""
+            
+            schedule = {
+                "id": str(uuid.uuid4()),
+                "schedule_code": schedule_code,
+                "forecast_id": None,
+                "dispatch_lot_id": None,
+                "branch": branch,
+                "sku_id": sku_id,
+                "sku_description": sku_description,
+                "target_quantity": completed_qty,  # Target = Completed (fully done)
+                "allocated_quantity": completed_qty,
+                "completed_quantity": completed_qty,
+                "target_date": target_date,
+                "priority": "MEDIUM",
+                "status": "COMPLETED",
+                "replaced_schedule_id": completion.get("deleted_schedule_id"),
+                "replaced_schedule_code": completion.get("deleted_schedule_code"),
+                "notes": f"Auto-recovered from deleted schedule {completion.get('deleted_schedule_code')} (SKU not in new upload)",
+                "created_at": datetime.now(timezone.utc)
+            }
+            
+            await db.production_schedules.insert_one(schedule)
+            created_count += 1
+            
+            # Add to result data
+            row_results.append({
+                "row": "AUTO",
+                "branch_id": branch,
+                "date": target_date.strftime("%d-%m-%Y"),
+                "buyer_sku_id": sku_id,
+                "quantity": completed_qty,
+                "status": "RECOVERED",
+                "allocated": completed_qty,
+                "not_allocated": 0,
+                "schedule_code": schedule_code,
+                "remarks": f"Auto-recovered completed SKU from deleted schedule {completion.get('deleted_schedule_code')}"
+            })
+            
+            logger.info(f"Auto-recovered orphaned completion: {sku_id} on {date_key} at {branch} with {completed_qty} units")
+
     # Generate result Excel file
     result_data = []
     for r in row_results:
