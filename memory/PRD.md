@@ -2807,3 +2807,56 @@ Synced frontend RM category configurations with the database. Categories are now
 - Changed status filter from `{"$ne": "CANCELLED"}` to `{"$nin": ["CANCELLED", "DELETED"]}`
 
 **Testing:** All 14 backend API tests passed. Frontend UI fully verified.
+
+
+---
+
+## UPCOMING TASKS (Prioritized)
+
+### P0 - CPC Production Schedule Table Layout Redesign
+**Status:** PENDING
+**Requested:** April 9, 2026
+
+**Current State:**
+- Production Schedule tab uses card-based layout
+- Groups schedules by Branch + Date in expandable cards
+- Each card contains a table of schedules for that branch/date combination
+
+**Required Changes:**
+- Change to flat table layout (similar to Branch Ops)
+- Add "Branch" and "Date" as visible columns in the table
+- Keep existing filters (Branch, Date Range, Status, SKU) working
+- Allow sorting by any column
+- Maintain pagination
+
+**Reference:**
+- Target layout: Branch Ops page (`/branch-ops`)
+- File to modify: `/app/frontend/src/pages/CPC.js`
+
+**Columns for new table:**
+| Column | Description |
+|--------|-------------|
+| Schedule Code | PS_YYYYMM_XXXX |
+| Branch | Unit 1 Vedica, Unit 2 Trikes, etc. |
+| Date | DD-MM-YYYY format |
+| SKU ID | Buyer SKU ID |
+| SKU Description | Product name |
+| Target Qty | Planned quantity |
+| Completed Qty | Actual completed |
+| Status | SCHEDULED/COMPLETED/CANCELLED |
+| Priority | HIGH/MEDIUM/LOW |
+| Actions | View/Edit buttons |
+
+---
+
+### P1 - IBT Receive Flow (Multi-Item)
+**Status:** PENDING
+Implement UI to receive multiple items in a single IBT transfer with auto-populated editable quantities.
+
+### P1 - Dispatch Lot Notifications
+**Status:** PENDING
+Dashboard alerts for delayed lots and lots nearing completion.
+
+### P2 - Consolidate Duplicate IBT Routes
+**Status:** PENDING
+Technical debt - merge duplicate endpoints from procurement_routes.py and report_routes.py
