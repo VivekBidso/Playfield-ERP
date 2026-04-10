@@ -645,8 +645,7 @@ async def get_raw_materials_filtered(
             rm["branch_stock"] = inv.get("current_stock", 0.0) if inv else 0.0
             rm["is_active_in_branch"] = inv.get("is_active", False) if inv else False
     
-    # Enrich RMs with computed description if missing
-    rms = await enrich_rms_with_description(rms)
+    # Description is now stored in DB - no on-the-fly computation needed
     
     # Calculate pagination
     total = len(rms)
@@ -714,8 +713,7 @@ async def export_raw_materials(
     if brand_filter:
         rms = [rm for rm in rms if rm.get("category_data", {}).get("brand") == brand_filter]
     
-    # Enrich RMs with computed description if missing
-    rms = await enrich_rms_with_description(rms)
+    # Description is now stored in DB - no on-the-fly computation needed
     
     # Get category fields for column headers
     all_cat_fields = set()
