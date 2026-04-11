@@ -601,67 +601,85 @@ Example:
 **Problem Statement:**
 Currently, any Branch-Ops user can view and edit data for ALL branches. This is a security/data integrity concern - each branch should only access its own data.
 
-**Scope:**
-- Branch Ops users should ONLY see data for their assigned branch
-- Master Admin and CPC Planner should retain cross-branch visibility
-- Affects: Inventory, Production Schedules, IBT (sender branch only), Reports
+**Decision: Separate User Accounts per Branch**
+Each branch will have its own login credentials. This provides clear separation and easy audit trails.
+
+**User Account Structure:**
+| Branch | Login Email | Password | Role | assigned_branch |
+|--------|-------------|----------|------|-----------------|
+| Unit 1 Vedica | `branchops_unit1@factory.com` | (set by admin) | BRANCH_OPS | Unit 1 Vedica |
+| Unit 2 Trikes | `branchops_unit2@factory.com` | (set by admin) | BRANCH_OPS | Unit 2 Trikes |
+| Unit 3 TM | `branchops_unit3@factory.com` | (set by admin) | BRANCH_OPS | Unit 3 TM |
+| Unit 4 Goa | `branchops_unit4@factory.com` | (set by admin) | BRANCH_OPS | Unit 4 Goa |
+| Unit 5 Baabus | `branchops_unit5@factory.com` | (set by admin) | BRANCH_OPS | Unit 5 Baabus |
+| Unit 6 Emox | `branchops_unit6@factory.com` | (set by admin) | BRANCH_OPS | Unit 6 Emox |
+| BHDG WH | `branchops_bhdg@factory.com` | (set by admin) | BRANCH_OPS | BHDG WH |
+
+**Cross-Branch Access Matrix:**
+| Role | Can View | Can Edit |
+|------|----------|----------|
+| MASTER_ADMIN | All branches | All branches |
+| CPC_PLANNER | All branches | All branches |
+| BRANCH_OPS | Own branch only | Own branch only |
+| TECH_OPS_ENGINEER | All branches (RMs) | All branches (RMs) |
+| DEMAND_PLANNER | All branches (forecasts) | All branches (forecasts) |
 
 **Implementation Plan:**
 
-**Phase 1: User-Branch Association**
-1. Add `assigned_branch` field to User model in `/app/backend/models/auth.py`
-2. Update user creation/seeding to assign branches
-3. Add branch assignment UI in User Management (Admin only)
+**Phase 1: User Model Update**
+1. Add `assigned_branch: Optional[str]` field to User model in `/app/backend/models/auth.py`
+2. Update `/app/backend/services/seed_rbac.py` to create branch-specific users
+3. Add branch assignment field in User Management UI (Admin only)
 
-**Phase 2: Backend Middleware/Guards**
-1. Create `get_user_branch_filter()` helper in `/app/backend/services/utils.py`:
-   ```python
-   async def get_user_branch_filter(user: User) -> dict:
-       if user.role in ["MASTER_ADMIN", "CPC_PLANNER"]:
-           return {}  # No filter - can see all
-       if user.assigned_branch:
-           return {"branch": user.assigned_branch}
-       return {"branch": "__NONE__"}  # Block if no branch assigned
-   ```
-2. Apply filter to all branch-specific queries
+**Phase 2: Backend Enforcement Helper**
+Create reusable helper in `/app/backend/services/utils.py`:
+```python
+def get_branch_filter(user: User) -> Optional[str]:
+    """Returns branch name to filter by, or None for unrestricted access"""
+    UNRESTRICTED_ROLES = ["MASTER_ADMIN", "CPC_PLANNER", "TECH_OPS_ENGINEER"]
+    if user.role in UNRESTRICTED_ROLES:
+        return None  # Can see all branches
+    return user.assigned_branch  # Filter to user's branch
+```
 
 **Phase 3: Endpoint Updates**
-| Module | Endpoint | Change Required |
-|--------|----------|-----------------|
-| Inventory | `GET /api/inventory/rm` | Add branch filter from user |
+| Module | Endpoint | Change |
+|--------|----------|--------|
+| Inventory | `GET /api/inventory/rm` | Filter by `get_branch_filter(user)` |
 | Inventory | `POST /api/inventory/rm/bulk-import` | Validate branch matches user |
-| Production | `GET /api/cpc/production-schedules` | Add branch filter |
-| Production | `POST /api/cpc/production-plan/upload-excel` | Validate branches in Excel |
-| IBT | `GET /api/procurement/ibt` | Filter by sender OR receiver branch |
-| IBT | `POST /api/procurement/ibt` | Validate sender branch matches user |
-| Branch Ops | `GET /api/branch-ops/*` | Add branch filter |
-| Reports | Various | Add branch filter where applicable |
+| Production | `GET /api/cpc/production-schedules` | Filter by user's branch |
+| Production | `POST /api/cpc/production-plan/upload-excel` | Reject if Excel contains other branches |
+| IBT | `GET /api/procurement/ibt` | Filter: sender OR receiver = user's branch |
+| IBT | `POST /api/procurement/ibt` | Validate sender = user's branch |
+| Branch Ops | `GET /api/branch-ops/*` | Auto-filter by user's branch |
 
 **Phase 4: Frontend Updates**
-1. Remove branch selector dropdown for Branch Ops users (auto-select their branch)
-2. Hide other branches' data in tables/dropdowns
-3. Show "Your Branch: {branch_name}" indicator in header
+1. Hide branch selector dropdown for BRANCH_OPS users
+2. Auto-populate branch field with user's assigned branch
+3. Show "Logged in as: Unit X" indicator in header/sidebar
+4. Disable branch column editing in tables
 
-**Phase 5: Testing**
-1. Create test users for each branch
-2. Verify cross-branch data is hidden
-3. Verify Admin/CPC can still see all branches
-4. Test IBT flow (inter-branch visibility)
+**Phase 5: Seed Data & Migration**
+1. Create 7 branch-specific user accounts
+2. Migrate existing BRANCH_OPS users (if any) to have assigned_branch
+3. Provide password reset flow for new accounts
 
 **Files to Modify:**
-- `/app/backend/models/auth.py` - Add assigned_branch field
-- `/app/backend/services/utils.py` - Add branch filter helper
-- `/app/backend/routes/inventory_routes.py`
-- `/app/backend/routes/cpc_routes.py`
-- `/app/backend/routes/procurement_routes.py`
-- `/app/backend/routes/branch_ops_routes.py`
-- `/app/frontend/src/store/authStore.js` - Store user's branch
+- `/app/backend/models/auth.py` - Add `assigned_branch` field
+- `/app/backend/services/seed_rbac.py` - Seed branch users
+- `/app/backend/services/utils.py` - Add `get_branch_filter()` helper
+- `/app/backend/routes/inventory_routes.py` - Apply filter
+- `/app/backend/routes/cpc_routes.py` - Apply filter
+- `/app/backend/routes/procurement_routes.py` - Apply filter (IBT)
+- `/app/backend/routes/branch_ops_routes.py` - Apply filter
+- `/app/frontend/src/store/authStore.js` - Store assigned_branch
 - `/app/frontend/src/components/Layout.js` - Show branch indicator
-- Multiple page components - Remove/hide branch selector
+- `/app/frontend/src/pages/Inventory.js` - Hide branch selector
+- `/app/frontend/src/pages/BranchOps.js` - Hide branch selector
 
-**Estimated Effort:** Medium-High (touches many endpoints)
-**Risk:** Medium (need thorough testing to avoid data leakage)
-**Priority:** P2 (Security improvement, not blocking current operations)
+**Estimated Effort:** Medium-High
+**Priority:** P2 (Security improvement)
+**Status:** BACKLOG - Not deployed
 
 ### IN PROGRESS (April 6, 2026)
 - 🔄 **SKU Data Model Migration** - Migrate from legacy `skus` collection to `bidso_skus` + `buyer_skus`
