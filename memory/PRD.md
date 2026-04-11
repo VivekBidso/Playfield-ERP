@@ -681,6 +681,80 @@ def get_branch_filter(user: User) -> Optional[str]:
 **Priority:** P2 (Security improvement)
 **Status:** BACKLOG - Not deployed
 
+---
+
+### P2 - BACKLOG: Test Branch for Production Testing (Added April 2026)
+
+**Problem Statement:**
+There's no safe way to test new features in production without affecting real branch data. A dedicated test branch would allow Master Admins to validate features with production data patterns before rolling out to actual branches.
+
+**Solution: Create "TEST BRANCH" accessible only to Master Admin**
+
+**Test Branch Configuration:**
+| Field | Value |
+|-------|-------|
+| Branch Name | `TEST BRANCH` |
+| Branch ID | `TEST` |
+| Accessible By | MASTER_ADMIN only |
+| Purpose | Feature testing, data validation, training |
+
+**Implementation Plan:**
+
+**Phase 1: Add Test Branch to System**
+1. Add `TEST BRANCH` to `BRANCHES` list in `/app/backend/database.py`
+2. Seed test branch in `branches` collection with `is_test: true` flag
+3. Create test branch RM inventory records (copy structure from a real branch)
+
+**Phase 2: Access Control**
+1. Add `is_test` flag to Branch model
+2. Update branch filter logic:
+   ```python
+   def get_accessible_branches(user: User) -> list:
+       all_branches = await db.branches.find({}).to_list(100)
+       if user.role == "MASTER_ADMIN":
+           return all_branches  # Includes TEST BRANCH
+       else:
+           return [b for b in all_branches if not b.get("is_test")]
+   ```
+3. Filter TEST BRANCH from all dropdowns/lists for non-admin users
+
+**Phase 3: Data Isolation**
+1. TEST BRANCH data stored in same collections but with `branch: "TEST BRANCH"`
+2. All reports/dashboards exclude TEST BRANCH by default
+3. Add "Include Test Branch" toggle for Admin in reports (optional)
+
+**Phase 4: Seed Test Data**
+1. Create sample RM inventory for TEST BRANCH
+2. Create sample production schedules
+3. Create sample IBT records (TEST BRANCH ↔ TEST BRANCH)
+4. Provide "Reset Test Data" button for Admin to clear and reseed
+
+**Use Cases:**
+| Scenario | How Test Branch Helps |
+|----------|----------------------|
+| New feature testing | Test with realistic data without affecting production |
+| User training | Train new staff without risk to real data |
+| Bug reproduction | Replicate issues in isolated environment |
+| Data import testing | Test bulk uploads before running on real branches |
+| Report validation | Verify report logic with known test data |
+
+**UI Changes:**
+1. Show `[TEST]` badge next to branch name in dropdowns (Admin only)
+2. Add yellow banner when viewing TEST BRANCH: "⚠️ You are viewing TEST BRANCH data"
+3. Hide TEST BRANCH from branch selectors for non-admin users
+
+**Files to Modify:**
+- `/app/backend/database.py` - Add TEST BRANCH to BRANCHES list
+- `/app/backend/models/master_data.py` - Add `is_test` flag to Branch model
+- `/app/backend/services/seed_rbac.py` - Seed test branch and sample data
+- `/app/backend/services/utils.py` - Add `get_accessible_branches()` helper
+- `/app/frontend/src/components/BranchSelector.js` - Filter test branch for non-admin
+- `/app/frontend/src/pages/*.js` - Show test branch warning banner
+
+**Estimated Effort:** Low-Medium
+**Priority:** P2 (Useful for safe production testing)
+**Status:** BACKLOG - Not deployed
+
 ### IN PROGRESS (April 6, 2026)
 - 🔄 **SKU Data Model Migration** - Migrate from legacy `skus` collection to `bidso_skus` + `buyer_skus`
   - Status: STARTING
