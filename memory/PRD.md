@@ -596,6 +596,73 @@ Example:
 - Real-time dashboard with auto-refresh
 - Multi-month production planning view
 
+### P2 - BACKLOG: Branch-Level Data Isolation (Added April 2026)
+
+**Problem Statement:**
+Currently, any Branch-Ops user can view and edit data for ALL branches. This is a security/data integrity concern - each branch should only access its own data.
+
+**Scope:**
+- Branch Ops users should ONLY see data for their assigned branch
+- Master Admin and CPC Planner should retain cross-branch visibility
+- Affects: Inventory, Production Schedules, IBT (sender branch only), Reports
+
+**Implementation Plan:**
+
+**Phase 1: User-Branch Association**
+1. Add `assigned_branch` field to User model in `/app/backend/models/auth.py`
+2. Update user creation/seeding to assign branches
+3. Add branch assignment UI in User Management (Admin only)
+
+**Phase 2: Backend Middleware/Guards**
+1. Create `get_user_branch_filter()` helper in `/app/backend/services/utils.py`:
+   ```python
+   async def get_user_branch_filter(user: User) -> dict:
+       if user.role in ["MASTER_ADMIN", "CPC_PLANNER"]:
+           return {}  # No filter - can see all
+       if user.assigned_branch:
+           return {"branch": user.assigned_branch}
+       return {"branch": "__NONE__"}  # Block if no branch assigned
+   ```
+2. Apply filter to all branch-specific queries
+
+**Phase 3: Endpoint Updates**
+| Module | Endpoint | Change Required |
+|--------|----------|-----------------|
+| Inventory | `GET /api/inventory/rm` | Add branch filter from user |
+| Inventory | `POST /api/inventory/rm/bulk-import` | Validate branch matches user |
+| Production | `GET /api/cpc/production-schedules` | Add branch filter |
+| Production | `POST /api/cpc/production-plan/upload-excel` | Validate branches in Excel |
+| IBT | `GET /api/procurement/ibt` | Filter by sender OR receiver branch |
+| IBT | `POST /api/procurement/ibt` | Validate sender branch matches user |
+| Branch Ops | `GET /api/branch-ops/*` | Add branch filter |
+| Reports | Various | Add branch filter where applicable |
+
+**Phase 4: Frontend Updates**
+1. Remove branch selector dropdown for Branch Ops users (auto-select their branch)
+2. Hide other branches' data in tables/dropdowns
+3. Show "Your Branch: {branch_name}" indicator in header
+
+**Phase 5: Testing**
+1. Create test users for each branch
+2. Verify cross-branch data is hidden
+3. Verify Admin/CPC can still see all branches
+4. Test IBT flow (inter-branch visibility)
+
+**Files to Modify:**
+- `/app/backend/models/auth.py` - Add assigned_branch field
+- `/app/backend/services/utils.py` - Add branch filter helper
+- `/app/backend/routes/inventory_routes.py`
+- `/app/backend/routes/cpc_routes.py`
+- `/app/backend/routes/procurement_routes.py`
+- `/app/backend/routes/branch_ops_routes.py`
+- `/app/frontend/src/store/authStore.js` - Store user's branch
+- `/app/frontend/src/components/Layout.js` - Show branch indicator
+- Multiple page components - Remove/hide branch selector
+
+**Estimated Effort:** Medium-High (touches many endpoints)
+**Risk:** Medium (need thorough testing to avoid data leakage)
+**Priority:** P2 (Security improvement, not blocking current operations)
+
 ### IN PROGRESS (April 6, 2026)
 - 🔄 **SKU Data Model Migration** - Migrate from legacy `skus` collection to `bidso_skus` + `buyer_skus`
   - Status: STARTING
