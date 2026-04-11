@@ -59,22 +59,31 @@ async def get_skus(
     search: Optional[str] = None,
     include_inactive: bool = False
 ):
-    """Get all SKUs with optional filters"""
+    """Get all SKUs with optional filters. When branch is provided, returns only SKUs active at that branch."""
     # Use SKU service to get from new model
     if search:
         skus = await search_skus(search, limit=10000)
     else:
         skus = await get_all_skus(include_inactive=include_inactive)
     
-    # Add branch-specific data
+    # Filter and enrich by branch
     if branch:
+        # Get SKUs active at this branch
+        branch_inventory = await db.branch_sku_inventory.find(
+            {"branch": branch, "is_active": True},
+            {"_id": 0, "sku_id": 1, "current_stock": 1}
+        ).to_list(10000)
+        
+        active_sku_ids = {inv["sku_id"] for inv in branch_inventory}
+        branch_stock_map = {inv["sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        
+        # Filter SKUs to only those active at this branch
+        skus = [sku for sku in skus if sku.get("sku_id") in active_sku_ids]
+        
+        # Enrich with branch-specific data
         for sku in skus:
-            inv = await db.branch_sku_inventory.find_one(
-                {"sku_id": sku["sku_id"], "branch": branch},
-                {"_id": 0}
-            )
-            sku["branch_stock"] = inv.get("current_stock", 0) if inv else 0
-            sku["is_active_in_branch"] = inv.get("is_active", False) if inv else False
+            sku["branch_stock"] = branch_stock_map.get(sku["sku_id"], 0)
+            sku["is_active_in_branch"] = True  # Already filtered to active only
             
             # Get FG inventory
             fg = await db.fg_inventory.find_one(
@@ -453,6 +462,7 @@ async def get_filtered_skus(
 ):
     """
     Get SKUs with relational filters and pagination.
+    When branch is provided, returns only SKUs active at that branch.
     Now queries consolidated db.buyer_skus collection (single source of truth).
     Enriches with vertical/model from parent Bidso SKU.
     """
@@ -489,6 +499,22 @@ async def get_filtered_skus(
             return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
         
         query["bidso_sku_id"] = {"$in": bidso_filter}
+    
+    # If branch is specified, filter to only SKUs active at that branch
+    branch_stock_map = {}
+    if branch:
+        branch_inventory = await db.branch_sku_inventory.find(
+            {"branch": branch, "is_active": True},
+            {"_id": 0, "sku_id": 1, "current_stock": 1}
+        ).to_list(10000)
+        
+        active_sku_ids = [inv["sku_id"] for inv in branch_inventory]
+        branch_stock_map = {inv["sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        
+        if not active_sku_ids:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
+        
+        query["buyer_sku_id"] = {"$in": active_sku_ids}
     
     # Get total count for pagination
     total = await db.buyer_skus.count_documents(query)
@@ -577,17 +603,14 @@ async def get_filtered_skus(
         if sku.get("buyer_id") and sku["buyer_id"] in buyers_map:
             sku["buyer_name"] = buyers_map[sku["buyer_id"]].get("name")
         
-        # Branch inventory (only if branch specified - expensive operation)
+        # Branch inventory data (use cached data if branch was specified)
         if branch:
-            inv = await db.branch_sku_inventory.find_one(
-                {"sku_id": sku.get("buyer_sku_id"), "branch": branch},
-                {"_id": 0}
-            )
-            sku["branch_stock"] = inv.get("current_stock", 0) if inv else 0
-            sku["is_active_in_branch"] = inv.get("is_active", False) if inv else False
+            sku_id = sku.get("buyer_sku_id")
+            sku["branch_stock"] = branch_stock_map.get(sku_id, 0)
+            sku["is_active_in_branch"] = True  # Already filtered to active only
             
             fg = await db.fg_inventory.find_one(
-                {"sku_id": sku.get("buyer_sku_id"), "branch": branch},
+                {"sku_id": sku_id, "branch": branch},
                 {"_id": 0}
             )
             sku["fg_stock"] = fg.get("quantity", 0) if fg else 0
