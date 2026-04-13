@@ -121,7 +121,8 @@ async def backfill_rm_descriptions():
             "success": True,
             "message": "All RMs already have descriptions",
             "updated": 0,
-            "skipped": 0
+            "skipped": 0,
+            "skipped_details": []
         }
     
     # Pre-load all category formats
@@ -131,13 +132,17 @@ async def backfill_rm_descriptions():
         if cat:
             category_formats[cat] = await get_category_name_format(cat)
     
+    logger.info(f"Backfill: Category formats loaded: {category_formats}")
+    
     updated = 0
     skipped = 0
+    skipped_details = []  # Track why RMs were skipped
     
     for rm in rms_to_update:
         rm_id = rm.get("rm_id")
         category = rm.get("category", "")
         name_format = category_formats.get(category, [])
+        category_data = rm.get("category_data", {})
         
         # Compute description
         description = compute_rm_description(rm, name_format)
@@ -150,6 +155,15 @@ async def backfill_rm_descriptions():
             updated += 1
         else:
             skipped += 1
+            # Track first 20 skipped for debugging
+            if len(skipped_details) < 20:
+                skipped_details.append({
+                    "rm_id": rm_id,
+                    "category": category,
+                    "name_format": name_format,
+                    "category_data_keys": list(category_data.keys()) if category_data else [],
+                    "reason": "No name_format" if not name_format else "Empty category_data fields"
+                })
     
     logger.info(f"Backfill complete: {updated} updated, {skipped} skipped")
     
@@ -157,7 +171,9 @@ async def backfill_rm_descriptions():
         "success": True,
         "message": f"Backfill complete. Updated {updated} RMs, skipped {skipped} (no data to generate description)",
         "updated": updated,
-        "skipped": skipped
+        "skipped": skipped,
+        "skipped_details": skipped_details,
+        "category_formats_used": {k: v for k, v in category_formats.items()}
     }
 
 
