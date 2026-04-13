@@ -47,7 +47,7 @@ async def get_category_name_format(category: str) -> list:
 def compute_rm_description(rm: dict, name_format: list = None) -> str:
     """
     Compute description from category_data if description field is null/empty.
-    Uses pipe-separated format: field1 | field2 | field3
+    Uses dash-separated format: field1 - field2 - field3
     """
     # If description already exists, return it
     existing_desc = rm.get("description")
@@ -65,7 +65,7 @@ def compute_rm_description(rm: dict, name_format: list = None) -> str:
     
     category_data = rm.get("category_data", {})
     parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
-    return " | ".join(parts) if parts else ""
+    return " - ".join(parts) if parts else ""
 
 
 async def enrich_rm_with_description(rm: dict) -> dict:
@@ -96,30 +96,48 @@ async def enrich_rms_with_description(rms: list) -> list:
 
 
 @router.post("/raw-materials/backfill-descriptions")
-async def backfill_rm_descriptions():
+async def backfill_rm_descriptions(force: bool = False, categories: str = None):
     """
-    One-time backfill endpoint to compute and permanently store descriptions
-    for all raw materials in the database. Call this once after deployment.
+    Backfill endpoint to compute and permanently store descriptions for raw materials.
+    
+    Args:
+        force: If True, regenerate ALL descriptions (even existing ones)
+        categories: Comma-separated list of categories to backfill (e.g., "INP,ACC,ELC")
     """
     import logging
     logger = logging.getLogger(__name__)
     
-    # Get all RMs without a description (or with empty description)
-    query = {
-        "$or": [
-            {"description": {"$exists": False}},
-            {"description": None},
-            {"description": ""}
-        ]
-    }
+    # Clear the category format cache to pick up new settings
+    global _category_name_format_cache
+    _category_name_format_cache = {}
+    
+    # Build query
+    if force:
+        # Regenerate all descriptions
+        query = {}
+        if categories:
+            cat_list = [c.strip().upper() for c in categories.split(",")]
+            query["category"] = {"$in": cat_list}
+    else:
+        # Only RMs without description
+        query = {
+            "$or": [
+                {"description": {"$exists": False}},
+                {"description": None},
+                {"description": ""}
+            ]
+        }
+        if categories:
+            cat_list = [c.strip().upper() for c in categories.split(",")]
+            query["category"] = {"$in": cat_list}
     
     rms_to_update = await db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "category": 1, "category_data": 1}).to_list(50000)
-    logger.info(f"Backfill: Found {len(rms_to_update)} RMs needing description update")
+    logger.info(f"Backfill: Found {len(rms_to_update)} RMs to process (force={force})")
     
     if not rms_to_update:
         return {
             "success": True,
-            "message": "All RMs already have descriptions",
+            "message": "No RMs to update",
             "updated": 0,
             "skipped": 0,
             "skipped_details": []
@@ -136,7 +154,7 @@ async def backfill_rm_descriptions():
     
     updated = 0
     skipped = 0
-    skipped_details = []  # Track why RMs were skipped
+    skipped_details = []
     
     for rm in rms_to_update:
         rm_id = rm.get("rm_id")
@@ -144,8 +162,16 @@ async def backfill_rm_descriptions():
         name_format = category_formats.get(category, [])
         category_data = rm.get("category_data", {})
         
-        # Compute description
-        description = compute_rm_description(rm, name_format)
+        # For force mode, we need to compute without checking existing description
+        if force:
+            # Compute fresh - ignore existing description
+            if not name_format:
+                description = ""
+            else:
+                parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
+                description = " - ".join(parts) if parts else ""
+        else:
+            description = compute_rm_description(rm, name_format)
         
         if description:
             await db.raw_materials.update_one(
@@ -155,7 +181,6 @@ async def backfill_rm_descriptions():
             updated += 1
         else:
             skipped += 1
-            # Track first 20 skipped for debugging
             if len(skipped_details) < 20:
                 skipped_details.append({
                     "rm_id": rm_id,
@@ -173,7 +198,8 @@ async def backfill_rm_descriptions():
         "updated": updated,
         "skipped": skipped,
         "skipped_details": skipped_details,
-        "category_formats_used": {k: v for k, v in category_formats.items()}
+        "category_formats_used": {k: v for k, v in category_formats.items()},
+        "force_mode": force
     }
 
 
