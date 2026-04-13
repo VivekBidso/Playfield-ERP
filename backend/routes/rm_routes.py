@@ -106,6 +106,37 @@ async def enrich_rms_with_description(rms: list) -> list:
     return rms
 
 
+@router.get("/raw-materials/category-formats")
+async def get_category_formats():
+    """
+    Get current rm_categories description format settings.
+    Shows which fields have include_in_name=True for each category.
+    """
+    categories = await db.rm_categories.find({}, {"_id": 0, "code": 1, "name": 1, "description_columns": 1}).to_list(100)
+    
+    result = []
+    for cat in sorted(categories, key=lambda x: x.get("code", "")):
+        code = cat.get("code", "")
+        name = cat.get("name", "")
+        desc_cols = cat.get("description_columns", [])
+        
+        # Get fields with include_in_name=True, sorted by order
+        name_fields = sorted(
+            [c for c in desc_cols if c.get("include_in_name")],
+            key=lambda x: x.get("order", 0)
+        )
+        
+        result.append({
+            "code": code,
+            "name": name,
+            "format_keys": [f["key"] for f in name_fields],
+            "format_labels": [f["label"] for f in name_fields],
+            "format_preview": " - ".join([f"<{f['label']}>" for f in name_fields]) if name_fields else "⚠️ No fields configured"
+        })
+    
+    return {"categories": result}
+
+
 @router.post("/raw-materials/sync-category-formats")
 async def sync_category_formats():
     """
