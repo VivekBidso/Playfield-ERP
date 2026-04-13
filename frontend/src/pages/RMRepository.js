@@ -762,14 +762,14 @@ const RMRepository = () => {
   const [backfilling, setBackfilling] = useState(false);
   
   const handleBackfillDescriptions = async () => {
-    if (!window.confirm("This will compute and permanently store descriptions for all RMs that don't have one. Continue?")) {
+    if (!window.confirm("This will regenerate descriptions for ALL RMs using the latest format. Continue?")) {
       return;
     }
     
     setBackfilling(true);
     try {
-      toast.info("Starting description backfill...");
-      const response = await axios.post(`${API}/raw-materials/backfill-descriptions`);
+      toast.info("Starting description backfill (force mode)...");
+      const response = await axios.post(`${API}/raw-materials/backfill-descriptions?force=true`);
       const { updated, skipped, message } = response.data;
       toast.success(message || `Updated ${updated} RMs, skipped ${skipped}`, { duration: 5000 });
       fetchMaterials(); // Refresh to show new descriptions
