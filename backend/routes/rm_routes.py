@@ -106,6 +106,62 @@ async def enrich_rms_with_description(rms: list) -> list:
     return rms
 
 
+@router.post("/raw-materials/sync-category-formats")
+async def sync_category_formats():
+    """
+    Sync rm_categories description_columns with the correct format configurations.
+    Run this once after deployment to ensure production has correct settings.
+    """
+    # Define correct description formats
+    FORMATS = {
+        "LB": {"fields": ["type", "buyer_sku"], "labels": ["Type", "Buyer SKU"]},
+        "PM": {"fields": ["model", "type", "specs", "brand"], "labels": ["Model", "Type", "Specs", "Brand"]},
+        "BS": {"fields": ["position", "type", "brand", "buyer_sku"], "labels": ["Position", "Type", "Brand", "Buyer SKU"]},
+        "INP": {"fields": ["mould_code", "model_name", "part_name", "colour", "mb"], "labels": ["Mould Code", "Model Name", "Part Name", "Colour", "Masterbatch"]},
+        "ACC": {"fields": ["type", "model_name", "specs", "colour"], "labels": ["Type", "Model Name", "Specs", "Colour"]},
+        "INM": {"fields": ["model_name", "part_name", "colour", "mb"], "labels": ["Model Name", "Part Name", "Colour", "Masterbatch"]},
+        "SP": {"fields": ["type", "specs"], "labels": ["Type", "Specs"]},
+        "ELC": {"fields": ["model", "type", "specs"], "labels": ["Model", "Type", "Specs"]}
+    }
+    
+    updated = []
+    for code, config in FORMATS.items():
+        cat = await db.rm_categories.find_one({"code": code})
+        if not cat:
+            continue
+        
+        existing_cols = cat.get("description_columns", [])
+        new_cols = []
+        
+        # Add name format fields with correct order and include_in_name
+        for order, key in enumerate(config["fields"]):
+            existing = next((c for c in existing_cols if c.get("key") == key), None)
+            col = existing.copy() if existing else {
+                "key": key, "label": config["labels"][order], "type": "text", "required": False, "options": []
+            }
+            col["include_in_name"] = True
+            col["order"] = order
+            new_cols.append(col)
+        
+        # Add remaining columns
+        used_keys = set(config["fields"])
+        for col in existing_cols:
+            if col.get("key") not in used_keys:
+                col_copy = col.copy()
+                col_copy["include_in_name"] = False
+                col_copy["order"] = len(new_cols)
+                new_cols.append(col_copy)
+        
+        await db.rm_categories.update_one({"code": code}, {"$set": {"description_columns": new_cols}})
+        updated.append(f"{code}: {' - '.join(config['labels'])}")
+    
+    # Clear cache
+    global _category_name_format_cache
+    _category_name_format_cache = {}
+    
+    return {"success": True, "updated": updated}
+
+
 @router.post("/raw-materials/backfill-descriptions")
 async def backfill_rm_descriptions(force: bool = False, categories: str = None):
     """

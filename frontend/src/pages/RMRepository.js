@@ -768,6 +768,11 @@ const RMRepository = () => {
     
     setBackfilling(true);
     try {
+      // First sync category formats to ensure correct configuration
+      toast.info("Syncing category formats...");
+      await axios.post(`${API}/raw-materials/sync-category-formats`);
+      
+      // Then run backfill with force mode
       toast.info("Starting description backfill (force mode)...");
       const response = await axios.post(`${API}/raw-materials/backfill-descriptions?force=true`);
       const { updated, skipped, message } = response.data;
