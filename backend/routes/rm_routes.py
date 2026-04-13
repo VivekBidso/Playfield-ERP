@@ -48,6 +48,7 @@ def compute_rm_description(rm: dict, name_format: list = None) -> str:
     """
     Compute description from category_data if description field is null/empty.
     Uses dash-separated format: field1 - field2 - field3
+    Supports case-insensitive key matching.
     """
     # If description already exists, return it
     existing_desc = rm.get("description")
@@ -64,7 +65,17 @@ def compute_rm_description(rm: dict, name_format: list = None) -> str:
         return ""
     
     category_data = rm.get("category_data", {})
-    parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
+    
+    # Build case-insensitive lookup map: lowercase_key -> actual_value
+    case_insensitive_map = {k.lower(): v for k, v in category_data.items()}
+    
+    parts = []
+    for key in name_format:
+        # Try exact match first, then case-insensitive
+        value = category_data.get(key) or case_insensitive_map.get(key.lower())
+        if value:
+            parts.append(str(value).strip())
+    
     return " - ".join(parts) if parts else ""
 
 
@@ -164,11 +175,17 @@ async def backfill_rm_descriptions(force: bool = False, categories: str = None):
         
         # For force mode, we need to compute without checking existing description
         if force:
-            # Compute fresh - ignore existing description
+            # Compute fresh - ignore existing description, use case-insensitive matching
             if not name_format:
                 description = ""
             else:
-                parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
+                # Build case-insensitive lookup map
+                case_insensitive_map = {k.lower(): v for k, v in category_data.items()}
+                parts = []
+                for key in name_format:
+                    value = category_data.get(key) or case_insensitive_map.get(key.lower())
+                    if value:
+                        parts.append(str(value).strip())
                 description = " - ".join(parts) if parts else ""
         else:
             description = compute_rm_description(rm, name_format)

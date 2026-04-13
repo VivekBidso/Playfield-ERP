@@ -30,8 +30,8 @@ RM_CATEGORIES = {
     },
     "INM": {
         "name": "In-house Metal", 
-        "fields": ["model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"],
-        "nameFormat": ["model_name", "part_name", "colour", "mb"]  # Model Name - Part Name - Colour - Masterbatch
+        "fields": ["type", "color", "finish", "per_unit_weight", "unit"],
+        "nameFormat": ["type", "color", "finish"]  # Type - Color - Finish
     },
     "ACC": {
         "name": "Accessories", 
