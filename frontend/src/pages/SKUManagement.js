@@ -118,6 +118,12 @@ const SKUManagement = () => {
   // Bulk Delete
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [bulkDeletePreview, setBulkDeletePreview] = useState(null);
+
+  // Data Integrity
+  const [showIntegrityDialog, setShowIntegrityDialog] = useState(false);
+  const [integrityData, setIntegrityData] = useState(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
+  const [repairLoading, setRepairLoading] = useState(false);
   const [bulkDeleteFile, setBulkDeleteFile] = useState(null);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const bulkDeleteFileRef = useRef(null);
@@ -783,6 +789,47 @@ const SKUManagement = () => {
     }
   };
 
+  // Data Integrity Handlers
+  const handleCheckIntegrity = async () => {
+    setIntegrityLoading(true);
+    setIntegrityData(null);
+    try {
+      const response = await axios.get(`${API}/sku-management/bidso-skus/missing-from-buyer-skus`, {
+        headers: getHeaders()
+      });
+      setIntegrityData(response.data);
+    } catch (error) {
+      toast.error('Failed to check data integrity');
+    } finally {
+      setIntegrityLoading(false);
+    }
+  };
+
+  const handleRepairMissingBidsoSKUs = async () => {
+    if (!window.confirm(`This will create ${integrityData?.total_missing || 0} missing Bidso SKUs. Continue?`)) {
+      return;
+    }
+    
+    setRepairLoading(true);
+    try {
+      const response = await axios.post(`${API}/sku-management/bidso-skus/auto-create-from-buyer-skus`, {}, {
+        headers: getHeaders()
+      });
+      toast.success(`Created ${response.data.created} Bidso SKUs`);
+      if (response.data.errors?.length > 0) {
+        toast.warning(`${response.data.errors.length} items could not be created`);
+      }
+      // Refresh the check
+      handleCheckIntegrity();
+      // Refresh stats
+      fetchStats();
+    } catch (error) {
+      toast.error('Failed to repair missing Bidso SKUs');
+    } finally {
+      setRepairLoading(false);
+    }
+  };
+
   // Bulk Delete Handlers
   const handleBulkDeleteFileSelect = async (e) => {
     const file = e.target.files[0];
@@ -926,6 +973,10 @@ const SKUManagement = () => {
           <Button variant="outline" onClick={() => setShowSyncDialog(true)} data-testid="sync-data-btn">
             <Database className="h-4 w-4 mr-2" />
             Data Sync
+          </Button>
+          <Button variant="outline" onClick={() => { setShowIntegrityDialog(true); handleCheckIntegrity(); }} data-testid="integrity-check-btn">
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            Data Integrity
           </Button>
         </div>
       </div>
@@ -1929,6 +1980,157 @@ const SKUManagement = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSyncDialog(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Data Integrity Dialog */}
+      <Dialog open={showIntegrityDialog} onOpenChange={setShowIntegrityDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              Data Integrity Check
+            </DialogTitle>
+            <DialogDescription>
+              Check for orphaned Buyer SKUs that reference non-existent Bidso SKUs
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {integrityLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Checking data integrity...</span>
+              </div>
+            ) : integrityData ? (
+              <>
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 border rounded-lg bg-blue-50 text-center">
+                    <p className="text-2xl font-bold text-blue-700">{integrityData.total_referenced}</p>
+                    <p className="text-sm text-blue-600">Referenced Bidso SKUs</p>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-green-50 text-center">
+                    <p className="text-2xl font-bold text-green-700">{integrityData.total_existing}</p>
+                    <p className="text-sm text-green-600">Existing Bidso SKUs</p>
+                  </div>
+                  <div className={`p-4 border rounded-lg text-center ${integrityData.total_missing > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                    <p className={`text-2xl font-bold ${integrityData.total_missing > 0 ? 'text-red-700' : 'text-gray-700'}`}>
+                      {integrityData.total_missing}
+                    </p>
+                    <p className={`text-sm ${integrityData.total_missing > 0 ? 'text-red-600' : 'text-gray-600'}`}>Missing Bidso SKUs</p>
+                  </div>
+                </div>
+
+                {integrityData.total_missing > 0 && (
+                  <>
+                    {/* Repair Action */}
+                    <div className="p-4 border rounded-lg bg-yellow-50">
+                      <h4 className="font-medium text-yellow-900 mb-2">Repair Missing Bidso SKUs</h4>
+                      <p className="text-sm text-yellow-700 mb-3">
+                        Auto-create missing Bidso SKUs by parsing the SKU ID format (VERTICAL_MODEL_NUMBER).
+                        This requires that the Vertical and Model codes exist in the system.
+                      </p>
+                      <Button 
+                        onClick={handleRepairMissingBidsoSKUs}
+                        disabled={repairLoading}
+                        className="w-full"
+                        variant="default"
+                      >
+                        {repairLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Create {integrityData.total_missing} Missing Bidso SKUs
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Missing SKUs List */}
+                    <div className="border rounded-lg">
+                      <div className="p-3 bg-gray-50 border-b font-medium">
+                        Missing Bidso SKUs (showing first 20)
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-100 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Bidso SKU ID</th>
+                              <th className="px-3 py-2 text-left">Vertical</th>
+                              <th className="px-3 py-2 text-left">Model</th>
+                              <th className="px-3 py-2 text-center">Buyer SKUs</th>
+                              <th className="px-3 py-2 text-center">Can Repair?</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {integrityData.missing_bidso_skus.slice(0, 20).map((item, idx) => (
+                              <tr key={idx} className="border-b hover:bg-gray-50">
+                                <td className="px-3 py-2 font-mono text-xs">{item.bidso_sku_id}</td>
+                                <td className="px-3 py-2">
+                                  <span className={item.vertical_found ? 'text-green-600' : 'text-red-600'}>
+                                    {item.vertical_code || '-'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className={item.model_found ? 'text-green-600' : 'text-red-600'}>
+                                    {item.model_code || '-'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">{item.buyer_sku_count}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {item.vertical_found && item.model_found ? (
+                                    <Check className="h-4 w-4 text-green-600 mx-auto" />
+                                  ) : (
+                                    <X className="h-4 w-4 text-red-600 mx-auto" />
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {integrityData.missing_bidso_skus.length > 20 && (
+                        <div className="p-2 bg-gray-50 text-center text-sm text-gray-500">
+                          ... and {integrityData.missing_bidso_skus.length - 20} more
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {integrityData.total_missing === 0 && (
+                  <div className="p-8 text-center bg-green-50 rounded-lg">
+                    <Check className="h-12 w-12 text-green-600 mx-auto mb-2" />
+                    <p className="text-lg font-medium text-green-700">All Clear!</p>
+                    <p className="text-sm text-green-600">All Buyer SKUs have valid Bidso SKU references.</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                Click "Check Integrity" to scan for data issues
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowIntegrityDialog(false)}>
+              Close
+            </Button>
+            <Button onClick={handleCheckIntegrity} disabled={integrityLoading}>
+              {integrityLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Refresh Check
             </Button>
           </DialogFooter>
         </DialogContent>
