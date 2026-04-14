@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { 
   Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
-  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag, AlertTriangle, Check, X
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag, AlertTriangle, Check, X, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -756,7 +756,11 @@ const SKUManagement = () => {
     event.target.value = '';
   };
 
+  const [bomExportLoading, setBomExportLoading] = useState(false);
+
   const handleExportBOM = async () => {
+    setBomExportLoading(true);
+    toast.info('Generating BOM export... This may take a few seconds.');
     try {
       const response = await axios.get(`${API}/sku-management/bom/export`, {
         headers: getHeaders(),
@@ -772,11 +776,13 @@ const SKUManagement = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
       
-      toast.success('BOM data exported');
+      toast.success('BOM data exported successfully!');
     } catch (error) {
       console.error('BOM export error:', error);
       const errorMsg = error.response?.data?.detail || error.message || 'Failed to export BOM';
       toast.error(errorMsg);
+    } finally {
+      setBomExportLoading(false);
     }
   };
 
@@ -2033,9 +2039,23 @@ const SKUManagement = () => {
               <p className="text-sm text-green-700 mb-3">
                 Download all current BOM data as Excel.
               </p>
-              <Button variant="outline" onClick={handleExportBOM} className="w-full">
-                <Download className="h-4 w-4 mr-2" />
-                Export All BOM Data
+              <Button 
+                variant="outline" 
+                onClick={handleExportBOM} 
+                disabled={bomExportLoading}
+                className="w-full"
+              >
+                {bomExportLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export All BOM Data
+                  </>
+                )}
               </Button>
             </div>
 
