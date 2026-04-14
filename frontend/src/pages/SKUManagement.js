@@ -774,7 +774,9 @@ const SKUManagement = () => {
       
       toast.success('BOM data exported');
     } catch (error) {
-      toast.error('Failed to export BOM');
+      console.error('BOM export error:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to export BOM';
+      toast.error(errorMsg);
     }
   };
 
