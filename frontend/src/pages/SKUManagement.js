@@ -767,14 +767,11 @@ const SKUManagement = () => {
         responseType: 'blob'
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `BOM_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      // Use file-saver for reliable download with correct MIME type
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      saveAs(blob, `BOM_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
       
       toast.success('BOM data exported successfully!');
     } catch (error) {
