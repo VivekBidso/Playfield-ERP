@@ -2119,7 +2119,7 @@ async def bulk_upload_bom(
 
 @router.get("/bom/export")
 async def export_all_bom():
-    """Export all BOM data to Excel"""
+    """Export all BOM data to Excel - Optimized for large datasets"""
     import openpyxl
     from fastapi.responses import StreamingResponse
     import logging
@@ -2128,7 +2128,31 @@ async def export_all_bom():
     try:
         wb = openpyxl.Workbook()
         
-        # Common BOM sheet
+        # Pre-fetch all data in bulk to avoid N+1 queries
+        logger.info("BOM Export: Pre-fetching data...")
+        
+        # Fetch all bidso_skus for name lookup
+        bidso_skus_map = {}
+        async for bidso in db.bidso_skus.find({}, {"_id": 0, "bidso_sku_id": 1, "name": 1}):
+            bidso_skus_map[bidso.get("bidso_sku_id")] = bidso.get("name", "")
+        
+        # Fetch all common BOMs
+        common_boms = {}
+        async for bom in db.common_bom.find({}, {"_id": 0}):
+            common_boms[bom.get("bidso_sku_id")] = bom
+        
+        # Fetch all brand-specific BOMs
+        brand_boms = {}
+        async for bom in db.brand_specific_bom.find({}, {"_id": 0}):
+            key = f"{bom.get('bidso_sku_id')}_{bom.get('brand_id')}"
+            brand_boms[key] = bom
+        
+        # Fetch all buyer SKUs
+        buyer_skus_list = await db.buyer_skus.find({"status": "ACTIVE"}, {"_id": 0}).to_list(10000)
+        
+        logger.info(f"BOM Export: Fetched {len(bidso_skus_map)} bidso, {len(common_boms)} common, {len(brand_boms)} brand, {len(buyer_skus_list)} buyer")
+        
+        # ===== Common BOM sheet =====
         ws_common = wb.active
         ws_common.title = "Common_BOM"
         headers = ["BIDSO_SKU_ID", "BIDSO_SKU_NAME", "RM_ID", "RM_NAME", "QUANTITY", "UNIT"]
@@ -2136,27 +2160,25 @@ async def export_all_bom():
             ws_common.cell(row=1, column=c_idx, value=h)
         
         row_idx = 2
-        async for bom in db.common_bom.find({}, {"_id": 0}):
-            bidso = await db.bidso_skus.find_one({"bidso_sku_id": bom.get("bidso_sku_id")}, {"_id": 0, "name": 1})
-            bidso_name = bidso.get("name", "") if bidso else ""
-            
+        for bidso_sku_id, bom in common_boms.items():
+            bidso_name = bidso_skus_map.get(bidso_sku_id, "")
             for item in bom.get("items", []):
-                ws_common.cell(row=row_idx, column=1, value=bom.get("bidso_sku_id", ""))
+                ws_common.cell(row=row_idx, column=1, value=bidso_sku_id or "")
                 ws_common.cell(row=row_idx, column=2, value=bidso_name)
                 ws_common.cell(row=row_idx, column=3, value=item.get("rm_id", ""))
                 ws_common.cell(row=row_idx, column=4, value=item.get("rm_name", ""))
                 ws_common.cell(row=row_idx, column=5, value=item.get("quantity", 1))
                 ws_common.cell(row=row_idx, column=6, value=item.get("unit", "PCS"))
                 row_idx += 1
-    
-        # Brand-specific BOM sheet
+        
+        # ===== Brand-specific BOM sheet =====
         ws_brand = wb.create_sheet("Brand_Specific_BOM")
         headers_brand = ["BIDSO_SKU_ID", "BRAND_CODE", "RM_ID", "RM_NAME", "QUANTITY", "UNIT"]
         for c_idx, h in enumerate(headers_brand, 1):
             ws_brand.cell(row=1, column=c_idx, value=h)
         
         row_idx = 2
-        async for bom in db.brand_specific_bom.find({}, {"_id": 0}):
+        for key, bom in brand_boms.items():
             for item in bom.get("items", []):
                 ws_brand.cell(row=row_idx, column=1, value=bom.get("bidso_sku_id", ""))
                 ws_brand.cell(row=row_idx, column=2, value=bom.get("brand_code", ""))
@@ -2166,21 +2188,21 @@ async def export_all_bom():
                 ws_brand.cell(row=row_idx, column=6, value=item.get("unit", "PCS"))
                 row_idx += 1
         
-        # Full Buyer SKU BOM sheet (combined view)
+        # ===== Full Buyer SKU BOM sheet (combined view) =====
         ws_full = wb.create_sheet("Full_BuyerSKU_BOM")
         headers_full = ["BUYER_SKU_ID", "BIDSO_SKU_ID", "BRAND_CODE", "RM_ID", "RM_NAME", "QUANTITY", "UNIT", "BOM_TYPE"]
         for c_idx, h in enumerate(headers_full, 1):
             ws_full.cell(row=1, column=c_idx, value=h)
         
         row_idx = 2
-        async for buyer_sku in db.buyer_skus.find({"status": "ACTIVE"}, {"_id": 0}):
+        for buyer_sku in buyer_skus_list:
             buyer_sku_id = buyer_sku.get("buyer_sku_id", "")
             bidso_sku_id = buyer_sku.get("bidso_sku_id", "")
             brand_code = buyer_sku.get("brand_code", "")
             brand_id = buyer_sku.get("brand_id", "")
             
-            # Get common BOM
-            common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
+            # Get common BOM from pre-fetched data
+            common_bom = common_boms.get(bidso_sku_id)
             if common_bom:
                 for item in common_bom.get("items", []):
                     ws_full.cell(row=row_idx, column=1, value=buyer_sku_id)
@@ -2193,12 +2215,10 @@ async def export_all_bom():
                     ws_full.cell(row=row_idx, column=8, value="Common")
                     row_idx += 1
             
-            # Get brand-specific BOM
+            # Get brand-specific BOM from pre-fetched data
             if brand_id:
-                brand_bom = await db.brand_specific_bom.find_one(
-                    {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
-                    {"_id": 0}
-                )
+                brand_bom_key = f"{bidso_sku_id}_{brand_id}"
+                brand_bom = brand_boms.get(brand_bom_key)
                 if brand_bom:
                     for item in brand_bom.get("items", []):
                         ws_full.cell(row=row_idx, column=1, value=buyer_sku_id)
@@ -2210,6 +2230,8 @@ async def export_all_bom():
                         ws_full.cell(row=row_idx, column=7, value=item.get("unit", "PCS"))
                         ws_full.cell(row=row_idx, column=8, value="Brand-Specific")
                         row_idx += 1
+        
+        logger.info(f"BOM Export: Generated Excel")
         
         output = io.BytesIO()
         wb.save(output)
