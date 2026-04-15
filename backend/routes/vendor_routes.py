@@ -294,7 +294,7 @@ async def create_rm_inward_bill(
         if not rm:
             raise HTTPException(status_code=404, detail=f"RM {item['rm_id']} not found")
     
-    # ========== ZOHO BOOKS INTEGRATION ==========
+    # ========== ZOHO BOOKS INTEGRATION (OPTIONAL) ==========
     zoho_result = None
     zoho_error = None
     
@@ -328,7 +328,7 @@ async def create_rm_inward_bill(
                 detail=f"Failed to create bill in Zoho Books: {zoho_error}. RM Inward not recorded."
             )
     else:
-        logger.warning("Zoho Books integration not configured - skipping")
+        logger.warning("Zoho Books integration not configured - bill will be created locally only")
     
     # ========== CREATE LOCAL BILL ==========
     # Create bill document

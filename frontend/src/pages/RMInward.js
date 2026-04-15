@@ -350,7 +350,7 @@ const RMInward = () => {
 
     try {
       setSubmitting(true);
-      toast.info("Creating bill... Syncing with Zoho Books", { duration: 10000 });
+      toast.info("Creating bill...", { duration: 10000 });
       
       const payload = {
         ...billData,
@@ -387,7 +387,7 @@ const RMInward = () => {
       if (response.data.zoho_synced) {
         toast.success(`Bill ${billData.bill_number} recorded & synced to Zoho Books!`, { duration: 5000 });
       } else {
-        toast.success(`Bill ${billData.bill_number} recorded successfully`);
+        toast.success(`Bill ${billData.bill_number} recorded successfully (Zoho sync not configured)`);
       }
       
       setShowDialog(false);
@@ -864,7 +864,7 @@ const RMInward = () => {
                   {submitting ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating Bill & Syncing to Zoho...
+                      Creating Bill...
                     </>
                   ) : (
                     <>
