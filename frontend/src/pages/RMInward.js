@@ -57,6 +57,12 @@ const RMInward = () => {
   const [showDialog, setShowDialog] = useState(false);
   const [vendorSearch, setVendorSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  
+  // Zoho integration state
+  const [zohoAccounts, setZohoAccounts] = useState([]);
+  const [zohoConfigured, setZohoConfigured] = useState(false);
+  const [defaultAccountId, setDefaultAccountId] = useState("");
+  const [zohoAccountsError, setZohoAccountsError] = useState("");
 
   // Bill/Invoice Form State
   const [billData, setBillData] = useState({
@@ -73,9 +79,9 @@ const RMInward = () => {
     notes: ""
   });
 
-  // Line Items State - now includes description, hsn, gst
+  // Line Items State - now includes description, hsn, gst, account_id
   const [lineItems, setLineItems] = useState([
-    { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }
+    { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0, account_id: "" }
   ]);
 
   // Totals State
@@ -96,6 +102,7 @@ const RMInward = () => {
     fetchBranchInventory();
     fetchVendors();
     fetchBranches();
+    fetchZohoAccounts();
   }, [selectedBranch]);
 
   // Calculate totals when line items or discount changes
@@ -151,6 +158,52 @@ const RMInward = () => {
       }));
     }
   }, [billData.payment_terms, billData.bill_date]);
+
+  // Fetch Zoho accounts for expense/asset selection
+  const fetchZohoAccounts = async () => {
+    try {
+      // First check if Zoho is configured
+      const statusRes = await axios.get(`${API}/zoho/status`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setZohoConfigured(statusRes.data.configured);
+      
+      if (statusRes.data.configured) {
+        // Fetch expense accounts (most common for purchases)
+        const response = await axios.get(`${API}/zoho/accounts?account_type=expense`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const accounts = response.data.accounts || [];
+        setZohoAccounts(accounts);
+        
+        // Check for auth error
+        if (response.data.auth_error) {
+          setZohoAccountsError(response.data.message || "Authorization failed for Chart of Accounts");
+          return;
+        }
+        
+        if (accounts.length === 0 && response.data.message && response.data.message !== "OK") {
+          setZohoAccountsError(response.data.message);
+          return;
+        }
+        
+        setZohoAccountsError("");
+        
+        // Set default account (first one or "Cost of Goods Sold" if available)
+        const defaultAcc = accounts.find(a => 
+          a.account_name.toLowerCase().includes('cost of goods') ||
+          a.account_name.toLowerCase().includes('purchases') ||
+          a.account_name.toLowerCase().includes('raw material')
+        ) || accounts[0];
+        
+        if (defaultAcc) {
+          setDefaultAccountId(defaultAcc.account_id);
+        }
+      }
+    } catch (error) {
+      console.log("Zoho accounts fetch skipped:", error.message);
+    }
+  };
 
   const fetchBranchInventory = async () => {
     try {
@@ -290,7 +343,7 @@ const RMInward = () => {
   };
 
   const handleAddLineItem = () => {
-    setLineItems([...lineItems, { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0 }]);
+    setLineItems([...lineItems, { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0, account_id: defaultAccountId || "" }]);
   };
 
   const handleRemoveLineItem = (index) => {
@@ -364,7 +417,8 @@ const RMInward = () => {
           rate: parseFloat(item.rate),
           tax: item.tax,
           tax_amount: item.amount * (TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0) / 100,
-          amount: item.amount
+          amount: item.amount,
+          account_id: item.account_id || defaultAccountId || undefined
         })),
         totals: {
           sub_total: totals.sub_total,
@@ -645,6 +699,13 @@ const RMInward = () => {
 
               {/* Line Items Table */}
               <div>
+                {zohoConfigured && zohoAccountsError && (
+                  <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800" data-testid="zoho-accounts-warning">
+                    <strong>Zoho Accounts Warning:</strong> {zohoAccountsError}
+                    <br />
+                    <span className="text-xs">You can still enter Account IDs manually, or re-authorize Zoho with the required scope.</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center mb-2">
                   <Label className="text-xs font-bold uppercase">Item Details</Label>
                   <Button size="sm" variant="outline" onClick={handleAddLineItem}>
@@ -662,6 +723,7 @@ const RMInward = () => {
                         <TableHead className="w-[80px] text-right">Qty</TableHead>
                         <TableHead className="w-[90px] text-right">Rate</TableHead>
                         <TableHead className="w-[100px]">Tax</TableHead>
+                        {zohoConfigured && <TableHead className="w-[160px]">Account</TableHead>}
                         <TableHead className="w-[100px] text-right">Amount</TableHead>
                         <TableHead className="w-[40px]"></TableHead>
                       </TableRow>
@@ -753,6 +815,35 @@ const RMInward = () => {
                               </SelectContent>
                             </Select>
                           </TableCell>
+                          {zohoConfigured && (
+                            <TableCell className="p-2">
+                              {zohoAccounts.length > 0 ? (
+                                <Select 
+                                  value={item.account_id || defaultAccountId || undefined} 
+                                  onValueChange={(v) => handleLineItemChange(idx, "account_id", v)}
+                                >
+                                  <SelectTrigger className="h-8 text-xs" data-testid={`account-select-${idx}`}>
+                                    <SelectValue placeholder="Select account" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {zohoAccounts.map(acc => (
+                                      <SelectItem key={acc.account_id} value={acc.account_id}>
+                                        {acc.account_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  value={item.account_id || ""}
+                                  onChange={(e) => handleLineItemChange(idx, "account_id", e.target.value)}
+                                  placeholder="Account ID"
+                                  className="text-xs h-8 font-mono"
+                                  data-testid={`account-input-${idx}`}
+                                />
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell className="p-2 text-right font-mono text-sm font-medium">
                             ₹{item.amount.toFixed(2)}
                           </TableCell>

@@ -13,6 +13,59 @@ from services.rbac_service import require_permission
 router = APIRouter(tags=["Vendors"])
 
 
+# ============ Zoho Integration ============
+
+@router.get("/zoho/accounts")
+async def get_zoho_accounts(account_type: Optional[str] = None):
+    """
+    Fetch Chart of Accounts from Zoho Books.
+    Used for selecting the expense/asset account during bill creation.
+    
+    Args:
+        account_type: Optional filter - 'expense', 'asset', 'liability', 'equity', 'income'
+    """
+    from services.zoho_service import zoho_client
+    
+    if not zoho_client.is_configured():
+        return {"accounts": [], "configured": False, "message": "Zoho Books not configured"}
+    
+    try:
+        accounts = await zoho_client.get_chart_of_accounts(account_type)
+        if not accounts:
+            return {
+                "accounts": [],
+                "configured": True,
+                "message": "No accounts returned. The OAuth token may be missing 'ZohoBooks.accountants.READ' scope. Please re-authorize with this scope."
+            }
+        return {"accounts": accounts, "configured": True, "message": "OK"}
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "not authorized" in error_msg.lower():
+            return {
+                "accounts": [],
+                "configured": True,
+                "auth_error": True,
+                "message": "Authorization failed for Chart of Accounts. The OAuth token needs 'ZohoBooks.accountants.READ' scope. Please generate a new Grant Token with this scope."
+            }
+        raise HTTPException(status_code=502, detail=f"Failed to fetch Zoho accounts: {error_msg}")
+
+
+@router.get("/zoho/status")
+async def get_zoho_status():
+    """Check if Zoho Books integration is configured and working."""
+    from services.zoho_service import zoho_client
+    
+    if not zoho_client.is_configured():
+        return {"configured": False, "message": "Zoho credentials not set"}
+    
+    try:
+        # Try to get access token to verify credentials work
+        await zoho_client.token_manager.get_access_token()
+        return {"configured": True, "message": "Zoho Books connected"}
+    except Exception as e:
+        return {"configured": False, "message": f"Zoho connection failed: {str(e)}"}
+
+
 # ============ Vendor Management ============
 
 @router.get("/vendors")

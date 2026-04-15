@@ -167,7 +167,7 @@ class ZohoBooksClient:
             vendor_name: Vendor name for reference
             bill_number: Unique bill number
             bill_date: Bill date in YYYY-MM-DD format
-            line_items: List of line items with name, quantity, rate
+            line_items: List of line items with name, quantity, rate, account_id
             reference_number: Optional reference/PO number
             notes: Optional notes
             due_date: Optional due date in YYYY-MM-DD format
@@ -184,6 +184,10 @@ class ZohoBooksClient:
                 "quantity": float(item.get("quantity", 1)),
                 "rate": float(item.get("rate", 0)),
             }
+            
+            # Add account_id (required by Zoho)
+            if item.get("account_id"):
+                line["account_id"] = item.get("account_id")
             
             # Add HSN if available
             if item.get("hsn"):
@@ -276,6 +280,50 @@ class ZohoBooksClient:
         # Create new vendor
         new_vendor = await self.create_vendor(vendor_name)
         return new_vendor.get("contact_id")
+    
+    async def get_chart_of_accounts(self, account_type: str = None) -> list:
+        """
+        Get Chart of Accounts from Zoho Books.
+        
+        Args:
+            account_type: Optional filter - 'expense', 'asset', 'liability', etc.
+        
+        Returns:
+            List of accounts with account_id, account_name, account_type
+        
+        Raises:
+            Exception if the API call fails (e.g. missing scope)
+        """
+        params = {}
+        if account_type:
+            # Zoho expects capitalized AccountType values: Expense, Asset, Liability, etc.
+            type_map = {
+                "expense": "Expense",
+                "asset": "Asset",
+                "liability": "Liability",
+                "equity": "Equity",
+                "income": "Income",
+                "all": "All",
+                "active": "Active",
+                "inactive": "Inactive",
+            }
+            mapped = type_map.get(account_type.lower(), account_type.capitalize())
+            params["filter_by"] = f"AccountType.{mapped}"
+        
+        result = await self._make_request("GET", "chartofaccounts", params=params)
+        
+        accounts = result.get("chartofaccounts", [])
+        
+        # Return simplified list
+        return [
+            {
+                "account_id": acc.get("account_id"),
+                "account_name": acc.get("account_name"),
+                "account_type": acc.get("account_type"),
+                "account_code": acc.get("account_code", "")
+            }
+            for acc in accounts
+        ]
 
 
 # Global client instance
