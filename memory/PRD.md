@@ -3019,3 +3019,14 @@ Dashboard alerts for delayed lots and lots nearing completion.
 ### P2 - Consolidate Duplicate IBT Routes
 **Status:** PENDING
 Technical debt - merge duplicate endpoints from procurement_routes.py and report_routes.py
+
+
+### Zoho Books Integration - COMPLETE (April 15, 2026)
+**Status:** COMPLETE
+- OAuth 2.0 token management with auto-refresh (`ZohoTokenManager`)
+- RM Inward bills automatically create Purchase Bills in Zoho Books
+- Chart of Accounts fetched from Zoho (expense accounts) for line item mapping
+- Default account auto-selected: "Raw Materials And Consumables"
+- Account dropdown per line item in RM Inward bill form
+- Scopes: `ZohoBooks.accountants.READ`, `ZohoBooks.bills.*`, `ZohoBooks.invoices.*`
+- Files: `zoho_service.py`, `vendor_routes.py`, `RMInward.js`
