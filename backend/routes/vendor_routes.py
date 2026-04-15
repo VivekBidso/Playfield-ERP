@@ -273,7 +273,16 @@ async def create_rm_inward_bill(
     input: RMInwardBillCreate,
     current_user: User = Depends(get_current_user)
 ):
-    """Create a full RM Inward bill with multiple line items"""
+    """
+    Create a full RM Inward bill with multiple line items.
+    Also creates a corresponding bill in Zoho Books.
+    If Zoho bill creation fails, the entire operation is rolled back.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Import Zoho service
+    from services.zoho_service import zoho_client
     
     # Generate bill ID
     bill_count = await db.rm_inward_bills.count_documents({})
@@ -285,6 +294,43 @@ async def create_rm_inward_bill(
         if not rm:
             raise HTTPException(status_code=404, detail=f"RM {item['rm_id']} not found")
     
+    # ========== ZOHO BOOKS INTEGRATION ==========
+    zoho_result = None
+    zoho_error = None
+    
+    if zoho_client.is_configured():
+        try:
+            logger.info(f"Creating Zoho bill for {input.bill_number}...")
+            
+            # Get or create vendor in Zoho
+            zoho_vendor_id = await zoho_client.get_or_create_vendor(input.vendor_name)
+            
+            # Create bill in Zoho Books
+            zoho_result = await zoho_client.create_bill(
+                vendor_id=zoho_vendor_id,
+                vendor_name=input.vendor_name,
+                bill_number=input.bill_number,
+                bill_date=input.bill_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                line_items=input.line_items,
+                reference_number=input.order_number,
+                notes=input.notes,
+                due_date=input.due_date
+            )
+            
+            logger.info(f"Zoho bill created: {zoho_result.get('zoho_bill_id')}")
+            
+        except Exception as e:
+            zoho_error = str(e)
+            logger.error(f"Zoho bill creation failed: {zoho_error}")
+            # Fail the entire operation if Zoho fails
+            raise HTTPException(
+                status_code=502, 
+                detail=f"Failed to create bill in Zoho Books: {zoho_error}. RM Inward not recorded."
+            )
+    else:
+        logger.warning("Zoho Books integration not configured - skipping")
+    
+    # ========== CREATE LOCAL BILL ==========
     # Create bill document
     bill = {
         "id": str(uuid.uuid4()),
@@ -306,7 +352,11 @@ async def create_rm_inward_bill(
         "status": "POSTED",
         "created_by": current_user.id,
         "created_by_name": current_user.name,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        # Zoho integration fields
+        "zoho_bill_id": zoho_result.get("zoho_bill_id") if zoho_result else None,
+        "zoho_bill_number": zoho_result.get("zoho_bill_number") if zoho_result else None,
+        "zoho_synced": zoho_result is not None
     }
     
     await db.rm_inward_bills.insert_one(bill)
@@ -360,12 +410,20 @@ async def create_rm_inward_bill(
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     
-    return {
+    response = {
         "message": f"Bill {input.bill_number} recorded successfully",
         "bill_id": bill_id,
         "entries_count": len(entries_created),
         "grand_total": input.totals.get("grand_total", 0)
     }
+    
+    # Add Zoho info to response
+    if zoho_result:
+        response["zoho_synced"] = True
+        response["zoho_bill_id"] = zoho_result.get("zoho_bill_id")
+        response["zoho_message"] = "Bill also created in Zoho Books"
+    
+    return response
 
 
 @router.get("/rm-inward/bills")

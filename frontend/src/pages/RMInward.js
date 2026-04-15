@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import useBranchStore from "@/store/branchStore";
 import useAuthStore from "@/store/authStore";
-import { Plus, Download, Package, Trash2, Calculator, FileText } from "lucide-react";
+import { Plus, Download, Package, Trash2, Calculator, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -56,6 +56,7 @@ const RMInward = () => {
   const [rmSearch, setRmSearch] = useState("");
   const [showDialog, setShowDialog] = useState(false);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // Bill/Invoice Form State
   const [billData, setBillData] = useState({
@@ -348,6 +349,9 @@ const RMInward = () => {
     }
 
     try {
+      setSubmitting(true);
+      toast.info("Creating bill... Syncing with Zoho Books", { duration: 10000 });
+      
       const payload = {
         ...billData,
         branch: billData.branch_id ? branches.find(b => b.branch_id === billData.branch_id)?.name : selectedBranch,
@@ -375,17 +379,31 @@ const RMInward = () => {
         date: new Date(billData.bill_date).toISOString()
       };
 
-      await axios.post(`${API}/rm-inward/bills`, payload, {
+      const response = await axios.post(`${API}/rm-inward/bills`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      toast.success(`Bill ${billData.bill_number} recorded successfully`);
+      // Check for Zoho sync status
+      if (response.data.zoho_synced) {
+        toast.success(`Bill ${billData.bill_number} recorded & synced to Zoho Books!`, { duration: 5000 });
+      } else {
+        toast.success(`Bill ${billData.bill_number} recorded successfully`);
+      }
+      
       setShowDialog(false);
       resetForm();
       fetchEntries();
       fetchBranchInventory();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to record bill");
+      const errorMsg = error.response?.data?.detail || "Failed to record bill";
+      // Check if it's a Zoho error
+      if (errorMsg.includes("Zoho")) {
+        toast.error(`Zoho Books Error: ${errorMsg}`, { duration: 8000 });
+      } else {
+        toast.error(errorMsg);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -839,12 +857,21 @@ const RMInward = () => {
 
               {/* Submit Button */}
               <div className="flex justify-end mt-6 gap-3">
-                <Button variant="outline" onClick={() => setShowDialog(false)}>
+                <Button variant="outline" onClick={() => setShowDialog(false)} disabled={submitting}>
                   Cancel
                 </Button>
-                <Button onClick={handleSubmit} data-testid="submit-bill-btn" className="uppercase">
-                  <Calculator className="w-4 h-4 mr-2" />
-                  Save Bill & Update Inventory
+                <Button onClick={handleSubmit} disabled={submitting} data-testid="submit-bill-btn" className="uppercase">
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Creating Bill & Syncing to Zoho...
+                    </>
+                  ) : (
+                    <>
+                      <Calculator className="w-4 h-4 mr-2" />
+                      Save Bill & Update Inventory
+                    </>
+                  )}
                 </Button>
               </div>
             </DialogContent>
