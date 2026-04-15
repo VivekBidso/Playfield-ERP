@@ -157,7 +157,8 @@ class ZohoBooksClient:
         line_items: list,
         reference_number: Optional[str] = None,
         notes: Optional[str] = None,
-        due_date: Optional[str] = None
+        due_date: Optional[str] = None,
+        is_reverse_charge: bool = False
     ) -> Dict[str, Any]:
         """
         Create a bill (purchase invoice) in Zoho Books.
@@ -193,9 +194,11 @@ class ZohoBooksClient:
             if item.get("hsn"):
                 line["hsn_or_sac"] = item.get("hsn")
             
-            # Add tax if available
-            if item.get("tax") and item.get("tax") != "NONE":
-                line["tax_name"] = item.get("tax")
+            # Add tax if available - use tax_id for Zoho
+            if item.get("tax_id"):
+                line["tax_id"] = item.get("tax_id")
+            elif item.get("tax_exemption_id"):
+                line["tax_exemption_id"] = item.get("tax_exemption_id")
             
             zoho_line_items.append(line)
         
@@ -206,6 +209,9 @@ class ZohoBooksClient:
             "date": bill_date,
             "line_items": zoho_line_items
         }
+        
+        if is_reverse_charge:
+            payload["is_reverse_charge_applied"] = True
         
         if reference_number:
             payload["reference_number"] = reference_number
@@ -250,7 +256,7 @@ class ZohoBooksClient:
             logger.warning(f"Failed to find vendor in Zoho: {str(e)}")
             return None
     
-    async def create_vendor(self, vendor_name: str, email: Optional[str] = None) -> Dict:
+    async def create_vendor(self, vendor_name: str, email: Optional[str] = None, gst: Optional[str] = None) -> Dict:
         """Create a vendor in Zoho Books if it doesn't exist."""
         payload = {
             "contact_name": vendor_name,
@@ -259,6 +265,13 @@ class ZohoBooksClient:
         
         if email:
             payload["email"] = email
+        
+        # Set GST treatment based on whether vendor has GSTIN
+        if gst:
+            payload["gst_no"] = gst
+            payload["gst_treatment"] = "business_gst"
+        else:
+            payload["gst_treatment"] = "business_none"
         
         result = await self._make_request("POST", "contacts", json_data=payload)
         
@@ -269,7 +282,7 @@ class ZohoBooksClient:
         else:
             raise Exception(f"Failed to create vendor: {result.get('message')}")
     
-    async def get_or_create_vendor(self, vendor_name: str) -> str:
+    async def get_or_create_vendor(self, vendor_name: str, gst: Optional[str] = None) -> str:
         """Get existing vendor ID or create new vendor in Zoho Books."""
         # Try to find existing vendor
         vendor = await self.get_vendor_by_name(vendor_name)
@@ -278,7 +291,7 @@ class ZohoBooksClient:
             return vendor.get("contact_id")
         
         # Create new vendor
-        new_vendor = await self.create_vendor(vendor_name)
+        new_vendor = await self.create_vendor(vendor_name, gst=gst)
         return new_vendor.get("contact_id")
     
     async def get_chart_of_accounts(self, account_type: str = None) -> list:
@@ -323,6 +336,20 @@ class ZohoBooksClient:
                 "account_code": acc.get("account_code", "")
             }
             for acc in accounts
+        ]
+
+    async def get_taxes(self) -> list:
+        """Fetch all taxes from Zoho Books."""
+        result = await self._make_request("GET", "settings/taxes")
+        taxes = result.get("taxes", [])
+        return [
+            {
+                "tax_id": t.get("tax_id"),
+                "tax_name": t.get("tax_name"),
+                "tax_percentage": t.get("tax_percentage"),
+                "tax_type": t.get("tax_type"),
+            }
+            for t in taxes
         ]
 
 

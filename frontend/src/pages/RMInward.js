@@ -36,6 +36,11 @@ const TAX_OPTIONS = [
   { value: "GST_28", label: "GST 28%", rate: 28 }
 ];
 
+// Map local tax values to approximate rates for amount calculation
+const LOCAL_TAX_RATES = {
+  "NONE": 0, "GST_5": 5, "GST_12": 12, "GST_18": 18, "GST_28": 28
+};
+
 const TDS_TCS_OPTIONS = [
   { value: "NONE", label: "None", rate: 0 },
   { value: "TDS_1", label: "TDS 1%", rate: 1 },
@@ -63,6 +68,8 @@ const RMInward = () => {
   const [zohoConfigured, setZohoConfigured] = useState(false);
   const [defaultAccountId, setDefaultAccountId] = useState("");
   const [zohoAccountsError, setZohoAccountsError] = useState("");
+  const [zohoTaxes, setZohoTaxes] = useState([]);
+  const [defaultTaxId, setDefaultTaxId] = useState("");
 
   // Bill/Invoice Form State
   const [billData, setBillData] = useState({
@@ -81,7 +88,7 @@ const RMInward = () => {
 
   // Line Items State - now includes description, hsn, gst, account_id
   const [lineItems, setLineItems] = useState([
-    { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0, account_id: "" }
+    { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", tax_id: "", amount: 0, account_id: "" }
   ]);
 
   // Totals State
@@ -103,6 +110,7 @@ const RMInward = () => {
     fetchVendors();
     fetchBranches();
     fetchZohoAccounts();
+    fetchZohoTaxes();
   }, [selectedBranch]);
 
   // Calculate totals when line items or discount changes
@@ -112,7 +120,12 @@ const RMInward = () => {
 
     lineItems.forEach(item => {
       const lineAmount = item.quantity * item.rate;
-      const taxRate = TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0;
+      let taxRate = 0;
+      if (item.tax_id && zohoTaxes.length > 0) {
+        taxRate = parseFloat(zohoTaxes.find(t => t.tax_id === item.tax_id)?.tax_percentage) || 0;
+      } else {
+        taxRate = TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0;
+      }
       const lineTax = lineAmount * (taxRate / 100);
       subTotal += lineAmount;
       taxTotal += lineTax;
@@ -141,7 +154,7 @@ const RMInward = () => {
       tax_total: taxTotal,
       grand_total: grandTotal
     }));
-  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs]);
+  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs, zohoTaxes]);
 
   // Auto-calculate due date when payment terms or bill date changes
   useEffect(() => {
@@ -204,6 +217,33 @@ const RMInward = () => {
       console.log("Zoho accounts fetch skipped:", error.message);
     }
   };
+
+  const fetchZohoTaxes = async () => {
+    try {
+      if (!zohoConfigured) {
+        // Wait for zoho status check — will be called after fetchZohoAccounts sets zohoConfigured
+        const statusRes = await axios.get(`${API}/zoho/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!statusRes.data.configured) return;
+      }
+      const response = await axios.get(`${API}/zoho/taxes`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const taxes = response.data.taxes || [];
+      setZohoTaxes(taxes);
+      // Set default tax (GST18 group or GST 18%)
+      const defaultTax = taxes.find(t =>
+        t.tax_name === "GST18" || t.tax_name === "GST 18%"
+      ) || taxes[0];
+      if (defaultTax) {
+        setDefaultTaxId(defaultTax.tax_id);
+      }
+    } catch (error) {
+      console.log("Zoho taxes fetch skipped:", error.message);
+    }
+  };
+
 
   const fetchBranchInventory = async () => {
     try {
@@ -343,7 +383,7 @@ const RMInward = () => {
   };
 
   const handleAddLineItem = () => {
-    setLineItems([...lineItems, { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", amount: 0, account_id: defaultAccountId || "" }]);
+    setLineItems([...lineItems, { rm_id: "", rm_search: "", description: "", hsn: "", quantity: 1, rate: 0, tax: "GST_18", tax_id: defaultTaxId || "", amount: 0, account_id: defaultAccountId || "" }]);
   };
 
   const handleRemoveLineItem = (index) => {
@@ -416,7 +456,12 @@ const RMInward = () => {
           quantity: parseFloat(item.quantity),
           rate: parseFloat(item.rate),
           tax: item.tax,
-          tax_amount: item.amount * (TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0) / 100,
+          tax_id: item.tax_id || undefined,
+          tax_amount: item.amount * (
+            item.tax_id 
+              ? (parseFloat(zohoTaxes.find(t => t.tax_id === item.tax_id)?.tax_percentage) || 0) / 100
+              : (TAX_OPTIONS.find(t => t.value === item.tax)?.rate || 0) / 100
+          ),
           amount: item.amount,
           account_id: item.account_id || defaultAccountId || undefined
         })),
@@ -801,19 +846,46 @@ const RMInward = () => {
                             />
                           </TableCell>
                           <TableCell className="p-2">
-                            <Select 
-                              value={item.tax || undefined} 
-                              onValueChange={(v) => handleLineItemChange(idx, "tax", v)}
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="Tax" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {TAX_OPTIONS.filter(t => t.value).map(t => (
-                                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {zohoTaxes.length > 0 ? (
+                              <Select 
+                                value={item.tax_id || defaultTaxId || undefined} 
+                                onValueChange={(v) => {
+                                  const tax = zohoTaxes.find(t => t.tax_id === v);
+                                  const updated = [...lineItems];
+                                  updated[idx].tax_id = v;
+                                  updated[idx].tax = tax?.tax_name || "";
+                                  // Recalculate amount with tax rate
+                                  const taxRate = parseFloat(tax?.tax_percentage) || 0;
+                                  updated[idx].amount = updated[idx].quantity * updated[idx].rate;
+                                  setLineItems(updated);
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs" data-testid={`tax-select-${idx}`}>
+                                  <SelectValue placeholder="Tax" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {zohoTaxes.map(t => (
+                                    <SelectItem key={t.tax_id} value={t.tax_id}>
+                                      {t.tax_name} ({t.tax_percentage}%)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Select 
+                                value={item.tax || undefined} 
+                                onValueChange={(v) => handleLineItemChange(idx, "tax", v)}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Tax" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {TAX_OPTIONS.filter(t => t.value).map(t => (
+                                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
                           </TableCell>
                           {zohoConfigured && (
                             <TableCell className="p-2">

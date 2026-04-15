@@ -50,6 +50,25 @@ async def get_zoho_accounts(account_type: Optional[str] = None):
         raise HTTPException(status_code=502, detail=f"Failed to fetch Zoho accounts: {error_msg}")
 
 
+@router.get("/zoho/taxes")
+async def get_zoho_taxes():
+    """Fetch all taxes configured in Zoho Books."""
+    from services.zoho_service import zoho_client
+    
+    if not zoho_client.is_configured():
+        return {"taxes": [], "configured": False}
+    
+    try:
+        taxes = await zoho_client.get_taxes()
+        return {"taxes": taxes, "configured": True}
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "not authorized" in error_msg.lower():
+            return {"taxes": [], "configured": True, "auth_error": True, "message": "Missing scope for taxes"}
+        raise HTTPException(status_code=502, detail=f"Failed to fetch Zoho taxes: {error_msg}")
+
+
+
 @router.get("/zoho/status")
 async def get_zoho_status():
     """Check if Zoho Books integration is configured and working."""
@@ -355,8 +374,15 @@ async def create_rm_inward_bill(
         try:
             logger.info(f"Creating Zoho bill for {input.bill_number}...")
             
+            # Look up vendor GST from our DB
+            vendor_doc = await db.vendors.find_one({"vendor_id": input.vendor_id}, {"_id": 0, "gst": 1})
+            vendor_gst = vendor_doc.get("gst") if vendor_doc else None
+            
             # Get or create vendor in Zoho
-            zoho_vendor_id = await zoho_client.get_or_create_vendor(input.vendor_name)
+            zoho_vendor_id = await zoho_client.get_or_create_vendor(input.vendor_name, gst=vendor_gst)
+            
+            # Auto-apply reverse charge for unregistered vendors (Zoho requires it)
+            apply_reverse_charge = input.reverse_charge or not vendor_gst
             
             # Create bill in Zoho Books
             zoho_result = await zoho_client.create_bill(
@@ -367,7 +393,8 @@ async def create_rm_inward_bill(
                 line_items=input.line_items,
                 reference_number=input.order_number,
                 notes=input.notes,
-                due_date=input.due_date
+                due_date=input.due_date,
+                is_reverse_charge=apply_reverse_charge
             )
             
             logger.info(f"Zoho bill created: {zoho_result.get('zoho_bill_id')}")
