@@ -33,105 +33,29 @@ router = APIRouter(prefix="/sku-management", tags=["SKU Management"])
 
 # ============ Helper Functions ============
 
-def generate_rm_description(category: str, cat_data: dict, fallback_name: str = "") -> str:
+async def generate_rm_description(category: str, cat_data: dict, fallback_name: str = "") -> str:
     """
-    Generate RM description based on category-specific naming conventions.
+    Generate RM description using the same logic as rm_routes.py backfill.
+    Reads description_columns from rm_categories DB, uses hyphen separator.
+    """
+    from routes.rm_routes import get_category_name_format
     
-    Labels (LB): {Type}_{Buyer SKU}
-    Packaging (PM): {Model}_{Type}_{Specs}_{Brand}
-    Brand Assets (BS): {Position}_{Type}_{Brand}_{Buyer SKU}
-    In House Plastic (INP): {Mould Code}_{Model Name}_{Part Name}_{Colour}_{Masterbatch}
-    Accessories (ACC): {Type}_{Model Name}_{Specs}_{Colour}
-    In House Metal (INM): {Model Name}_{Part Name}_{Colour}_{Masterbatch}
-    Spares (SP): {Type}_{Specs}
-    Electronic Components (ELC): {Model}_{Type}_{Specs}
-    """
+    name_format = await get_category_name_format(category)
+    
+    if not name_format:
+        return fallback_name or ""
+    
+    # Build case-insensitive lookup map
+    case_insensitive_map = {k.lower(): v for k, v in cat_data.items()}
+    
     parts = []
+    for key in name_format:
+        value = cat_data.get(key) or case_insensitive_map.get(key.lower())
+        if value and str(value).strip():
+            parts.append(str(value).strip())
     
-    if category == "LB":
-        # Labels: {Type}_{Buyer SKU}
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("buyer_sku"):
-            parts.append(cat_data["buyer_sku"])
-            
-    elif category == "PM":
-        # Packaging: {Model}_{Type}_{Specs}_{Brand}
-        if cat_data.get("model"):
-            parts.append(cat_data["model"])
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("specs"):
-            parts.append(cat_data["specs"])
-        if cat_data.get("brand"):
-            parts.append(cat_data["brand"])
-            
-    elif category == "BS":
-        # Brand Assets: {Position}_{Type}_{Brand}_{Buyer SKU}
-        if cat_data.get("position"):
-            parts.append(cat_data["position"])
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("brand"):
-            parts.append(cat_data["brand"])
-        if cat_data.get("buyer_sku"):
-            parts.append(cat_data["buyer_sku"])
-            
-    elif category == "INP":
-        # In House Plastic: {Mould Code}_{Model Name}_{Part Name}_{Colour}_{Masterbatch}
-        if cat_data.get("mould_code"):
-            parts.append(cat_data["mould_code"])
-        if cat_data.get("model_name"):
-            parts.append(cat_data["model_name"])
-        if cat_data.get("part_name"):
-            parts.append(cat_data["part_name"])
-        if cat_data.get("colour"):
-            parts.append(cat_data["colour"])
-        if cat_data.get("mb"):
-            parts.append(cat_data["mb"])
-            
-    elif category == "ACC":
-        # Accessories: {Type}_{Model Name}_{Specs}_{Colour}
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("model_name"):
-            parts.append(cat_data["model_name"])
-        if cat_data.get("specs"):
-            parts.append(cat_data["specs"])
-        if cat_data.get("colour"):
-            parts.append(cat_data["colour"])
-            
-    elif category == "INM":
-        # In House Metal: {Model Name}_{Part Name}_{Colour}_{Masterbatch}
-        if cat_data.get("model_name"):
-            parts.append(cat_data["model_name"])
-        if cat_data.get("part_name"):
-            parts.append(cat_data["part_name"])
-        if cat_data.get("colour") or cat_data.get("color"):
-            parts.append(cat_data.get("colour") or cat_data.get("color"))
-        if cat_data.get("mb"):
-            parts.append(cat_data["mb"])
-            
-    elif category == "SP":
-        # Spares: {Type}_{Specs}
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("specs"):
-            parts.append(cat_data["specs"])
-            
-    elif category == "ELC":
-        # Electronic Components: {Model}_{Type}_{Specs}
-        if cat_data.get("model"):
-            parts.append(cat_data["model"])
-        if cat_data.get("type"):
-            parts.append(cat_data["type"])
-        if cat_data.get("specs"):
-            parts.append(cat_data["specs"])
+    description = " - ".join(parts) if parts else ""
     
-    # Join parts with underscore, filter out empty strings and convert to string
-    description = "_".join(str(p) for p in parts if p is not None and str(p).strip())
-    
-    # If no description generated, use fallback
     if not description and fallback_name:
         description = fallback_name
     
@@ -2290,7 +2214,7 @@ async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
             cat_data = rm.get("category_data", {}) or {}
             
             # Generate description based on category-specific format
-            description = generate_rm_description(category, cat_data, rm.get("name", ""))
+            description = await generate_rm_description(category, cat_data, rm.get("name", ""))
             rm_details[rm_id] = description
     
     # Enrich common items with descriptions
@@ -2514,7 +2438,7 @@ async def edit_brand_specific_bom_item(
     # Prepare new item
     new_item = {
         "rm_id": rm["rm_id"],
-        "rm_name": generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
+        "rm_name": await generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
         "quantity": edit_data.quantity,
         "unit": edit_data.unit
     }
@@ -2603,7 +2527,7 @@ async def add_brand_specific_bom_item(
     
     new_item = {
         "rm_id": rm["rm_id"],
-        "rm_name": generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
+        "rm_name": await generate_rm_description(rm.get("category", ""), rm.get("category_data", {}), rm.get("name", "")),
         "quantity": edit_data.quantity,
         "unit": edit_data.unit
     }
