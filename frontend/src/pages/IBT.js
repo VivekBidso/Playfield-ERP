@@ -39,6 +39,8 @@ const IBT = () => {
   const [rawMaterials, setRawMaterials] = useState([]);
   const [buyerSkus, setBuyerSkus] = useState([]);
   const [shortages, setShortages] = useState([]);
+  const [branchStockItems, setBranchStockItems] = useState([]);
+  const [stockItemsLoading, setStockItemsLoading] = useState(false);
   
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -120,6 +122,28 @@ const IBT = () => {
     }
     setLoading(false);
   };
+
+  // Fetch items with non-zero stock when source branch or transfer type changes
+  const fetchBranchStockItems = async (transferType, sourceBranch) => {
+    if (!sourceBranch) {
+      setBranchStockItems([]);
+      return;
+    }
+    setStockItemsLoading(true);
+    try {
+      const res = await axios.get(
+        `${API}/ibt-transfers/branch-stock/${transferType}/${encodeURIComponent(sourceBranch)}`,
+        { headers: getHeaders() }
+      );
+      setBranchStockItems(res.data.items || []);
+    } catch (err) {
+      console.error("Failed to fetch branch stock items:", err);
+      setBranchStockItems([]);
+    }
+    setStockItemsLoading(false);
+  };
+
+
 
   // Check inventory when source branch and item change
   const checkInventory = async (itemId) => {
@@ -647,7 +671,7 @@ const IBT = () => {
           <div className="flex-1 overflow-y-auto space-y-4 pr-2">
             <div>
               <Label>Transfer Type</Label>
-              <Select value={form.transfer_type} onValueChange={(v) => { setForm({ ...form, transfer_type: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); }}>
+              <Select value={form.transfer_type} onValueChange={(v) => { setForm({ ...form, transfer_type: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); fetchBranchStockItems(v, form.source_branch); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -661,7 +685,7 @@ const IBT = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Source Branch *</Label>
-                <Select value={form.source_branch} onValueChange={(v) => { setForm({ ...form, source_branch: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); }}>
+                <Select value={form.source_branch} onValueChange={(v) => { setForm({ ...form, source_branch: v }); setItemRows([{ item_id: "", quantity: "", availableStock: null }]); fetchBranchStockItems(form.transfer_type, v); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="From..." />
                   </SelectTrigger>
@@ -697,28 +721,30 @@ const IBT = () => {
                     <Label className="text-xs text-zinc-500">Item {index + 1}</Label>
                     <Select 
                       value={row.item_id} 
-                      onValueChange={(v) => updateItemRow(index, 'item_id', v)}
-                      disabled={!form.source_branch}
+                      onValueChange={(v) => {
+                        const stockItem = branchStockItems.find(i => i.item_id === v);
+                        const updated = [...itemRows];
+                        updated[index] = { ...updated[index], item_id: v, availableStock: stockItem?.current_stock ?? null };
+                        setItemRows(updated);
+                      }}
+                      disabled={!form.source_branch || stockItemsLoading}
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder={form.source_branch ? "Select item..." : "Select source branch first"} />
+                      <SelectTrigger className="w-full" data-testid={`item-select-${index}`}>
+                        <SelectValue placeholder={
+                          !form.source_branch ? "Select source branch first" 
+                          : stockItemsLoading ? "Loading items..." 
+                          : branchStockItems.length === 0 ? "No items with stock in this branch" 
+                          : "Select item..."
+                        } />
                       </SelectTrigger>
                       <SelectContent>
-                        {form.transfer_type === "RM" 
-                          ? rawMaterials
-                              .filter(rm => !itemRows.some((r, i) => i !== index && r.item_id === rm.rm_id))
-                              .slice(0, 200).map(rm => (
-                                <SelectItem key={rm.rm_id} value={rm.rm_id}>
-                                  {rm.rm_id} - {rm.description?.substring(0, 30)}
-                                </SelectItem>
-                              ))
-                          : buyerSkus
-                              .filter(sku => !itemRows.some((r, i) => i !== index && r.item_id === sku.buyer_sku_id))
-                              .slice(0, 200).map(sku => (
-                                <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
-                                  {sku.buyer_sku_id} - {sku.name?.substring(0, 30)}
-                                </SelectItem>
-                              ))
+                        {branchStockItems
+                          .filter(item => !itemRows.some((r, i) => i !== index && r.item_id === item.item_id))
+                          .map(item => (
+                            <SelectItem key={item.item_id} value={item.item_id}>
+                              {item.item_id} - {item.name?.substring(0, 30)} ({item.current_stock})
+                            </SelectItem>
+                          ))
                         }
                       </SelectContent>
                     </Select>

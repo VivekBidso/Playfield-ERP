@@ -347,6 +347,86 @@ async def check_ibt_inventory(item_type: str, item_id: str, branch: str):
     return {"item_id": item_id, "branch": branch, "available_stock": available}
 
 
+@router.get("/ibt-transfers/branch-stock/{item_type}/{branch}")
+async def get_branch_stock_items(item_type: str, branch: str):
+    """Get all items with non-zero stock in a branch for IBT item selection.
+    
+    Args:
+        item_type: 'RM' for raw materials, 'FG' for finished goods (buyer SKUs)
+        branch: Branch name
+    
+    Returns:
+        List of items with item_id, name/description, and current_stock
+    """
+    items = []
+    
+    if item_type == "RM":
+        # Get RM IDs with stock > 0 in this branch
+        inv_cursor = db.branch_rm_inventory.find(
+            {"branch": branch, "current_stock": {"$gt": 0}},
+            {"_id": 0, "rm_id": 1, "current_stock": 1}
+        )
+        inv_list = await inv_cursor.to_list(5000)
+        
+        if inv_list:
+            rm_ids = [i["rm_id"] for i in inv_list]
+            stock_map = {i["rm_id"]: i["current_stock"] for i in inv_list}
+            
+            # Fetch RM details
+            rm_cursor = db.raw_materials.find(
+                {"rm_id": {"$in": rm_ids}},
+                {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1}
+            )
+            rm_list = await rm_cursor.to_list(5000)
+            rm_map = {r["rm_id"]: r for r in rm_list}
+            
+            for rm_id in rm_ids:
+                rm = rm_map.get(rm_id, {})
+                items.append({
+                    "item_id": rm_id,
+                    "name": rm.get("description") or rm.get("name") or rm_id,
+                    "current_stock": stock_map[rm_id]
+                })
+    else:
+        # FG - buyer SKUs (some docs use 'sku_id', some use 'buyer_sku_id')
+        inv_cursor = db.branch_sku_inventory.find(
+            {"branch": branch, "current_stock": {"$gt": 0}},
+            {"_id": 0, "sku_id": 1, "buyer_sku_id": 1, "current_stock": 1}
+        )
+        inv_list = await inv_cursor.to_list(5000)
+        
+        if inv_list:
+            # Normalize: some docs have 'sku_id', others 'buyer_sku_id'
+            for inv in inv_list:
+                inv["_item_id"] = inv.get("sku_id") or inv.get("buyer_sku_id")
+            
+            sku_ids = [i["_item_id"] for i in inv_list if i.get("_item_id")]
+            stock_map = {i["_item_id"]: i["current_stock"] for i in inv_list if i.get("_item_id")}
+            
+            # Fetch buyer SKU details
+            sku_cursor = db.buyer_skus.find(
+                {"buyer_sku_id": {"$in": sku_ids}},
+                {"_id": 0, "buyer_sku_id": 1, "name": 1}
+            )
+            sku_list = await sku_cursor.to_list(5000)
+            sku_map = {s["buyer_sku_id"]: s for s in sku_list}
+            
+            for sku_id in sku_ids:
+                sku = sku_map.get(sku_id, {})
+                items.append({
+                    "item_id": sku_id,
+                    "name": sku.get("name") or sku_id,
+                    "current_stock": stock_map[sku_id]
+                })
+    
+    # Sort by item_id
+    items.sort(key=lambda x: x["item_id"])
+    
+    return {"items": items, "total": len(items), "branch": branch, "type": item_type}
+
+
+
+
 @router.post("/ibt-transfers")
 async def create_ibt_transfer(data: IBTCreate):
     """
