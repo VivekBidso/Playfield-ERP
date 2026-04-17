@@ -71,11 +71,11 @@ async def get_skus(
         # Get SKUs active at this branch
         branch_inventory = await db.branch_sku_inventory.find(
             {"branch": branch, "is_active": True},
-            {"_id": 0, "sku_id": 1, "current_stock": 1}
+            {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
         ).to_list(10000)
         
-        active_sku_ids = {inv["sku_id"] for inv in branch_inventory}
-        branch_stock_map = {inv["sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        active_sku_ids = {inv["buyer_sku_id"] for inv in branch_inventory if inv.get("buyer_sku_id")}
+        branch_stock_map = {inv["buyer_sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory if inv.get("buyer_sku_id")}
         
         # Filter SKUs to only those active at this branch
         skus = [sku for sku in skus if sku.get("sku_id") in active_sku_ids]
@@ -203,18 +203,18 @@ async def activate_sku_in_branch(request: ActivateItemRequest):
     
     # Activate SKU
     existing = await db.branch_sku_inventory.find_one(
-        {"sku_id": request.item_id, "branch": request.branch}
+        {"buyer_sku_id": request.item_id, "branch": request.branch}
     )
     
     if existing:
         await db.branch_sku_inventory.update_one(
-            {"sku_id": request.item_id, "branch": request.branch},
+            {"buyer_sku_id": request.item_id, "branch": request.branch},
             {"$set": {"is_active": True}}
         )
     else:
         await db.branch_sku_inventory.insert_one({
             "id": str(uuid.uuid4()),
-            "sku_id": request.item_id,
+            "buyer_sku_id": request.item_id,
             "branch": request.branch,
             "current_stock": 0,
             "is_active": True,
@@ -505,11 +505,11 @@ async def get_filtered_skus(
     if branch:
         branch_inventory = await db.branch_sku_inventory.find(
             {"branch": branch, "is_active": True},
-            {"_id": 0, "sku_id": 1, "current_stock": 1}
+            {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
         ).to_list(10000)
         
-        active_sku_ids = [inv["sku_id"] for inv in branch_inventory]
-        branch_stock_map = {inv["sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory}
+        active_sku_ids = [inv["buyer_sku_id"] for inv in branch_inventory if inv.get("buyer_sku_id")]
+        branch_stock_map = {inv["buyer_sku_id"]: inv.get("current_stock", 0) for inv in branch_inventory if inv.get("buyer_sku_id")}
         
         if not active_sku_ids:
             return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
@@ -630,7 +630,7 @@ async def get_all_sku_branch_assignments():
     """Get all SKU branch assignments for demand planning"""
     assignments = await db.branch_sku_inventory.find(
         {"is_active": True},
-        {"_id": 0, "sku_id": 1, "branch": 1}
+        {"_id": 0, "buyer_sku_id": 1, "branch": 1}
     ).to_list(50000)
     
     return assignments
@@ -747,11 +747,11 @@ async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: st
             
             # Also activate SKU in branch inventory
             existing_inv = await db.branch_sku_inventory.find_one(
-                {"sku_id": actual_sku_id, "branch": branch},
+                {"buyer_sku_id": actual_sku_id, "branch": branch},
                 {"_id": 0}
             )
             if not existing_inv:
-                inv_obj = BranchSKUInventory(sku_id=actual_sku_id, branch=branch)
+                inv_obj = BranchSKUInventory(buyer_sku_id=actual_sku_id, branch=branch)
                 inv_doc = inv_obj.model_dump()
                 inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
                 await db.branch_sku_inventory.insert_one(inv_doc)
@@ -889,11 +889,11 @@ async def bulk_subscribe_skus(
         
         # Also activate SKU in branch inventory
         existing_inv = await db.branch_sku_inventory.find_one(
-            {"sku_id": sku_id, "branch": branch},
+            {"buyer_sku_id": sku_id, "branch": branch},
             {"_id": 0}
         )
         if not existing_inv:
-            inv_obj = BranchSKUInventory(sku_id=sku_id, branch=branch)
+            inv_obj = BranchSKUInventory(buyer_sku_id=sku_id, branch=branch)
             inv_doc = inv_obj.model_dump()
             inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
             await db.branch_sku_inventory.insert_one(inv_doc)

@@ -170,7 +170,7 @@ class BranchSKUInventory(BaseModel):
     """Branch-specific SKU inventory"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    sku_id: str
+    buyer_sku_id: str
     branch: str
     current_stock: float = 0.0
     is_active: bool = True

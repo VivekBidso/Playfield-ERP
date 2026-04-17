@@ -339,7 +339,7 @@ async def check_ibt_inventory(item_type: str, item_id: str, branch: str):
         )
     else:
         inv = await db.branch_sku_inventory.find_one(
-            {"$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}], "branch": branch},
+            {"buyer_sku_id": item_id, "branch": branch},
             {"_id": 0, "current_stock": 1}
         )
     
@@ -388,20 +388,16 @@ async def get_branch_stock_items(item_type: str, branch: str):
                     "current_stock": stock_map[rm_id]
                 })
     else:
-        # FG - buyer SKUs (some docs use 'sku_id', some use 'buyer_sku_id')
+        # FG - buyer SKUs
         inv_cursor = db.branch_sku_inventory.find(
             {"branch": branch, "current_stock": {"$gt": 0}},
-            {"_id": 0, "sku_id": 1, "buyer_sku_id": 1, "current_stock": 1}
+            {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
         )
         inv_list = await inv_cursor.to_list(5000)
         
         if inv_list:
-            # Normalize: some docs have 'sku_id', others 'buyer_sku_id'
-            for inv in inv_list:
-                inv["_item_id"] = inv.get("sku_id") or inv.get("buyer_sku_id")
-            
-            sku_ids = [i["_item_id"] for i in inv_list if i.get("_item_id")]
-            stock_map = {i["_item_id"]: i["current_stock"] for i in inv_list if i.get("_item_id")}
+            sku_ids = [i["buyer_sku_id"] for i in inv_list if i.get("buyer_sku_id")]
+            stock_map = {i["buyer_sku_id"]: i["current_stock"] for i in inv_list if i.get("buyer_sku_id")}
             
             # Fetch buyer SKU details
             sku_cursor = db.buyer_skus.find(
@@ -465,7 +461,7 @@ async def create_ibt_transfer(data: IBTCreate):
             item_name = item_doc.get("description") if item_doc else item_id
         else:
             source_inv = await db.branch_sku_inventory.find_one(
-                {"$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}], "branch": data.source_branch},
+                {"buyer_sku_id": item_id, "branch": data.source_branch},
                 {"_id": 0, "current_stock": 1}
             )
             item_doc = await db.buyer_skus.find_one({"buyer_sku_id": item_id}, {"_id": 0, "buyer_sku_id": 1, "name": 1})
@@ -602,7 +598,7 @@ async def dispatch_ibt_transfer(
             )
         else:
             source_inv = await db.branch_sku_inventory.find_one(
-                {"$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}], "branch": transfer["source_branch"]},
+                {"buyer_sku_id": item_id, "branch": transfer["source_branch"]},
                 {"_id": 0, "current_stock": 1}
             )
         
@@ -640,7 +636,7 @@ async def dispatch_ibt_transfer(
             )
         else:
             await db.branch_sku_inventory.update_one(
-                {"$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}], "branch": transfer["source_branch"]},
+                {"buyer_sku_id": item_id, "branch": transfer["source_branch"]},
                 {"$inc": {"current_stock": -quantity}}
             )
         
@@ -765,12 +761,12 @@ async def receive_ibt_transfer(transfer_id: str, data: IBTReceiveRequest):
                     })
             else:  # FG
                 existing = await db.branch_sku_inventory.find_one({
-                    "$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}],
+                    "buyer_sku_id": item_id,
                     "branch": transfer["destination_branch"]
                 })
                 if existing:
                     await db.branch_sku_inventory.update_one(
-                        {"$or": [{"sku_id": item_id}, {"buyer_sku_id": item_id}], "branch": transfer["destination_branch"]},
+                        {"buyer_sku_id": item_id, "branch": transfer["destination_branch"]},
                         {"$inc": {"current_stock": received_qty}}
                     )
                 else:
@@ -938,7 +934,7 @@ async def resolve_ibt_shortage(
             )
         else:
             await db.branch_sku_inventory.update_one(
-                {"$or": [{"sku_id": shortage["item_id"]}, {"buyer_sku_id": shortage["item_id"]}], "branch": shortage["destination_branch"]},
+                {"buyer_sku_id": shortage["item_id"], "branch": shortage["destination_branch"]},
                 {"$inc": {"current_stock": recovered_quantity}}
             )
         update_data["inventory_adjusted"] = True

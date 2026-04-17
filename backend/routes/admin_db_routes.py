@@ -312,3 +312,50 @@ async def aggregate_collection(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/admin/migrate-sku-inventory-field")
+async def migrate_sku_inventory_field():
+    """
+    Migration: Rename 'sku_id' → 'buyer_sku_id' in branch_sku_inventory collection.
+    Only updates documents that have 'sku_id' but NOT 'buyer_sku_id'.
+    Safe to run multiple times (idempotent).
+    """
+    from database import db
+    
+    # Count docs that need migration
+    to_migrate = await db.branch_sku_inventory.count_documents({
+        "sku_id": {"$exists": True},
+        "buyer_sku_id": {"$exists": False}
+    })
+    
+    if to_migrate == 0:
+        already_done = await db.branch_sku_inventory.count_documents({"buyer_sku_id": {"$exists": True}})
+        return {
+            "message": "No migration needed. All documents already use buyer_sku_id.",
+            "total_with_buyer_sku_id": already_done
+        }
+    
+    # Rename sku_id → buyer_sku_id for all docs that have sku_id but not buyer_sku_id
+    result = await db.branch_sku_inventory.update_many(
+        {
+            "sku_id": {"$exists": True},
+            "buyer_sku_id": {"$exists": False}
+        },
+        {"$rename": {"sku_id": "buyer_sku_id"}}
+    )
+    
+    # Verify
+    remaining_old = await db.branch_sku_inventory.count_documents({
+        "sku_id": {"$exists": True},
+        "buyer_sku_id": {"$exists": False}
+    })
+    total_new = await db.branch_sku_inventory.count_documents({"buyer_sku_id": {"$exists": True}})
+    
+    return {
+        "message": f"Migration complete. Renamed sku_id → buyer_sku_id in {result.modified_count} documents.",
+        "migrated": result.modified_count,
+        "remaining_old_field": remaining_old,
+        "total_with_buyer_sku_id": total_new
+    }
