@@ -3028,5 +3028,50 @@ Technical debt - merge duplicate endpoints from procurement_routes.py and report
 - Chart of Accounts fetched from Zoho (expense accounts) for line item mapping
 - Default account auto-selected: "Raw Materials And Consumables"
 - Account dropdown per line item in RM Inward bill form
-- Scopes: `ZohoBooks.accountants.READ`, `ZohoBooks.bills.*`, `ZohoBooks.invoices.*`
+- Tax dropdown fetching all taxes from Zoho Books (GST, IGST variants) with `tax_id` in payload
+- Auto reverse-charge for unregistered vendors (no GST)
+- Scopes: `ZohoBooks.fullaccess.all`
 - Files: `zoho_service.py`, `vendor_routes.py`, `RMInward.js`
+
+### FG Inventory Consolidation - COMPLETE (April 17, 2026)
+**Status:** COMPLETE
+- Unified all FG inventory into single `branch_sku_inventory` collection
+- Eliminated `fg_inventory` dual-write — all reads and writes go to `branch_sku_inventory`
+- Standardized on `buyer_sku_id` field (previously mixed `sku_id` / `buyer_sku_id`)
+- 8 route files updated: production, quality, branch_ops, cpc, inventory, demand, report, sku routes
+- Migration endpoints: `migrate-sku-inventory-field`, `migrate-fg-inventory-to-branch-sku`, `dedup-inventory`
+
+### Inventory Dedup & Atomic Writes - COMPLETE (April 17, 2026)
+**Status:** COMPLETE
+- Inventory reads aggregate by key (rm_id+branch / buyer_sku_id+branch), show only non-zero stock
+- All inventory writes use atomic `update_one(..., upsert=True)` — prevents future duplicate rows
+- Dedup migration endpoint merges existing duplicates (sums stock, keeps one row)
+- IBT branch-stock endpoint uses aggregation for both RM and FG
+
+### RM Description Unification - COMPLETE (April 17, 2026)
+**Status:** COMPLETE
+- Unified all description generators to use hyphen separator (` - `)
+- Fixed `generate_rm_name()` in `services/utils.py` (was using pipe `|`)
+- Fixed `generate_rm_description()` in `sku_management_routes.py` (was using underscore `_`)
+- Both now read from `rm_categories` DB config via `get_category_name_format()`
+
+### IBT Stock Filter - COMPLETE (April 16, 2026)
+**Status:** COMPLETE
+- `GET /api/ibt-transfers/branch-stock/{type}/{branch}` returns only items with non-zero stock
+- Item dropdown in IBT create form loads stock-filtered items with quantity shown
+- Supports both RM and FG transfer types
+
+---
+
+## PRODUCTION MIGRATION COMMANDS
+Run after each deploy (all idempotent):
+```bash
+# 1. Rename sku_id → buyer_sku_id in branch_sku_inventory
+curl -s -X POST "https://manufacturing-ops-7.emergent.host/api/admin/migrate-sku-inventory-field"
+
+# 2. Merge fg_inventory into branch_sku_inventory
+curl -s -X POST "https://manufacturing-ops-7.emergent.host/api/admin/migrate-fg-inventory-to-branch-sku"
+
+# 3. Dedup duplicate rows
+curl -s -X POST "https://manufacturing-ops-7.emergent.host/api/admin/dedup-inventory"
+```
