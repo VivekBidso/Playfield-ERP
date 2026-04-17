@@ -262,7 +262,7 @@ def generate_rm_name(category: str, category_data: dict, category_config: dict =
     """
     Generate RM description from category_data based on nomenclature.
     Uses category_config if provided, otherwise falls back to hardcoded RM_CATEGORIES.
-    Format: field1 | field2 | field3 (pipe-separated for readability)
+    Format: field1 - field2 - field3 (hyphen-separated, consistent with backfill)
     """
     if category_config:
         name_format = category_config.get("nameFormat", [])
@@ -272,7 +272,7 @@ def generate_rm_name(category: str, category_data: dict, category_config: dict =
         return ""
     
     parts = [str(category_data.get(key, "")).strip() for key in name_format if category_data.get(key)]
-    return " | ".join(parts) if parts else ""
+    return " - ".join(parts) if parts else ""
 
 
 async def generate_rm_description_async(category: str, category_data: dict) -> str:
