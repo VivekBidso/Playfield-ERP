@@ -85,12 +85,8 @@ async def get_skus(
             sku["branch_stock"] = branch_stock_map.get(sku["sku_id"], 0)
             sku["is_active_in_branch"] = True  # Already filtered to active only
             
-            # Get FG inventory
-            fg = await db.fg_inventory.find_one(
-                {"sku_id": sku["sku_id"], "branch": branch},
-                {"_id": 0}
-            )
-            sku["fg_stock"] = fg.get("quantity", 0) if fg else 0
+            # FG stock is same as branch_stock from branch_sku_inventory
+            sku["fg_stock"] = branch_stock_map.get(sku["sku_id"], 0)
     
     return skus
 
@@ -609,11 +605,8 @@ async def get_filtered_skus(
             sku["branch_stock"] = branch_stock_map.get(sku_id, 0)
             sku["is_active_in_branch"] = True  # Already filtered to active only
             
-            fg = await db.fg_inventory.find_one(
-                {"sku_id": sku_id, "branch": branch},
-                {"_id": 0}
-            )
-            sku["fg_stock"] = fg.get("quantity", 0) if fg else 0
+            # FG stock is same as branch_stock from branch_sku_inventory
+            sku["fg_stock"] = branch_stock_map.get(sku_id, 0)
     
     return {
         "items": skus,

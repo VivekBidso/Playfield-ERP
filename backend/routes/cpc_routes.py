@@ -1045,28 +1045,27 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     fg_updated = False
     fg_error = None
     
-    # Update FG inventory
+    # Update FG inventory (branch_sku_inventory - single source of truth)
     if sku_id and branch and completed_quantity > 0:
         try:
-            fg_existing = await db.fg_inventory.find_one(
-                {"buyer_sku_id": sku_id, "branch_id": branch_id}
+            fg_existing = await db.branch_sku_inventory.find_one(
+                {"buyer_sku_id": sku_id, "branch": branch}
             )
             
             if fg_existing:
-                result = await db.fg_inventory.update_one(
-                    {"buyer_sku_id": sku_id, "branch_id": branch_id},
-                    {"$inc": {"quantity": completed_quantity}}
+                result = await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": sku_id, "branch": branch},
+                    {"$inc": {"current_stock": completed_quantity}}
                 )
                 fg_updated = result.modified_count > 0
                 logger.info(f"FG inventory updated: modified_count={result.modified_count}")
             else:
-                result = await db.fg_inventory.insert_one({
+                result = await db.branch_sku_inventory.insert_one({
                     "id": str(uuid.uuid4()),
                     "buyer_sku_id": sku_id,
-                    "sku_id": sku_id,
-                    "branch_id": branch_id,
                     "branch": branch,
-                    "quantity": completed_quantity,
+                    "current_stock": completed_quantity,
+                    "is_active": True,
                     "created_at": completion_time.isoformat()
                 })
                 fg_updated = result.inserted_id is not None
@@ -1730,17 +1729,17 @@ async def get_demand_forecasts_for_cpc(
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
-    # Get FG inventory by SKU
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}},
-        {"_id": 0, "sku_id": 1, "quantity": 1}
+    # Get FG inventory by SKU (from branch_sku_inventory - single source of truth)
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
     ).to_list(5000)
     
     # Sum inventory by SKU
     inventory_by_sku = {}
     for inv in fg_inventory:
-        sku = inv.get("sku_id")
-        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+        sku = inv.get("buyer_sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("current_stock", 0)
     
     # Add SKU current_stock if no FG inventory
     for sku_id in sku_ids:
@@ -1834,19 +1833,19 @@ async def get_demand_forecasts_summary():
     # Ensure scheduled qty doesn't exceed forecast qty in the summary
     total_scheduled_qty = min(total_scheduled_qty, total_forecast_qty)
     
-    # Get FG inventory for SKUs in forecasts
+    # Get FG inventory for SKUs in forecasts (from branch_sku_inventory)
     sku_ids = list(set(f.get("sku_id") for f in forecasts if f.get("sku_id")))
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}},
-        {"_id": 0, "sku_id": 1, "quantity": 1}
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
     ).to_list(5000)
-    total_inventory = sum(inv.get("quantity", 0) for inv in fg_inventory)
+    total_inventory = sum(inv.get("current_stock", 0) for inv in fg_inventory)
     
     # Also check SKU current_stock
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     
-    # Add current_stock if not already in fg_inventory
-    inventory_skus = set(inv.get("sku_id") for inv in fg_inventory)
+    # Add current_stock if not already in branch_sku_inventory
+    inventory_skus = set(inv.get("buyer_sku_id") for inv in fg_inventory)
     for sku in skus:
         if sku.get("sku_id") not in inventory_skus:
             total_inventory += sku.get("current_stock", 0)

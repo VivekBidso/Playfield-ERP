@@ -359,3 +359,91 @@ async def migrate_sku_inventory_field():
         "remaining_old_field": remaining_old,
         "total_with_buyer_sku_id": total_new
     }
+
+
+
+@router.post("/admin/migrate-fg-inventory-to-branch-sku")
+async def migrate_fg_inventory_to_branch_sku():
+    """
+    Migration: Merge fg_inventory data into branch_sku_inventory.
+    For each fg_inventory doc:
+      - If a matching branch_sku_inventory doc exists (same buyer_sku_id + branch), 
+        adds fg_inventory.quantity to current_stock
+      - If not, creates a new branch_sku_inventory doc
+    Safe to run multiple times. Does NOT delete fg_inventory (kept as backup).
+    """
+    from database import db
+    
+    fg_count = await db.fg_inventory.count_documents({})
+    if fg_count == 0:
+        return {"message": "No fg_inventory records to migrate.", "migrated": 0, "skipped": 0}
+    
+    # Get all fg_inventory docs
+    fg_docs = await db.fg_inventory.find({}, {"_id": 0}).to_list(50000)
+    
+    # Build branch_id → branch_name lookup
+    branches = await db.branches.find({}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
+    branch_id_to_name = {b["branch_id"]: b["name"] for b in branches if b.get("branch_id")}
+    
+    migrated = 0
+    skipped = 0
+    errors = []
+    
+    for fg in fg_docs:
+        try:
+            buyer_sku_id = fg.get("buyer_sku_id") or fg.get("sku_id")
+            if not buyer_sku_id:
+                skipped += 1
+                continue
+            
+            # Resolve branch name
+            branch = fg.get("branch")
+            if not branch and fg.get("branch_id"):
+                branch = branch_id_to_name.get(fg["branch_id"])
+            if not branch:
+                errors.append(f"No branch for {buyer_sku_id}")
+                skipped += 1
+                continue
+            
+            quantity = fg.get("quantity", 0)
+            if quantity <= 0:
+                skipped += 1
+                continue
+            
+            # Check if already exists in branch_sku_inventory
+            existing = await db.branch_sku_inventory.find_one({
+                "buyer_sku_id": buyer_sku_id,
+                "branch": branch
+            })
+            
+            if existing:
+                # Add quantity to existing current_stock
+                await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": buyer_sku_id, "branch": branch},
+                    {"$inc": {"current_stock": quantity}}
+                )
+            else:
+                # Create new doc
+                import uuid
+                await db.branch_sku_inventory.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "buyer_sku_id": buyer_sku_id,
+                    "branch": branch,
+                    "current_stock": quantity,
+                    "is_active": True,
+                    "created_at": fg.get("created_at", "")
+                })
+            
+            migrated += 1
+        except Exception as e:
+            errors.append(f"{buyer_sku_id}: {str(e)}")
+            skipped += 1
+    
+    return {
+        "message": f"Merged {migrated} fg_inventory records into branch_sku_inventory.",
+        "fg_inventory_total": fg_count,
+        "migrated": migrated,
+        "skipped": skipped,
+        "errors": errors[:20],
+        "note": "fg_inventory collection kept as backup. You can drop it manually after verifying."
+    }

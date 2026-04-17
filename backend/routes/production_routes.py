@@ -187,22 +187,23 @@ async def create_production_entry(
         entry_id=entry.id
     )
     
-    # Update FG inventory
-    fg_existing = await db.fg_inventory.find_one(
-        {"sku_id": input.sku_id, "branch": input.branch}
+    # Update FG inventory (branch_sku_inventory is the single source of truth)
+    fg_existing = await db.branch_sku_inventory.find_one(
+        {"buyer_sku_id": input.sku_id, "branch": input.branch}
     )
     
     if fg_existing:
-        await db.fg_inventory.update_one(
-            {"sku_id": input.sku_id, "branch": input.branch},
-            {"$inc": {"quantity": input.quantity}}
+        await db.branch_sku_inventory.update_one(
+            {"buyer_sku_id": input.sku_id, "branch": input.branch},
+            {"$inc": {"current_stock": input.quantity}}
         )
     else:
-        await db.fg_inventory.insert_one({
+        await db.branch_sku_inventory.insert_one({
             "id": str(uuid.uuid4()),
-            "sku_id": input.sku_id,
+            "buyer_sku_id": input.sku_id,
             "branch": input.branch,
-            "quantity": input.quantity,
+            "current_stock": input.quantity,
+            "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     
@@ -415,24 +416,23 @@ async def complete_production_batch(
     branch_doc = await db.branches.find_one({"name": batch["branch"]}, {"_id": 0, "branch_id": 1})
     branch_id = branch_doc.get("branch_id") if branch_doc else None
     
-    # Update FG inventory
-    fg_existing = await db.fg_inventory.find_one(
-        {"buyer_sku_id": batch["sku_id"], "branch_id": branch_id}
+    # Update FG inventory (branch_sku_inventory is the single source of truth)
+    fg_existing = await db.branch_sku_inventory.find_one(
+        {"buyer_sku_id": batch["sku_id"], "branch": batch["branch"]}
     )
     
     if fg_existing:
-        await db.fg_inventory.update_one(
-            {"buyer_sku_id": batch["sku_id"], "branch_id": branch_id},
-            {"$inc": {"quantity": produced_quantity}}
+        await db.branch_sku_inventory.update_one(
+            {"buyer_sku_id": batch["sku_id"], "branch": batch["branch"]},
+            {"$inc": {"current_stock": produced_quantity}}
         )
     else:
-        await db.fg_inventory.insert_one({
+        await db.branch_sku_inventory.insert_one({
             "id": str(uuid.uuid4()),
             "buyer_sku_id": batch["sku_id"],
-            "sku_id": batch["sku_id"],
-            "branch_id": branch_id,
             "branch": batch["branch"],
-            "quantity": produced_quantity,
+            "current_stock": produced_quantity,
+            "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     

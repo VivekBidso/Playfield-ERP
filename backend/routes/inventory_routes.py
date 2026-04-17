@@ -385,21 +385,27 @@ async def get_fg_inventory(
     query = {}
     
     if branch_id:
-        query["branch_id"] = branch_id
-    if model_id:
-        query["model_id"] = model_id
+        # Convert branch_id to branch name for branch_sku_inventory
+        branch_doc = await db.branches.find_one({"branch_id": branch_id}, {"_id": 0, "name": 1})
+        if branch_doc:
+            query["branch"] = branch_doc["name"]
+        else:
+            query["branch"] = branch_id  # Fallback
     if search:
         query["$or"] = [
-            {"buyer_sku_id": {"$regex": search, "$options": "i"}},
-            {"sku_name": {"$regex": search, "$options": "i"}}
+            {"buyer_sku_id": {"$regex": search, "$options": "i"}}
         ]
     
-    # Get inventory records
-    cursor = db.fg_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("buyer_sku_id", 1)
+    # Get inventory records from branch_sku_inventory (single source of truth)
+    cursor = db.branch_sku_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("buyer_sku_id", 1)
     items = await cursor.to_list(limit)
     
     # Get total count
-    total = await db.fg_inventory.count_documents(query)
+    total = await db.branch_sku_inventory.count_documents(query)
+    
+    # Map fields for frontend compatibility
+    for item in items:
+        item["quantity"] = item.get("current_stock", 0)
     
     # Enrich with SKU details if not present
     for item in items:
@@ -527,15 +533,16 @@ async def bulk_import_fg_inventory(
         "success": True
     }
     
-    # Build branch lookup
+    # Build branch lookup (maps various inputs to branch name)
     branches = await db.branches.find({"is_active": True}, {"_id": 0, "branch_id": 1, "name": 1}).to_list(100)
-    branch_lookup = {}
+    branch_name_lookup = {}
     for idx, b in enumerate(branches, 1):
         bid = b.get("branch_id") or f"BR_{idx:03d}"
-        branch_lookup[bid] = bid
-        branch_lookup[bid.lower()] = bid
-        branch_lookup[b["name"]] = bid
-        branch_lookup[b["name"].lower()] = bid
+        bname = b["name"]
+        branch_name_lookup[bid] = bname
+        branch_name_lookup[bid.lower()] = bname
+        branch_name_lookup[bname] = bname
+        branch_name_lookup[bname.lower()] = bname
     
     # Process rows
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -551,9 +558,9 @@ async def bulk_import_fg_inventory(
                 results["errors"].append(f"Row {row_idx}: BRANCH_ID is required")
                 continue
             
-            # Resolve branch
-            branch_id = branch_lookup.get(branch_value) or branch_lookup.get(branch_value.lower())
-            if not branch_id:
+            # Resolve branch to name
+            branch_name = branch_name_lookup.get(branch_value) or branch_name_lookup.get(branch_value.lower())
+            if not branch_name:
                 results["errors"].append(f"Row {row_idx}: Invalid branch '{branch_value}'")
                 continue
             
@@ -571,36 +578,33 @@ async def bulk_import_fg_inventory(
             
             actual_sku_id = sku.get("buyer_sku_id", buyer_sku_id)
             
-            # Check existing inventory
-            existing = await db.fg_inventory.find_one({
+            # Check existing inventory in branch_sku_inventory
+            existing = await db.branch_sku_inventory.find_one({
                 "buyer_sku_id": actual_sku_id,
-                "branch_id": branch_id
+                "branch": branch_name
             })
             
             if mode == "replace":
                 new_quantity = quantity
             else:  # add
-                new_quantity = (existing.get("quantity", 0) if existing else 0) + quantity
+                new_quantity = (existing.get("current_stock", 0) if existing else 0) + quantity
             
             if existing:
-                await db.fg_inventory.update_one(
-                    {"buyer_sku_id": actual_sku_id, "branch_id": branch_id},
+                await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": actual_sku_id, "branch": branch_name},
                     {"$set": {
-                        "quantity": new_quantity,
-                        "sku_name": sku.get("name", ""),
-                        "model_id": sku.get("model_id", ""),
+                        "current_stock": new_quantity,
                         "updated_at": datetime.now(timezone.utc)
                     }}
                 )
                 results["updated"] += 1
             else:
-                await db.fg_inventory.insert_one({
+                await db.branch_sku_inventory.insert_one({
                     "id": str(uuid.uuid4()),
                     "buyer_sku_id": actual_sku_id,
-                    "sku_name": sku.get("name", ""),
-                    "model_id": sku.get("model_id", ""),
-                    "branch_id": branch_id,
-                    "quantity": new_quantity,
+                    "branch": branch_name,
+                    "current_stock": new_quantity,
+                    "is_active": True,
                     "created_at": datetime.now(timezone.utc)
                 })
                 results["added"] += 1
@@ -623,15 +627,15 @@ async def get_inventory_summary():
     """Get inventory summary stats - reads from branch_rm_inventory (unified source)"""
     # Use branch_rm_inventory - the unified collection for all RM inventory
     rm_total = await db.branch_rm_inventory.count_documents({})
-    fg_total = await db.fg_inventory.count_documents({})
+    fg_total = await db.branch_sku_inventory.count_documents({})
     
     # Get unique RMs and SKUs in inventory
     rm_unique = len(await db.branch_rm_inventory.distinct("rm_id"))
-    fg_unique = len(await db.fg_inventory.distinct("buyer_sku_id"))
+    fg_unique = len(await db.branch_sku_inventory.distinct("buyer_sku_id"))
     
     # Get branch count
     branches_with_rm = len(await db.branch_rm_inventory.distinct("branch"))
-    branches_with_fg = len(await db.fg_inventory.distinct("branch_id"))
+    branches_with_fg = len(await db.branch_sku_inventory.distinct("branch"))
     
     return {
         "rm": {
@@ -673,26 +677,25 @@ async def get_inventory_filters():
 
 @router.get("/fg/debug")
 async def debug_fg_inventory():
-    """Debug endpoint to check FG inventory state"""
-    total = await db.fg_inventory.count_documents({})
+    """Debug endpoint to check FG inventory state (reads from branch_sku_inventory)"""
+    total = await db.branch_sku_inventory.count_documents({})
     
-    # Get all records
-    all_records = await db.fg_inventory.find({}, {"_id": 0}).to_list(100)
+    # Get sample records
+    all_records = await db.branch_sku_inventory.find({}, {"_id": 0}).limit(100).to_list(100)
     
     # Check field usage
-    with_buyer_sku_id = await db.fg_inventory.count_documents({"buyer_sku_id": {"$exists": True}})
-    with_sku_id = await db.fg_inventory.count_documents({"sku_id": {"$exists": True}})
-    with_branch_id = await db.fg_inventory.count_documents({"branch_id": {"$exists": True}})
-    with_branch = await db.fg_inventory.count_documents({"branch": {"$exists": True}})
+    with_buyer_sku_id = await db.branch_sku_inventory.count_documents({"buyer_sku_id": {"$exists": True}})
+    with_branch = await db.branch_sku_inventory.count_documents({"branch": {"$exists": True}})
+    with_stock = await db.branch_sku_inventory.count_documents({"current_stock": {"$gt": 0}})
     
     return {
         "total_records": total,
+        "collection": "branch_sku_inventory",
         "field_usage": {
             "with_buyer_sku_id": with_buyer_sku_id,
-            "with_sku_id": with_sku_id,
-            "with_branch_id": with_branch_id,
-            "with_branch": with_branch
+            "with_branch": with_branch,
+            "with_positive_stock": with_stock
         },
-        "records": all_records[:20]  # First 20 records
+        "records": all_records[:20]
     }
 

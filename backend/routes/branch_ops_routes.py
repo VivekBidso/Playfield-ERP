@@ -183,7 +183,7 @@ async def add_fg_inventory(
     branch_doc = await db.branches.find_one({"name": branch}, {"_id": 0, "branch_id": 1})
     branch_id = branch_doc.get("branch_id") if branch_doc else None
     
-    # ========== Update branch_sku_inventory (Branch Ops view) ==========
+    # ========== Update branch_sku_inventory (single source of truth for FG) ==========
     existing = await db.branch_sku_inventory.find_one(
         {"branch": branch, "buyer_sku_id": buyer_sku_id}
     )
@@ -203,27 +203,7 @@ async def add_fg_inventory(
             "branch": branch,
             "buyer_sku_id": buyer_sku_id,
             "current_stock": quantity,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-    
-    # ========== Update fg_inventory (Inventory Tab view) ==========
-    existing_fg = await db.fg_inventory.find_one(
-        {"buyer_sku_id": buyer_sku_id, "branch_id": branch_id}
-    )
-    
-    if existing_fg:
-        await db.fg_inventory.update_one(
-            {"buyer_sku_id": buyer_sku_id, "branch_id": branch_id},
-            {"$inc": {"quantity": quantity}}
-        )
-    else:
-        await db.fg_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "buyer_sku_id": buyer_sku_id,
-            "sku_id": buyer_sku_id,
-            "branch_id": branch_id,
-            "branch": branch,
-            "quantity": quantity,
+            "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
     

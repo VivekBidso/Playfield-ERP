@@ -172,16 +172,24 @@ async def create_qc_approval(data: QCApprovalCreate):
     if data.overall_status == "APPROVED" and data.approved_quantity > 0:
         fg_record = {
             "id": str(uuid.uuid4()),
-            "branch_id": "",
             "branch": batch.get("branch", ""),
-            "sku_id": batch.get("sku_id", ""),
-            "dispatch_lot_id": batch.get("dispatch_lot_id"),
-            "production_batch_id": data.production_batch_id,
-            "quantity": data.approved_quantity,
-            "status": "AVAILABLE",
+            "buyer_sku_id": batch.get("sku_id", ""),
+            "current_stock": data.approved_quantity,
+            "is_active": True,
             "qc_approval_id": approval["id"],
-            "received_at": datetime.now(timezone.utc)
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
-        await db.fg_inventory.insert_one(fg_record)
+        # Update or insert into branch_sku_inventory (single source of truth)
+        existing_fg = await db.branch_sku_inventory.find_one({
+            "buyer_sku_id": fg_record["buyer_sku_id"],
+            "branch": fg_record["branch"]
+        })
+        if existing_fg:
+            await db.branch_sku_inventory.update_one(
+                {"buyer_sku_id": fg_record["buyer_sku_id"], "branch": fg_record["branch"]},
+                {"$inc": {"current_stock": data.approved_quantity}}
+            )
+        else:
+            await db.branch_sku_inventory.insert_one(fg_record)
     
     return serialize_doc(approval)

@@ -29,13 +29,15 @@ async def get_fg_inventory(
         query["branch"] = {"$in": current_user.assigned_branches}
     
     if sku_id:
-        query["sku_id"] = sku_id
+        query["buyer_sku_id"] = sku_id
     
-    inventory = await db.fg_inventory.find(query, {"_id": 0}).to_list(10000)
+    inventory = await db.branch_sku_inventory.find(query, {"_id": 0}).to_list(10000)
     
-    # Enrich with SKU info
+    # Enrich with SKU info and map fields
     for item in inventory:
-        sku = await sku_service.get_sku_by_sku_id(item["sku_id"])
+        item["quantity"] = item.get("current_stock", 0)
+        item["sku_id"] = item.get("buyer_sku_id", "")
+        sku = await sku_service.get_sku_by_sku_id(item["buyer_sku_id"])
         item["sku_description"] = sku.get("description") if sku else None
     
     return inventory
@@ -58,14 +60,14 @@ async def get_fg_inventory_summary(
     pipeline = [
         {"$match": query},
         {"$group": {
-            "_id": "$sku_id",
-            "total_quantity": {"$sum": "$quantity"},
-            "branches": {"$push": {"branch": "$branch", "quantity": "$quantity"}}
+            "_id": "$buyer_sku_id",
+            "total_quantity": {"$sum": "$current_stock"},
+            "branches": {"$push": {"branch": "$branch", "quantity": "$current_stock"}}
         }},
         {"$sort": {"_id": 1}}
     ]
     
-    result = await db.fg_inventory.aggregate(pipeline).to_list(10000)
+    result = await db.branch_sku_inventory.aggregate(pipeline).to_list(10000)
     
     # Enrich with SKU descriptions
     for item in result:

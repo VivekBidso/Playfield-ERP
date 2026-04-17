@@ -1017,10 +1017,10 @@ async def get_dispatch_lot_details(lot_id: str):
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
-    # Get FG inventory for these SKUs (sum across all branches)
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
-        {"sku_id": 1, "quantity": 1, "_id": 0}
+    # Get FG inventory for these SKUs (from branch_sku_inventory - single source of truth)
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"buyer_sku_id": 1, "current_stock": 1, "_id": 0}
     ).to_list(5000)
     
     # Also check production batches for produced quantity
@@ -1032,8 +1032,8 @@ async def get_dispatch_lot_details(lot_id: str):
     # Sum inventory by SKU
     inventory_by_sku = {}
     for inv in fg_inventory:
-        sku = inv.get("sku_id")
-        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+        sku = inv.get("buyer_sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("current_stock", 0)
     
     # Add produced quantity from batches
     for batch in production_batches:
@@ -1262,15 +1262,15 @@ async def get_dispatch_lots_with_readiness(
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     stock_by_sku = {s["sku_id"]: s.get("current_stock", 0) for s in skus}
     
-    # Get FG inventory
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
-        {"sku_id": 1, "quantity": 1, "_id": 0}
+    # Get FG inventory (from branch_sku_inventory)
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"buyer_sku_id": 1, "current_stock": 1, "_id": 0}
     ).to_list(10000)
     
     for inv in fg_inventory:
-        sku = inv.get("sku_id")
-        stock_by_sku[sku] = stock_by_sku.get(sku, 0) + inv.get("quantity", 0)
+        sku = inv.get("buyer_sku_id")
+        stock_by_sku[sku] = stock_by_sku.get(sku, 0) + inv.get("current_stock", 0)
     
     # Get buyer names
     buyer_ids = list(set(lot.get("buyer_id") for lot in lots if lot.get("buyer_id")))
@@ -2117,17 +2117,16 @@ async def run_fifo_allocation():
     # Get all unique SKU IDs
     sku_ids = list(set(line.get("sku_id") for line in all_lines if line.get("sku_id")))
     
-    # Get current inventory by SKU
-    # From FG inventory
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
-        {"sku_id": 1, "quantity": 1, "_id": 0}
+    # Get current inventory by SKU (from branch_sku_inventory)
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"buyer_sku_id": 1, "current_stock": 1, "_id": 0}
     ).to_list(50000)
     
     inventory_by_sku = {}
     for inv in fg_inventory:
-        sku = inv.get("sku_id")
-        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+        sku = inv.get("buyer_sku_id")
+        inventory_by_sku[sku] = inventory_by_sku.get(sku, 0) + inv.get("current_stock", 0)
     
     # Also add from SKU current_stock if no FG inventory
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
@@ -2338,16 +2337,16 @@ async def get_dispatch_lot_full_details(lot_id: str):
     skus = await sku_service.get_skus_by_sku_ids(sku_ids)
     sku_map = {s["sku_id"]: s for s in skus}
     
-    # Get total inventory (not allocated, just total available)
-    fg_inventory = await db.fg_inventory.find(
-        {"sku_id": {"$in": sku_ids}, "status": "AVAILABLE"},
-        {"sku_id": 1, "quantity": 1, "_id": 0}
+    # Get total inventory (from branch_sku_inventory)
+    fg_inventory = await db.branch_sku_inventory.find(
+        {"buyer_sku_id": {"$in": sku_ids}},
+        {"buyer_sku_id": 1, "current_stock": 1, "_id": 0}
     ).to_list(5000)
     
     total_inventory_by_sku = {}
     for inv in fg_inventory:
-        sku = inv.get("sku_id")
-        total_inventory_by_sku[sku] = total_inventory_by_sku.get(sku, 0) + inv.get("quantity", 0)
+        sku = inv.get("buyer_sku_id")
+        total_inventory_by_sku[sku] = total_inventory_by_sku.get(sku, 0) + inv.get("current_stock", 0)
     
     # Also add SKU current_stock
     for sku in skus:
