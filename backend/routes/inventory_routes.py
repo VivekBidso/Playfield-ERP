@@ -353,36 +353,30 @@ async def bulk_import_rm_inventory(
             
             actual_rm_id = rm.get("rm_id", rm_id)
             
-            # Check existing inventory in branch_rm_inventory
-            existing = await db.branch_rm_inventory.find_one({
-                "rm_id": actual_rm_id,
-                "branch": branch_name
-            })
-            
             if mode == "replace":
-                new_quantity = quantity
-            else:  # add
-                new_quantity = (existing.get("current_stock", 0) if existing else 0) + quantity
-            
-            if existing:
-                await db.branch_rm_inventory.update_one(
+                result = await db.branch_rm_inventory.update_one(
                     {"rm_id": actual_rm_id, "branch": branch_name},
-                    {"$set": {
-                        "current_stock": new_quantity,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }}
+                    {
+                        "$set": {"current_stock": quantity, "is_active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "activated_at": datetime.now(timezone.utc).isoformat()}
+                    },
+                    upsert=True
                 )
-                results["updated"] += 1
             else:
-                await db.branch_rm_inventory.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "rm_id": actual_rm_id,
-                    "branch": branch_name,
-                    "current_stock": new_quantity,
-                    "is_active": True,
-                    "activated_at": datetime.now(timezone.utc).isoformat()
-                })
+                result = await db.branch_rm_inventory.update_one(
+                    {"rm_id": actual_rm_id, "branch": branch_name},
+                    {
+                        "$inc": {"current_stock": quantity},
+                        "$set": {"is_active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "activated_at": datetime.now(timezone.utc).isoformat()}
+                    },
+                    upsert=True
+                )
+            
+            if result.upserted_id:
                 results["added"] += 1
+            else:
+                results["updated"] += 1
             
             results["processed"] += 1
             
@@ -623,36 +617,32 @@ async def bulk_import_fg_inventory(
             
             actual_sku_id = sku.get("buyer_sku_id", buyer_sku_id)
             
-            # Check existing inventory in branch_sku_inventory
-            existing = await db.branch_sku_inventory.find_one({
-                "buyer_sku_id": actual_sku_id,
-                "branch": branch_name
-            })
-            
             if mode == "replace":
-                new_quantity = quantity
-            else:  # add
-                new_quantity = (existing.get("current_stock", 0) if existing else 0) + quantity
-            
-            if existing:
-                await db.branch_sku_inventory.update_one(
+                # Replace: set exact quantity (atomic upsert)
+                result = await db.branch_sku_inventory.update_one(
                     {"buyer_sku_id": actual_sku_id, "branch": branch_name},
-                    {"$set": {
-                        "current_stock": new_quantity,
-                        "updated_at": datetime.now(timezone.utc)
-                    }}
+                    {
+                        "$set": {"current_stock": quantity, "is_active": True, "updated_at": datetime.now(timezone.utc)},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc)}
+                    },
+                    upsert=True
                 )
-                results["updated"] += 1
             else:
-                await db.branch_sku_inventory.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "buyer_sku_id": actual_sku_id,
-                    "branch": branch_name,
-                    "current_stock": new_quantity,
-                    "is_active": True,
-                    "created_at": datetime.now(timezone.utc)
-                })
+                # Add: increment quantity (atomic upsert)
+                result = await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": actual_sku_id, "branch": branch_name},
+                    {
+                        "$inc": {"current_stock": quantity},
+                        "$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc)}
+                    },
+                    upsert=True
+                )
+            
+            if result.upserted_id:
                 results["added"] += 1
+            else:
+                results["updated"] += 1
             
             results["processed"] += 1
             

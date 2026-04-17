@@ -981,24 +981,14 @@ async def activate_rm_in_branch(request: ActivateItemRequest):
     if not rm:
         raise HTTPException(status_code=404, detail="Raw material not found")
     
-    existing = await db.branch_rm_inventory.find_one(
-        {"rm_id": request.item_id, "branch": request.branch}
+    await db.branch_rm_inventory.update_one(
+        {"rm_id": request.item_id, "branch": request.branch},
+        {
+            "$set": {"is_active": True},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0.0, "created_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
     )
-    
-    if existing:
-        await db.branch_rm_inventory.update_one(
-            {"rm_id": request.item_id, "branch": request.branch},
-            {"$set": {"is_active": True}}
-        )
-    else:
-        await db.branch_rm_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "rm_id": request.item_id,
-            "branch": request.branch,
-            "current_stock": 0.0,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     return {"message": f"Raw material {request.item_id} activated in {request.branch}"}
 

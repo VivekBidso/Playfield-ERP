@@ -184,28 +184,15 @@ async def add_fg_inventory(
     branch_id = branch_doc.get("branch_id") if branch_doc else None
     
     # ========== Update branch_sku_inventory (single source of truth for FG) ==========
-    existing = await db.branch_sku_inventory.find_one(
-        {"branch": branch, "buyer_sku_id": buyer_sku_id}
+    await db.branch_sku_inventory.update_one(
+        {"branch": branch, "buyer_sku_id": buyer_sku_id},
+        {
+            "$inc": {"current_stock": quantity},
+            "$set": {"is_active": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
     )
-    
-    if existing:
-        new_qty = existing.get("current_stock", 0) + quantity
-        await db.branch_sku_inventory.update_one(
-            {"branch": branch, "buyer_sku_id": buyer_sku_id},
-            {"$set": {
-                "current_stock": new_qty,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-    else:
-        await db.branch_sku_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "branch": branch,
-            "buyer_sku_id": buyer_sku_id,
-            "current_stock": quantity,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     # Log the production entry
     await db.fg_production_log.insert_one({

@@ -197,25 +197,15 @@ async def activate_sku_in_branch(request: ActivateItemRequest):
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     
-    # Activate SKU
-    existing = await db.branch_sku_inventory.find_one(
-        {"buyer_sku_id": request.item_id, "branch": request.branch}
+    # Activate SKU (atomic upsert - prevents duplicates)
+    await db.branch_sku_inventory.update_one(
+        {"buyer_sku_id": request.item_id, "branch": request.branch},
+        {
+            "$set": {"is_active": True},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0, "created_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
     )
-    
-    if existing:
-        await db.branch_sku_inventory.update_one(
-            {"buyer_sku_id": request.item_id, "branch": request.branch},
-            {"$set": {"is_active": True}}
-        )
-    else:
-        await db.branch_sku_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "buyer_sku_id": request.item_id,
-            "branch": request.branch,
-            "current_stock": 0,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     # Get RM mappings and activate them too
     mappings = await db.sku_mappings.find_one({"sku_id": request.item_id}, {"_id": 0})
@@ -230,24 +220,14 @@ async def activate_sku_in_branch(request: ActivateItemRequest):
         rm_list = [m["rm_id"] for m in bom["rm_mappings"]]
     
     for rm_id in rm_list:
-        rm_existing = await db.branch_rm_inventory.find_one(
-            {"rm_id": rm_id, "branch": request.branch}
+        await db.branch_rm_inventory.update_one(
+            {"rm_id": rm_id, "branch": request.branch},
+            {
+                "$set": {"is_active": True},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0.0, "created_at": datetime.now(timezone.utc).isoformat()}
+            },
+            upsert=True
         )
-        
-        if rm_existing:
-            await db.branch_rm_inventory.update_one(
-                {"rm_id": rm_id, "branch": request.branch},
-                {"$set": {"is_active": True}}
-            )
-        else:
-            await db.branch_rm_inventory.insert_one({
-                "id": str(uuid.uuid4()),
-                "rm_id": rm_id,
-                "branch": request.branch,
-                "current_stock": 0.0,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
         activated_rms.append(rm_id)
     
     return {
@@ -664,25 +644,16 @@ async def activate_rms_for_sku(sku_id: str, branch: str) -> int:
         if not rm:
             continue
         
-        # Check if already activated in branch
-        existing_inv = await db.branch_rm_inventory.find_one(
+        # Atomic upsert - prevents duplicates
+        result = await db.branch_rm_inventory.update_one(
             {"rm_id": rm_id, "branch": branch},
-            {"_id": 0}
+            {
+                "$set": {"is_active": True},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0.0, "activated_at": datetime.now(timezone.utc).isoformat()}
+            },
+            upsert=True
         )
-        
-        if not existing_inv:
-            # Activate RM in branch inventory
-            inv_obj = BranchRMInventory(rm_id=rm_id, branch=branch)
-            inv_doc = inv_obj.model_dump()
-            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
-            await db.branch_rm_inventory.insert_one(inv_doc)
-            activated_count += 1
-        elif not existing_inv.get('is_active', False):
-            # Re-activate if inactive
-            await db.branch_rm_inventory.update_one(
-                {"rm_id": rm_id, "branch": branch},
-                {"$set": {"is_active": True}}
-            )
+        if result.upserted_id or result.modified_count > 0:
             activated_count += 1
     
     return activated_count
@@ -738,16 +709,15 @@ async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: st
             doc['assigned_at'] = doc['assigned_at'].isoformat()
             await db.sku_branch_assignments.insert_one(doc)
             
-            # Also activate SKU in branch inventory
-            existing_inv = await db.branch_sku_inventory.find_one(
+            # Also activate SKU in branch inventory (atomic upsert)
+            await db.branch_sku_inventory.update_one(
                 {"buyer_sku_id": actual_sku_id, "branch": branch},
-                {"_id": 0}
+                {
+                    "$set": {"is_active": True},
+                    "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0, "activated_at": datetime.now(timezone.utc).isoformat()}
+                },
+                upsert=True
             )
-            if not existing_inv:
-                inv_obj = BranchSKUInventory(buyer_sku_id=actual_sku_id, branch=branch)
-                inv_doc = inv_obj.model_dump()
-                inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
-                await db.branch_sku_inventory.insert_one(inv_doc)
             
             # Activate corresponding RMs for this SKU
             rms_activated = await activate_rms_for_sku(actual_sku_id, branch)
@@ -880,16 +850,15 @@ async def bulk_subscribe_skus(
         doc['assigned_at'] = doc['assigned_at'].isoformat()
         await db.sku_branch_assignments.insert_one(doc)
         
-        # Also activate SKU in branch inventory
-        existing_inv = await db.branch_sku_inventory.find_one(
+        # Also activate SKU in branch inventory (atomic upsert)
+        await db.branch_sku_inventory.update_one(
             {"buyer_sku_id": sku_id, "branch": branch},
-            {"_id": 0}
+            {
+                "$set": {"is_active": True},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "current_stock": 0, "activated_at": datetime.now(timezone.utc).isoformat()}
+            },
+            upsert=True
         )
-        if not existing_inv:
-            inv_obj = BranchSKUInventory(buyer_sku_id=sku_id, branch=branch)
-            inv_doc = inv_obj.model_dump()
-            inv_doc['activated_at'] = inv_doc['activated_at'].isoformat()
-            await db.branch_sku_inventory.insert_one(inv_doc)
         
         # Activate corresponding RMs for this SKU
         rms_activated = await activate_rms_for_sku(sku_id, branch)

@@ -748,43 +748,27 @@ async def receive_ibt_transfer(transfer_id: str, data: IBTReceiveRequest):
         # Add received quantity to destination
         if received_qty > 0:
             if transfer["transfer_type"] == "RM":
-                existing = await db.branch_rm_inventory.find_one({
-                    "rm_id": item_id, 
-                    "branch": transfer["destination_branch"]
-                })
-                if existing:
-                    await db.branch_rm_inventory.update_one(
-                        {"rm_id": item_id, "branch": transfer["destination_branch"]},
-                        {"$inc": {"current_stock": received_qty}}
-                    )
-                else:
-                    await db.branch_rm_inventory.insert_one({
-                        "id": str(uuid.uuid4()),
-                        "rm_id": item_id,
-                        "branch": transfer["destination_branch"],
-                        "current_stock": received_qty,
-                        "is_active": True,
-                        "activated_at": datetime.now(timezone.utc).isoformat()
-                    })
+                # RM receive (atomic upsert)
+                await db.branch_rm_inventory.update_one(
+                    {"rm_id": item_id, "branch": transfer["destination_branch"]},
+                    {
+                        "$inc": {"current_stock": received_qty},
+                        "$set": {"is_active": True},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "activated_at": datetime.now(timezone.utc).isoformat()}
+                    },
+                    upsert=True
+                )
             else:  # FG
-                existing = await db.branch_sku_inventory.find_one({
-                    "buyer_sku_id": item_id,
-                    "branch": transfer["destination_branch"]
-                })
-                if existing:
-                    await db.branch_sku_inventory.update_one(
-                        {"buyer_sku_id": item_id, "branch": transfer["destination_branch"]},
-                        {"$inc": {"current_stock": received_qty}}
-                    )
-                else:
-                    await db.branch_sku_inventory.insert_one({
-                        "id": str(uuid.uuid4()),
-                        "buyer_sku_id": item_id,
-                        "branch": transfer["destination_branch"],
-                        "current_stock": received_qty,
-                        "is_active": True,
-                        "activated_at": datetime.now(timezone.utc).isoformat()
-                    })
+                # FG receive (atomic upsert)
+                await db.branch_sku_inventory.update_one(
+                    {"buyer_sku_id": item_id, "branch": transfer["destination_branch"]},
+                    {
+                        "$inc": {"current_stock": received_qty},
+                        "$set": {"is_active": True},
+                        "$setOnInsert": {"id": str(uuid.uuid4()), "activated_at": datetime.now(timezone.utc).isoformat()}
+                    },
+                    upsert=True
+                )
                 
                 # Transfer stock origin ledger entries
                 origin_breakdown = await transfer_stock_with_origin(

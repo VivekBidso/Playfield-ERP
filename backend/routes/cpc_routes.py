@@ -1045,31 +1045,20 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
     fg_updated = False
     fg_error = None
     
-    # Update FG inventory (branch_sku_inventory - single source of truth)
+    # Update FG inventory (atomic upsert - prevents duplicates)
     if sku_id and branch and completed_quantity > 0:
         try:
-            fg_existing = await db.branch_sku_inventory.find_one(
-                {"buyer_sku_id": sku_id, "branch": branch}
+            result = await db.branch_sku_inventory.update_one(
+                {"buyer_sku_id": sku_id, "branch": branch},
+                {
+                    "$inc": {"current_stock": completed_quantity},
+                    "$set": {"is_active": True},
+                    "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": completion_time.isoformat()}
+                },
+                upsert=True
             )
-            
-            if fg_existing:
-                result = await db.branch_sku_inventory.update_one(
-                    {"buyer_sku_id": sku_id, "branch": branch},
-                    {"$inc": {"current_stock": completed_quantity}}
-                )
-                fg_updated = result.modified_count > 0
-                logger.info(f"FG inventory updated: modified_count={result.modified_count}")
-            else:
-                result = await db.branch_sku_inventory.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "buyer_sku_id": sku_id,
-                    "branch": branch,
-                    "current_stock": completed_quantity,
-                    "is_active": True,
-                    "created_at": completion_time.isoformat()
-                })
-                fg_updated = result.inserted_id is not None
-                logger.info(f"FG inventory inserted: inserted_id={result.inserted_id}")
+            fg_updated = result.modified_count > 0 or result.upserted_id is not None
+            logger.info(f"FG inventory upserted: modified={result.modified_count}, upserted={result.upserted_id}")
             
             # Create stock origin entry for manufacturing origin tracking
             await create_origin_entry(

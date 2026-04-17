@@ -187,25 +187,16 @@ async def create_production_entry(
         entry_id=entry.id
     )
     
-    # Update FG inventory (branch_sku_inventory is the single source of truth)
-    fg_existing = await db.branch_sku_inventory.find_one(
-        {"buyer_sku_id": input.sku_id, "branch": input.branch}
+    # Update FG inventory (atomic upsert - prevents duplicates)
+    await db.branch_sku_inventory.update_one(
+        {"buyer_sku_id": input.sku_id, "branch": input.branch},
+        {
+            "$inc": {"current_stock": input.quantity},
+            "$set": {"is_active": True},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
     )
-    
-    if fg_existing:
-        await db.branch_sku_inventory.update_one(
-            {"buyer_sku_id": input.sku_id, "branch": input.branch},
-            {"$inc": {"current_stock": input.quantity}}
-        )
-    else:
-        await db.branch_sku_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "buyer_sku_id": input.sku_id,
-            "branch": input.branch,
-            "current_stock": input.quantity,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     # Publish event
     from services.event_system import event_bus, EventType
@@ -416,25 +407,16 @@ async def complete_production_batch(
     branch_doc = await db.branches.find_one({"name": batch["branch"]}, {"_id": 0, "branch_id": 1})
     branch_id = branch_doc.get("branch_id") if branch_doc else None
     
-    # Update FG inventory (branch_sku_inventory is the single source of truth)
-    fg_existing = await db.branch_sku_inventory.find_one(
-        {"buyer_sku_id": batch["sku_id"], "branch": batch["branch"]}
+    # Update FG inventory (atomic upsert - prevents duplicates)
+    await db.branch_sku_inventory.update_one(
+        {"buyer_sku_id": batch["sku_id"], "branch": batch["branch"]},
+        {
+            "$inc": {"current_stock": produced_quantity},
+            "$set": {"is_active": True},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
     )
-    
-    if fg_existing:
-        await db.branch_sku_inventory.update_one(
-            {"buyer_sku_id": batch["sku_id"], "branch": batch["branch"]},
-            {"$inc": {"current_stock": produced_quantity}}
-        )
-    else:
-        await db.branch_sku_inventory.insert_one({
-            "id": str(uuid.uuid4()),
-            "buyer_sku_id": batch["sku_id"],
-            "branch": batch["branch"],
-            "current_stock": produced_quantity,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     await db.production_batches.update_one(
         {"id": batch_id},
