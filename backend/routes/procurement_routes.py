@@ -331,46 +331,51 @@ async def get_ibt_transfer(transfer_id: str):
 
 @router.get("/ibt-transfers/check-inventory/{item_type}/{item_id}/{branch}")
 async def check_ibt_inventory(item_type: str, item_id: str, branch: str):
-    """Check available inventory before creating IBT"""
+    """Check available inventory before creating IBT - aggregates duplicates"""
     if item_type == "RM":
-        inv = await db.branch_rm_inventory.find_one(
-            {"rm_id": item_id, "branch": branch},
-            {"_id": 0, "current_stock": 1}
-        )
+        pipeline = [
+            {"$match": {"rm_id": item_id, "branch": branch}},
+            {"$group": {"_id": None, "total": {"$sum": "$current_stock"}}}
+        ]
+        result = await db.branch_rm_inventory.aggregate(pipeline).to_list(1)
     else:
-        inv = await db.branch_sku_inventory.find_one(
-            {"buyer_sku_id": item_id, "branch": branch},
-            {"_id": 0, "current_stock": 1}
-        )
+        pipeline = [
+            {"$match": {"buyer_sku_id": item_id, "branch": branch}},
+            {"$group": {"_id": None, "total": {"$sum": "$current_stock"}}}
+        ]
+        result = await db.branch_sku_inventory.aggregate(pipeline).to_list(1)
     
-    available = inv.get("current_stock", 0) if inv else 0
+    available = result[0]["total"] if result else 0
     return {"item_id": item_id, "branch": branch, "available_stock": available}
 
 
 @router.get("/ibt-transfers/branch-stock/{item_type}/{branch}")
 async def get_branch_stock_items(item_type: str, branch: str):
     """Get all items with non-zero stock in a branch for IBT item selection.
+    Uses aggregation to group duplicates and sum stock.
     
     Args:
         item_type: 'RM' for raw materials, 'FG' for finished goods (buyer SKUs)
         branch: Branch name
     
     Returns:
-        List of items with item_id, name/description, and current_stock
+        List of items with item_id, name/description, and current_stock (non-zero only)
     """
     items = []
     
     if item_type == "RM":
-        # Get RM IDs with stock > 0 in this branch
-        inv_cursor = db.branch_rm_inventory.find(
-            {"branch": branch, "current_stock": {"$gt": 0}},
-            {"_id": 0, "rm_id": 1, "current_stock": 1}
-        )
-        inv_list = await inv_cursor.to_list(5000)
+        # Aggregate RM stock grouped by rm_id, sum current_stock, filter > 0
+        pipeline = [
+            {"$match": {"branch": branch}},
+            {"$group": {"_id": "$rm_id", "current_stock": {"$sum": "$current_stock"}}},
+            {"$match": {"current_stock": {"$gt": 0}}},
+            {"$sort": {"_id": 1}}
+        ]
+        inv_list = await db.branch_rm_inventory.aggregate(pipeline).to_list(5000)
         
         if inv_list:
-            rm_ids = [i["rm_id"] for i in inv_list]
-            stock_map = {i["rm_id"]: i["current_stock"] for i in inv_list}
+            rm_ids = [i["_id"] for i in inv_list]
+            stock_map = {i["_id"]: i["current_stock"] for i in inv_list}
             
             # Fetch RM details
             rm_cursor = db.raw_materials.find(
@@ -388,16 +393,18 @@ async def get_branch_stock_items(item_type: str, branch: str):
                     "current_stock": stock_map[rm_id]
                 })
     else:
-        # FG - buyer SKUs
-        inv_cursor = db.branch_sku_inventory.find(
-            {"branch": branch, "current_stock": {"$gt": 0}},
-            {"_id": 0, "buyer_sku_id": 1, "current_stock": 1}
-        )
-        inv_list = await inv_cursor.to_list(5000)
+        # Aggregate FG stock grouped by buyer_sku_id, sum current_stock, filter > 0
+        pipeline = [
+            {"$match": {"branch": branch}},
+            {"$group": {"_id": "$buyer_sku_id", "current_stock": {"$sum": "$current_stock"}}},
+            {"$match": {"current_stock": {"$gt": 0}}},
+            {"$sort": {"_id": 1}}
+        ]
+        inv_list = await db.branch_sku_inventory.aggregate(pipeline).to_list(5000)
         
         if inv_list:
-            sku_ids = [i["buyer_sku_id"] for i in inv_list if i.get("buyer_sku_id")]
-            stock_map = {i["buyer_sku_id"]: i["current_stock"] for i in inv_list if i.get("buyer_sku_id")}
+            sku_ids = [i["_id"] for i in inv_list if i.get("_id")]
+            stock_map = {i["_id"]: i["current_stock"] for i in inv_list if i.get("_id")}
             
             # Fetch buyer SKU details
             sku_cursor = db.buyer_skus.find(

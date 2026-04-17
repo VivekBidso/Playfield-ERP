@@ -54,12 +54,36 @@ async def get_rm_inventory(
         else:
             query["branch"] = branch_filter
     
-    # Get inventory records from branch_rm_inventory
-    cursor = db.branch_rm_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("rm_id", 1)
-    items = await cursor.to_list(limit)
+    # Aggregate to group by rm_id+branch, sum stock, exclude zero
+    match_stage = {"$match": query}
+    group_stage = {
+        "$group": {
+            "_id": {"rm_id": "$rm_id", "branch": "$branch"},
+            "current_stock": {"$sum": "$current_stock"},
+            "is_active": {"$max": "$is_active"}
+        }
+    }
+    non_zero_stage = {"$match": {"current_stock": {"$gt": 0}}}
+    sort_stage = {"$sort": {"_id.rm_id": 1}}
     
-    # Get total count
-    total = await db.branch_rm_inventory.count_documents(query)
+    # Get total count first
+    count_pipeline = [match_stage, group_stage, non_zero_stage, {"$count": "total"}]
+    count_result = await db.branch_rm_inventory.aggregate(count_pipeline).to_list(1)
+    total = count_result[0]["total"] if count_result else 0
+    
+    # Get paginated results
+    pipeline = [match_stage, group_stage, non_zero_stage, sort_stage, {"$skip": skip}, {"$limit": limit}]
+    raw_items = await db.branch_rm_inventory.aggregate(pipeline).to_list(limit)
+    
+    # Flatten grouped results
+    items = []
+    for item in raw_items:
+        items.append({
+            "rm_id": item["_id"]["rm_id"],
+            "branch": item["_id"]["branch"],
+            "current_stock": item["current_stock"],
+            "is_active": item.get("is_active", True)
+        })
     
     # Enrich with RM details
     for item in items:
@@ -396,16 +420,37 @@ async def get_fg_inventory(
             {"buyer_sku_id": {"$regex": search, "$options": "i"}}
         ]
     
-    # Get inventory records from branch_sku_inventory (single source of truth)
-    cursor = db.branch_sku_inventory.find(query, {"_id": 0}).skip(skip).limit(limit).sort("buyer_sku_id", 1)
-    items = await cursor.to_list(limit)
+    # Aggregate to group by buyer_sku_id+branch, sum stock, exclude zero
+    match_stage = {"$match": query}
+    group_stage = {
+        "$group": {
+            "_id": {"buyer_sku_id": "$buyer_sku_id", "branch": "$branch"},
+            "current_stock": {"$sum": "$current_stock"},
+            "is_active": {"$max": "$is_active"}
+        }
+    }
+    non_zero_stage = {"$match": {"current_stock": {"$gt": 0}}}
+    sort_stage = {"$sort": {"_id.buyer_sku_id": 1}}
     
     # Get total count
-    total = await db.branch_sku_inventory.count_documents(query)
+    count_pipeline = [match_stage, group_stage, non_zero_stage, {"$count": "total"}]
+    count_result = await db.branch_sku_inventory.aggregate(count_pipeline).to_list(1)
+    total = count_result[0]["total"] if count_result else 0
     
-    # Map fields for frontend compatibility
-    for item in items:
-        item["quantity"] = item.get("current_stock", 0)
+    # Get paginated results
+    pipeline = [match_stage, group_stage, non_zero_stage, sort_stage, {"$skip": skip}, {"$limit": limit}]
+    raw_items = await db.branch_sku_inventory.aggregate(pipeline).to_list(limit)
+    
+    # Flatten grouped results
+    items = []
+    for item in raw_items:
+        items.append({
+            "buyer_sku_id": item["_id"]["buyer_sku_id"],
+            "branch": item["_id"]["branch"],
+            "current_stock": item["current_stock"],
+            "quantity": item["current_stock"],
+            "is_active": item.get("is_active", True)
+        })
     
     # Enrich with SKU details if not present
     for item in items:

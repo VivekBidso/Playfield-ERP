@@ -5,7 +5,9 @@ Allows Master Admin users to browse and query MongoDB databases
 from fastapi import APIRouter, HTTPException, Query, Depends
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional
+from datetime import datetime, timezone
 import os
+import uuid
 from pydantic import BaseModel
 
 router = APIRouter(tags=["Admin - Database Explorer"])
@@ -446,4 +448,94 @@ async def migrate_fg_inventory_to_branch_sku():
         "skipped": skipped,
         "errors": errors[:20],
         "note": "fg_inventory collection kept as backup. You can drop it manually after verifying."
+    }
+
+
+
+@router.post("/admin/dedup-inventory")
+async def dedup_inventory():
+    """
+    Deduplicate branch_rm_inventory and branch_sku_inventory.
+    For each group of duplicate rows (same rm_id/buyer_sku_id + branch):
+      - Sums current_stock across all duplicates
+      - Keeps one doc with the merged stock
+      - Deletes the extras
+    Safe to run multiple times (idempotent).
+    """
+    from database import db
+    
+    results = {"rm": {"groups_fixed": 0, "rows_removed": 0}, "fg": {"groups_fixed": 0, "rows_removed": 0}}
+    
+    # === Dedup RM inventory ===
+    rm_pipeline = [
+        {"$group": {
+            "_id": {"rm_id": "$rm_id", "branch": "$branch"},
+            "count": {"$sum": 1},
+            "total_stock": {"$sum": "$current_stock"},
+            "ids": {"$push": "$id"}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    rm_dupes = await db.branch_rm_inventory.aggregate(rm_pipeline).to_list(10000)
+    
+    for dupe in rm_dupes:
+        rm_id = dupe["_id"]["rm_id"]
+        branch = dupe["_id"]["branch"]
+        total_stock = dupe["total_stock"]
+        doc_ids = dupe["ids"]
+        
+        # Delete all duplicates
+        await db.branch_rm_inventory.delete_many({"rm_id": rm_id, "branch": branch})
+        
+        # Insert single merged doc
+        await db.branch_rm_inventory.insert_one({
+            "id": str(uuid.uuid4()),
+            "rm_id": rm_id,
+            "branch": branch,
+            "current_stock": total_stock,
+            "is_active": True,
+            "deduped_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        results["rm"]["groups_fixed"] += 1
+        results["rm"]["rows_removed"] += len(doc_ids) - 1
+    
+    # === Dedup FG inventory ===
+    fg_pipeline = [
+        {"$group": {
+            "_id": {"buyer_sku_id": "$buyer_sku_id", "branch": "$branch"},
+            "count": {"$sum": 1},
+            "total_stock": {"$sum": "$current_stock"},
+            "ids": {"$push": "$id"}
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    fg_dupes = await db.branch_sku_inventory.aggregate(fg_pipeline).to_list(10000)
+    
+    for dupe in fg_dupes:
+        buyer_sku_id = dupe["_id"]["buyer_sku_id"]
+        branch = dupe["_id"]["branch"]
+        total_stock = dupe["total_stock"]
+        doc_ids = dupe["ids"]
+        
+        # Delete all duplicates
+        await db.branch_sku_inventory.delete_many({"buyer_sku_id": buyer_sku_id, "branch": branch})
+        
+        # Insert single merged doc
+        await db.branch_sku_inventory.insert_one({
+            "id": str(uuid.uuid4()),
+            "buyer_sku_id": buyer_sku_id,
+            "branch": branch,
+            "current_stock": total_stock,
+            "is_active": True,
+            "deduped_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        results["fg"]["groups_fixed"] += 1
+        results["fg"]["rows_removed"] += len(doc_ids) - 1
+    
+    return {
+        "message": "Deduplication complete.",
+        "rm_inventory": results["rm"],
+        "fg_inventory": results["fg"]
     }
