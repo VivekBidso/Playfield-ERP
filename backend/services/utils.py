@@ -179,54 +179,15 @@ BRANCHES = [
     "BHDG WH"
 ]
 
-RM_CATEGORIES = {
-    "INP": {
-        "name": "In-house Plastic", 
-        "fields": ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"],
-        "nameFormat": ["mould_code", "model_name", "part_name", "colour", "mb"]
-    },
-    "INM": {
-        "name": "In-house Metal", 
-        "fields": ["model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"],
-        "nameFormat": ["model_name", "part_name", "colour", "mb"]
-    },
-    "ACC": {
-        "name": "Accessories", 
-        "fields": ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"],
-        "nameFormat": ["type", "model_name", "specs", "colour"]
-    },
-    "ELC": {
-        "name": "Electric Components", 
-        "fields": ["model", "type", "specs", "per_unit_weight", "unit"],
-        "nameFormat": ["model", "type", "specs"]
-    },
-    "SP": {
-        "name": "Spares", 
-        "fields": ["type", "specs", "per_unit_weight", "unit"],
-        "nameFormat": ["type", "specs"]
-    },
-    "BS": {
-        "name": "Brand Assets", 
-        "fields": ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"],
-        "nameFormat": ["position", "type", "brand", "buyer_sku"]
-    },
-    "PM": {
-        "name": "Packaging", 
-        "fields": ["model", "type", "specs", "brand", "per_unit_weight", "unit"],
-        "nameFormat": ["model", "type", "specs", "brand"]
-    },
-    "LB": {
-        "name": "Labels", 
-        "fields": ["type", "buyer_sku", "per_unit_weight", "unit"],
-        "nameFormat": ["type", "buyer_sku"]
-    }
-}
+RM_CATEGORIES = {}  # DEPRECATED - kept as empty dict to avoid import errors. Use get_rm_category_config() instead.
 
 # Cache for rm_categories from database
 _rm_categories_cache = {}
+_all_categories_cache = None
+_all_categories_cache_time = None
 
 async def get_rm_category_config(category: str) -> dict:
-    """Get RM category configuration from database with caching"""
+    """Get RM category configuration from database (single source of truth: rm_categories collection)"""
     global _rm_categories_cache
     
     if category in _rm_categories_cache:
@@ -235,7 +196,6 @@ async def get_rm_category_config(category: str) -> dict:
     # Fetch from database
     cat_doc = await db.rm_categories.find_one({"code": category}, {"_id": 0})
     if cat_doc:
-        # Extract name format from description_columns with include_in_name=True
         desc_cols = cat_doc.get("description_columns", [])
         name_fields = [
             col["key"] for col in sorted(desc_cols, key=lambda x: x.get("order", 0))
@@ -251,23 +211,52 @@ async def get_rm_category_config(category: str) -> dict:
         _rm_categories_cache[category] = config
         return config
     
-    # Fallback to hardcoded if not in database
-    if category in RM_CATEGORIES:
-        return RM_CATEGORIES[category]
-    
     return {"name": category, "fields": [], "nameFormat": []}
+
+
+async def get_all_rm_categories() -> dict:
+    """Get all active RM categories from database. Returns {code: config} dict."""
+    global _all_categories_cache, _all_categories_cache_time
+    
+    # Cache for 60 seconds
+    import time
+    now = time.time()
+    if _all_categories_cache and _all_categories_cache_time and (now - _all_categories_cache_time) < 60:
+        return _all_categories_cache
+    
+    categories = await db.rm_categories.find({"is_active": True}, {"_id": 0}).to_list(100)
+    result = {}
+    for cat in categories:
+        code = cat.get("code")
+        desc_cols = cat.get("description_columns", [])
+        name_fields = [
+            col["key"] for col in sorted(desc_cols, key=lambda x: x.get("order", 0))
+            if col.get("include_in_name")
+        ]
+        result[code] = {
+            "name": cat.get("name", code),
+            "fields": [col["key"] for col in desc_cols],
+            "nameFormat": name_fields,
+            "description_columns": desc_cols,
+            "default_uom": cat.get("default_uom"),
+            "rm_id_prefix": cat.get("rm_id_prefix"),
+            "default_source_type": cat.get("default_source_type"),
+            "bom_level": cat.get("bom_level")
+        }
+    
+    _all_categories_cache = result
+    _all_categories_cache_time = now
+    return result
 
 
 def generate_rm_name(category: str, category_data: dict, category_config: dict = None) -> str:
     """
     Generate RM description from category_data based on nomenclature.
-    Uses category_config if provided, otherwise falls back to hardcoded RM_CATEGORIES.
-    Format: field1 - field2 - field3 (hyphen-separated, consistent with backfill)
+    Uses category_config if provided. DB lookup must be done by caller.
+    Format: field1 - field2 - field3 (hyphen-separated)
     """
     if category_config:
         name_format = category_config.get("nameFormat", [])
-    elif category in RM_CATEGORIES:
-        name_format = RM_CATEGORIES[category].get("nameFormat", [])
     else:
         return ""
     
@@ -286,5 +275,7 @@ async def generate_rm_description_async(category: str, category_data: dict) -> s
 
 def clear_rm_category_cache():
     """Clear the RM categories cache (call after updating rm_categories collection)"""
-    global _rm_categories_cache
+    global _rm_categories_cache, _all_categories_cache, _all_categories_cache_time
     _rm_categories_cache = {}
+    _all_categories_cache = None
+    _all_categories_cache_time = None

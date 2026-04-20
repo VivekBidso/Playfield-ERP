@@ -27,22 +27,6 @@ import useAuthStore from "@/store/authStore";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Default fallback categories (used only if API fails)
-const DEFAULT_RM_CATEGORIES = {
-  "INP": { name: "In-house Plastic", fields: ["mould_code", "model_name", "part_name", "colour", "mb", "per_unit_weight", "unit"] },
-  "ACC": { name: "Accessories", fields: ["type", "model_name", "specs", "colour", "per_unit_weight", "unit"] },
-  "ELC": { name: "Electric Components", fields: ["model", "type", "specs", "per_unit_weight", "unit"] },
-  "SP": { name: "Spares", fields: ["type", "specs", "per_unit_weight", "unit"] },
-  "BS": { name: "Brand Assets", fields: ["position", "type", "brand", "buyer_sku", "per_unit_weight", "unit"] },
-  "PM": { name: "Packaging", fields: ["model", "type", "specs", "brand", "per_unit_weight", "unit"] },
-  "LB": { name: "Labels", fields: ["type", "buyer_sku", "per_unit_weight", "unit"] },
-  "INM": { name: "Input Materials", fields: ["type", "specs", "per_unit_weight", "unit"] },
-  "POLY": { name: "Polymer Grades", fields: ["grade", "manufacturer", "mfi"] },
-  "MB": { name: "Master Batch", fields: ["colour_name", "pantone_code", "polymer_base"] },
-  "PWD": { name: "Powder Coating", fields: ["colour_name", "finish_type", "manufacturer"] },
-  "PIPE": { name: "Metal Pipes", fields: ["material", "diameter", "thickness", "length"] }
-};
-
 // Helper to convert database category to frontend format
 const convertDbCategory = (dbCat) => {
   const fields = (dbCat.description_columns || []).map(col => col.key);
@@ -72,8 +56,8 @@ const RMRepository = () => {
   const isAdmin = isMasterAdmin();
   const canManageRMs = isAdmin || hasRole('TECH_OPS_ENGINEER');
   
-  // RM Categories from database
-  const [rmCategories, setRmCategories] = useState(DEFAULT_RM_CATEGORIES);
+  // RM Categories from database (Tech Ops is single source of truth)
+  const [rmCategories, setRmCategories] = useState({});
   
   // File input refs for upload
   const fileInputRef = useRef(null);
@@ -181,13 +165,10 @@ const RMRepository = () => {
     try {
       const response = await axios.get(`${API}/rm-categories`);
       const dbCategories = response.data || {};
-      
-      // API already returns in the correct format {code: {name, fields, nameFormat}}
-      // Merge with defaults to ensure all categories are available
-      setRmCategories({ ...DEFAULT_RM_CATEGORIES, ...dbCategories });
+      setRmCategories(dbCategories);
     } catch (error) {
-      console.error("Failed to fetch RM categories, using defaults:", error);
-      setRmCategories(DEFAULT_RM_CATEGORIES);
+      console.error("Failed to fetch RM categories:", error);
+      setRmCategories({});
     }
   };
 

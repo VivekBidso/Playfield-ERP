@@ -10,7 +10,7 @@ from database import db
 from models import User, RawMaterial, RawMaterialCreate, ActivateItemRequest
 from services.utils import (
     get_current_user, check_master_admin, check_branch_access,
-    get_next_rm_sequence, serialize_doc, RM_CATEGORIES, BRANCHES,
+    get_next_rm_sequence, serialize_doc, BRANCHES,
     generate_rm_name
 )
 from services.rbac_service import require_permission
@@ -36,10 +36,6 @@ async def get_category_name_format(category: str) -> list:
         ]
         _category_name_format_cache[category] = name_fields
         return name_fields
-    
-    # Fallback to hardcoded
-    if category in RM_CATEGORIES:
-        return RM_CATEGORIES[category].get("nameFormat", [])
     
     return []
 
@@ -346,16 +342,19 @@ async def get_filter_options():
 
 @router.get("/rm-categories")
 async def get_rm_categories():
-    """Get all RM categories with their field definitions"""
-    return RM_CATEGORIES
+    """Get all active RM categories from database (Tech Ops is single source of truth)"""
+    from services.utils import get_all_rm_categories
+    return await get_all_rm_categories()
 
 
 @router.post("/raw-materials", response_model=RawMaterial)
 @require_permission("RawMaterial", "CREATE")
 async def create_raw_material(input: RawMaterialCreate, current_user: User = Depends(get_current_user)):
     """Create a new raw material (MASTER_ADMIN, TECH_OPS_ENGINEER)"""
-    if input.category not in RM_CATEGORIES:
-        raise HTTPException(status_code=400, detail=f"Invalid category: {input.category}")
+    from services.utils import get_all_rm_categories
+    all_categories = await get_all_rm_categories()
+    if input.category not in all_categories:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {input.category}. Valid: {list(all_categories.keys())}")
     
     # Generate RM ID
     seq = await get_next_rm_sequence(input.category)
@@ -415,6 +414,10 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
     errors = []
     created_rms = []  # Track created RM details
     
+    # Fetch all active categories from DB (single source of truth)
+    from services.utils import get_all_rm_categories
+    all_categories = await get_all_rm_categories()
+    
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
             # Skip empty rows
@@ -444,15 +447,15 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
                 category = ''
                 if '_' in rm_id:
                     prefix = rm_id.split('_')[0].upper()
-                    if prefix in RM_CATEGORIES:
+                    if prefix in all_categories:
                         category = prefix
                 
                 # Fallback to category column if present
                 if not category:
                     category = str(row_data.get('category', '')).upper().strip()
                 
-                if not category or category not in RM_CATEGORIES:
-                    errors.append(f"Row {idx}: Cannot detect category for '{rm_id}'. Use prefix like SP_, ACC_, etc.")
+                if not category or category not in all_categories:
+                    errors.append(f"Row {idx}: Cannot detect category for '{rm_id}'. Valid: {list(all_categories.keys())}")
                     skipped += 1
                     continue
                 
@@ -475,8 +478,8 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
                 else:
                     category = str(category).upper().strip() if category else ''
                 
-                if not category or category not in RM_CATEGORIES:
-                    errors.append(f"Row {idx}: Invalid category '{category}'. Valid: {list(RM_CATEGORIES.keys())}")
+                if not category or category not in all_categories:
+                    errors.append(f"Row {idx}: Invalid category '{category}'. Valid: {list(all_categories.keys())}")
                     skipped += 1
                     continue
                 
@@ -485,7 +488,7 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
                 rm_id = f"{category}_{seq:05d}"
             
             # Build category data from row - match fields case-insensitively
-            category_fields = RM_CATEGORIES[category]["fields"]
+            category_fields = all_categories[category].get("fields", [])
             category_data = {}
             for field in category_fields:
                 # Try various naming conventions
@@ -587,6 +590,10 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
     skipped_duplicates = []
     errors = []
     
+    # Fetch all active categories from DB (single source of truth)
+    from services.utils import get_all_rm_categories
+    all_categories = await get_all_rm_categories()
+    
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
             # Skip empty rows
@@ -595,7 +602,7 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
                 
             row_data = dict(zip(headers, row))
             
-            # Get RM ID from various possible column names
+            # Get RM ID
             rm_id = (
                 row_data.get('rm_code') or 
                 row_data.get('rm_id') or 
@@ -610,19 +617,18 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
                 errors.append(f"Row {idx}: No RM Code/ID found")
                 continue
             
-            # Auto-detect category from RM code prefix (e.g., SP_197 -> SP)
+            # Auto-detect category from RM code prefix
             cat = category.upper() if category else ''
             if not cat and '_' in rm_id:
                 prefix = rm_id.split('_')[0].upper()
-                if prefix in RM_CATEGORIES:
+                if prefix in all_categories:
                     cat = prefix
             
-            # Also check explicit category column
             if not cat:
                 cat = str(row_data.get('category', '')).upper().strip()
             
-            if not cat or cat not in RM_CATEGORIES:
-                errors.append(f"Row {idx}: Invalid or missing category '{cat}'")
+            if not cat or cat not in all_categories:
+                errors.append(f"Row {idx}: Invalid or missing category '{cat}'. Valid: {list(all_categories.keys())}")
                 continue
             
             # Check for existing RM - PREVENT OVERWRITE
@@ -636,7 +642,7 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
                 rm_id = f"{cat}_{seq:05d}"
             
             # Build category data
-            category_fields = RM_CATEGORIES[cat]["fields"]
+            category_fields = all_categories[cat].get("fields", [])
             category_data = {}
             for field in category_fields:
                 if field in row_data and row_data[field]:
