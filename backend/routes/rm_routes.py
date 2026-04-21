@@ -347,6 +347,68 @@ async def get_rm_categories():
     return await get_all_rm_categories()
 
 
+@router.get("/raw-materials/search")
+async def search_raw_materials(
+    q: str = "",
+    source_type: Optional[str] = None,
+    max_bom_level: Optional[int] = None,
+    limit: int = 20
+):
+    """
+    Search raw materials by rm_id or description.
+    
+    Args:
+        q: Search query (min 2 chars)
+        source_type: Filter by source - 'MANUFACTURED', 'PURCHASED', 'BOTH', or 'NOT_PURCHASED' (excludes PURCHASED)
+        max_bom_level: Only return RMs with bom_level <= this value (for component selection)
+        limit: Max results (default 20)
+    """
+    if len(q) < 2:
+        return {"items": [], "total": 0}
+    
+    q_regex = {"$regex": q, "$options": "i"}
+    query = {"$or": [{"rm_id": q_regex}, {"description": q_regex}, {"name": q_regex}]}
+    
+    if source_type == "NOT_PURCHASED":
+        query["source_type"] = {"$ne": "PURCHASED"}
+    elif source_type:
+        query["source_type"] = source_type
+    
+    if max_bom_level is not None:
+        # bom_level could be stored as "L1", "L2" or as int 1, 2
+        level_values = []
+        for i in range(1, max_bom_level + 1):
+            level_values.extend([i, f"L{i}"])
+        query["$and"] = query.get("$and", [])
+        query.setdefault("$or", [])
+        # Need to restructure query since $or is already used
+        base_or = query.pop("$or")
+        query = {
+            "$and": [
+                {"$or": base_or},
+                {"$or": [{"bom_level": {"$in": level_values}}, {"bom_level": {"$exists": False}}]}
+            ]
+        }
+        if source_type == "NOT_PURCHASED":
+            query["source_type"] = {"$ne": "PURCHASED"}
+        elif source_type:
+            query["source_type"] = source_type
+    
+    cursor = db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1, "bom_level": 1, "source_type": 1}).limit(limit).sort("rm_id", 1)
+    results = await cursor.to_list(limit)
+    
+    items = [{
+        "item_id": r["rm_id"],
+        "name": r.get("description") or r.get("name") or r["rm_id"],
+        "category": r.get("category", ""),
+        "bom_level": r.get("bom_level"),
+        "source_type": r.get("source_type")
+    } for r in results]
+    
+    return {"items": items, "total": len(items)}
+
+
+
 @router.post("/raw-materials", response_model=RawMaterial)
 @require_permission("RawMaterial", "CREATE")
 async def create_raw_material(input: RawMaterialCreate, current_user: User = Depends(get_current_user)):

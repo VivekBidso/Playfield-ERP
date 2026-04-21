@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Plus, Settings, Package, Link, Layers, Pencil, Trash2, Users, Upload, Tag, Palette, Factory, FileText, Download } from "lucide-react";
 import PantoneLibrary from "../components/PantoneLibrary";
+import StockItemSearch from "../components/StockItemSearch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1387,19 +1388,17 @@ const TechOps = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>RM ID (Output)</Label>
-                <Input 
+                <StockItemSearch
+                  searchEndpoint={`${API}/raw-materials/search?source_type=NOT_PURCHASED`}
                   value={bomForm.rm_id}
-                  onChange={(e) => setBomForm({...bomForm, rm_id: e.target.value.toUpperCase()})}
-                  placeholder="e.g., INP_654"
-                  className="font-mono uppercase"
+                  onSelect={(item) => {
+                    const cat = item.category || item.item_id?.split('_')[0] || '';
+                    setBomForm({...bomForm, rm_id: item.item_id, category: cat});
+                  }}
                   disabled={!!editingItem}
-                  list="rm-list"
+                  placeholder="Type RM ID (e.g. INP_654)..."
+                  testId="bom-output-rm-search"
                 />
-                <datalist id="rm-list">
-                  {rawMaterials.filter(r => r.source_type !== 'PURCHASED').slice(0, 100).map(r => (
-                    <option key={r.rm_id} value={r.rm_id}>{r.description}</option>
-                  ))}
-                </datalist>
               </div>
               <div>
                 <Label>Category</Label>
@@ -1483,18 +1482,13 @@ const TechOps = () => {
               <div className="grid grid-cols-6 gap-2 mb-3 items-end">
                 <div className="col-span-2">
                   <Label className="text-xs">RM ID</Label>
-                  <Input 
+                  <StockItemSearch
+                    searchEndpoint={`${API}/raw-materials/search?max_bom_level=${Math.max(1, bomForm.bom_level - 1)}`}
                     value={bomComponent.component_rm_id}
-                    onChange={(e) => setBomComponent({...bomComponent, component_rm_id: e.target.value.toUpperCase()})}
-                    placeholder="e.g., POLY_001"
-                    className="font-mono text-xs"
-                    list="component-rm-list"
+                    onSelect={(item) => setBomComponent({...bomComponent, component_rm_id: item.item_id})}
+                    placeholder="Type component RM ID..."
+                    testId="bom-component-rm-search"
                   />
-                  <datalist id="component-rm-list">
-                    {rawMaterials.filter(r => r.bom_level < bomForm.bom_level).slice(0, 100).map(r => (
-                      <option key={r.rm_id} value={r.rm_id}>{r.description}</option>
-                    ))}
-                  </datalist>
                 </div>
                 <div>
                   <Label className="text-xs">Qty</Label>
