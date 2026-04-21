@@ -429,6 +429,43 @@ const TechOps = () => {
   };
 
   // RM BOM CRUD
+  const [bomUploadOpen, setBomUploadOpen] = useState(false);
+  const [bomUploadMode, setBomUploadMode] = useState("skip");
+  const [bomUploading, setBomUploading] = useState(false);
+  const bomFileRef = useRef(null);
+  
+  const handleBomBulkUpload = async () => {
+    const file = bomFileRef.current?.files?.[0];
+    if (!file) { toast.error("Select a file"); return; }
+    
+    setBomUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await axios.post(
+        `${API}/rm-bom/bulk-upload?mode=${bomUploadMode}`,
+        formData,
+        { headers: { ...getHeaders(), "Content-Type": "multipart/form-data" } }
+      );
+      
+      const d = res.data;
+      toast.success(`${d.message}`);
+      
+      if (d.errors?.length > 0) {
+        toast.error(`${d.errors.length} errors: ${d.errors.slice(0, 3).join(", ")}`);
+      }
+      
+      setBomUploadOpen(false);
+      if (bomFileRef.current) bomFileRef.current.value = "";
+      fetchRmBoms();
+    } catch (error) {
+      const msg = error.response?.data?.detail || error.message;
+      toast.error(`Upload failed: ${msg}`);
+    }
+    setBomUploading(false);
+  };
+
   const handleSaveBom = async () => {
     try {
       if (bomForm.components.length === 0) {
@@ -875,10 +912,16 @@ const TechOps = () => {
               <h2 className="text-lg font-bold">RM Bill of Materials</h2>
               <p className="text-sm text-muted-foreground">Define component recipes for manufactured RMs</p>
             </div>
-            <Button onClick={() => openAddDialog('bom')} className="uppercase text-xs tracking-wide" data-testid="add-bom-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Add BOM
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setBomUploadOpen(true)} className="uppercase text-xs tracking-wide" data-testid="bulk-upload-bom-btn">
+                <Upload className="w-4 h-4 mr-2" />
+                Bulk Upload
+              </Button>
+              <Button onClick={() => openAddDialog('bom')} className="uppercase text-xs tracking-wide" data-testid="add-bom-btn">
+                <Plus className="w-4 h-4 mr-2" />
+                Add BOM
+              </Button>
+            </div>
           </div>
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full">
@@ -1578,6 +1621,53 @@ const TechOps = () => {
               <Button variant="outline" onClick={() => setShowBomDialog(false)}>Cancel</Button>
               <Button onClick={handleSaveBom} data-testid="save-bom-btn">
                 {editingItem ? 'Update BOM' : 'Create BOM'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* BOM Bulk Upload Dialog */}
+      <Dialog open={bomUploadOpen} onOpenChange={setBomUploadOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload RM BOMs</DialogTitle>
+            <DialogDescription>
+              Upload Excel with columns: RM ID, BOM RM ID, Weight in gm / Pc, Wastage %
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Excel File</Label>
+              <Input 
+                ref={bomFileRef} 
+                type="file" 
+                accept=".xlsx,.xls" 
+                className="mt-1"
+                data-testid="bom-upload-file"
+              />
+            </div>
+            <div>
+              <Label>If BOM already exists</Label>
+              <Select value={bomUploadMode} onValueChange={setBomUploadMode}>
+                <SelectTrigger data-testid="bom-upload-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="skip">Skip (keep existing)</SelectItem>
+                  <SelectItem value="replace">Replace (overwrite)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p>- Multiple rows with same RM ID are grouped into one BOM</p>
+              <p>- UOM auto-detected from component RM category</p>
+              <p>- BOM level auto-detected from output RM category</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setBomUploadOpen(false)}>Cancel</Button>
+              <Button onClick={handleBomBulkUpload} disabled={bomUploading} data-testid="bom-upload-submit">
+                {bomUploading ? "Uploading..." : "Upload BOMs"}
               </Button>
             </div>
           </div>
