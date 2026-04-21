@@ -298,7 +298,7 @@ const RMRepository = () => {
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
       });
       
-      // Add summary sheet at the beginning
+      // Add summary sheet
       const summaryData = Object.entries(categorizedRMs).map(([cat, rms]) => ({
         'Category Code': cat,
         'Category Name': getCategoryName(cat, rmCategories),
@@ -308,7 +308,11 @@ const RMRepository = () => {
       
       const summaryWs = XLSX.utils.json_to_sheet(summaryData);
       summaryWs['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
-      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary', true); // Insert at beginning
+      
+      // Insert summary at beginning by manipulating SheetNames
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+      const names = wb.SheetNames;
+      names.unshift(names.pop()); // Move 'Summary' from end to beginning
       
       // Generate file
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -320,8 +324,8 @@ const RMRepository = () => {
       
       toast.success(`Exported ${allRMs.length} RMs across ${Object.keys(categorizedRMs).length} categories`);
     } catch (error) {
-      console.error("Export failed:", error);
-      toast.error("Failed to export RM repository");
+      console.error("Export failed:", error?.message, error);
+      toast.error(`Failed to export RM repository: ${error?.message || 'Unknown error'}`);
     }
   };
 
