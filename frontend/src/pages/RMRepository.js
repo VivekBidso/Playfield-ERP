@@ -232,15 +232,26 @@ const RMRepository = () => {
       // Group RMs by category
       const categorizedRMs = {};
       allRMs.forEach(rm => {
-        const category = rm.rm_id?.split('_')[0] || 'OTHER';
-        if (!categorizedRMs[category]) {
-          categorizedRMs[category] = [];
+        const cat = rm.category || rm.rm_id?.split('_')[0] || 'OTHER';
+        if (!categorizedRMs[cat]) {
+          categorizedRMs[cat] = [];
         }
-        categorizedRMs[category].push(rm);
+        categorizedRMs[cat].push(rm);
       });
       
       // Create workbook
       const wb = XLSX.utils.book_new();
+      
+      // Add summary sheet first
+      const summaryData = Object.entries(categorizedRMs).sort((a, b) => a[0].localeCompare(b[0])).map(([cat, rms]) => ({
+        'Category Code': cat,
+        'Category Name': getCategoryName(cat, rmCategories),
+        'Total RMs': rms.length
+      }));
+      summaryData.push({ 'Category Code': '', 'Category Name': 'TOTAL', 'Total RMs': allRMs.length });
+      const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+      summaryWs['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
       
       // Define columns to export
       const columns = [
@@ -260,71 +271,45 @@ const RMRepository = () => {
       
       // Create a sheet for each category
       Object.entries(categorizedRMs).sort((a, b) => a[0].localeCompare(b[0])).forEach(([category, rms]) => {
-        // Map data to rows
         const sheetData = rms.map(rm => {
           const row = {};
           columns.forEach(col => {
             let value = rm[col.key];
-            // Format dates
             if (col.key === 'created_at' && value) {
-              value = new Date(value).toLocaleDateString();
+              try { value = new Date(value).toLocaleDateString(); } catch(e) { /* keep raw */ }
             }
-            row[col.header] = value || '';
+            row[col.header] = value ?? '';
           });
           return row;
         });
         
-        // Create worksheet
         const ws = XLSX.utils.json_to_sheet(sheetData);
+        ws['!cols'] = columns.map(() => ({ wch: 15 }));
         
-        // Set column widths
-        ws['!cols'] = [
-          { wch: 15 },  // RM ID
-          { wch: 50 },  // Description
-          { wch: 12 },  // Category
-          { wch: 14 },  // Source Type
-          { wch: 10 },  // BOM Level
-          { wch: 8 },   // UOM
-          { wch: 12 },  // HSN Code
-          { wch: 12 },  // GST Rate
-          { wch: 12 },  // Min Order Qty
-          { wch: 15 },  // Lead Time
-          { wch: 10 },  // Status
-          { wch: 12 }   // Created At
-        ];
-        
-        // Add sheet with category name (max 31 chars for Excel)
-        const sheetName = `${category} - ${getCategoryName(category, rmCategories)}`.slice(0, 31);
+        // Sheet name: max 31 chars, no special chars
+        const catName = getCategoryName(category, rmCategories);
+        const sheetName = `${category} - ${catName}`.replace(/[\\/?*[\]]/g, '').slice(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
       });
       
-      // Add summary sheet
-      const summaryData = Object.entries(categorizedRMs).map(([cat, rms]) => ({
-        'Category Code': cat,
-        'Category Name': getCategoryName(cat, rmCategories),
-        'Total RMs': rms.length
-      }));
-      summaryData.push({ 'Category Code': '', 'Category Name': 'TOTAL', 'Total RMs': allRMs.length });
-      
-      const summaryWs = XLSX.utils.json_to_sheet(summaryData);
-      summaryWs['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
-      
-      // Insert summary at beginning by manipulating SheetNames
-      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
-      const names = wb.SheetNames;
-      names.unshift(names.pop()); // Move 'Summary' from end to beginning
-      
-      // Generate file
+      // Generate and download file using native approach
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      
-      // Download
       const filename = `RM_Repository_${new Date().toISOString().split('T')[0]}.xlsx`;
-      saveAs(blob, filename);
+      
+      // Use native download link (more reliable than file-saver in some environments)
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       
       toast.success(`Exported ${allRMs.length} RMs across ${Object.keys(categorizedRMs).length} categories`);
     } catch (error) {
-      console.error("Export failed:", error?.message, error);
+      console.error("Export failed:", error?.message, error?.stack);
       toast.error(`Failed to export RM repository: ${error?.message || 'Unknown error'}`);
     }
   };
