@@ -133,7 +133,9 @@ const RMRepository = () => {
     brand_ids: [],
     vertical_ids: [],
     model_ids: [],
-    is_brand_specific: false
+    is_brand_specific: false,
+    uom: "",
+    source_type: ""
   });
   
   // Pagination
@@ -483,11 +485,15 @@ const RMRepository = () => {
 
   const handleEditTags = (rm) => {
     setEditingRM(rm);
+    // Get category default UOM and source_type for display
+    const catConfig = rmCategories[rm.category] || {};
     setTagForm({
       brand_ids: rm.brand_ids || [],
       vertical_ids: rm.vertical_ids || [],
       model_ids: rm.model_ids || [],
-      is_brand_specific: rm.is_brand_specific || false
+      is_brand_specific: rm.is_brand_specific || false,
+      uom: rm.uom || catConfig.default_uom || "PCS",
+      source_type: rm.source_type || catConfig.default_source_type || "PURCHASED"
     });
     setShowTagDialog(true);
   };
@@ -1622,9 +1628,9 @@ const RMRepository = () => {
       <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Tags - {editingRM?.rm_id}</DialogTitle>
+            <DialogTitle>Edit RM - {editingRM?.rm_id}</DialogTitle>
             <DialogDescription>
-              Add or remove brand, vertical, and model tags for this raw material.
+              Update UOM, source type, and brand/vertical/model tags.
             </DialogDescription>
           </DialogHeader>
           
@@ -1732,6 +1738,41 @@ const RMRepository = () => {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* UOM and Source Type */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>UOM</Label>
+                <Select value={tagForm.uom} onValueChange={(v) => setTagForm({...tagForm, uom: v})}>
+                  <SelectTrigger data-testid="edit-uom-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PCS">PCS (Pieces)</SelectItem>
+                    <SelectItem value="KG">KG (Kilograms)</SelectItem>
+                    <SelectItem value="GM">GM (Grams)</SelectItem>
+                    <SelectItem value="MTR">MTR (Meters)</SelectItem>
+                    <SelectItem value="LTR">LTR (Litres)</SelectItem>
+                    <SelectItem value="SET">SET</SelectItem>
+                    <SelectItem value="PAIR">PAIR</SelectItem>
+                    <SelectItem value="ROLL">ROLL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Source Type</Label>
+                <Select value={tagForm.source_type} onValueChange={(v) => setTagForm({...tagForm, source_type: v})}>
+                  <SelectTrigger data-testid="edit-source-type-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PURCHASED">Purchased</SelectItem>
+                    <SelectItem value="MANUFACTURED">Manufactured</SelectItem>
+                    <SelectItem value="BOTH">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Brand Specific Flag */}
