@@ -349,6 +349,92 @@ async def check_ibt_inventory(item_type: str, item_id: str, branch: str):
     return {"item_id": item_id, "branch": branch, "available_stock": available}
 
 
+@router.get("/stock-search")
+async def search_branch_stock(
+    branch: str,
+    type: str = "RM",
+    q: str = "",
+    limit: int = 20
+):
+    """
+    Server-side search for items with non-zero stock in a branch.
+    Requires minimum 2 characters in query. Searches by item_id and description/name.
+    
+    Args:
+        branch: Branch name
+        type: 'RM' or 'FG'
+        q: Search query (min 2 chars)
+        limit: Max results (default 20)
+    """
+    if len(q) < 2:
+        return {"items": [], "total": 0}
+    
+    items = []
+    q_regex = {"$regex": q, "$options": "i"}
+    
+    if type == "RM":
+        # Aggregate RM stock grouped by rm_id
+        pipeline = [
+            {"$match": {"branch": branch}},
+            {"$group": {"_id": "$rm_id", "current_stock": {"$sum": "$current_stock"}}},
+            {"$match": {"current_stock": {"$gt": 0}}}
+        ]
+        inv_list = await db.branch_rm_inventory.aggregate(pipeline).to_list(10000)
+        stock_map = {i["_id"]: i["current_stock"] for i in inv_list}
+        all_rm_ids = list(stock_map.keys())
+        
+        # Search by rm_id or description
+        rm_cursor = db.raw_materials.find(
+            {"rm_id": {"$in": all_rm_ids}, "$or": [
+                {"rm_id": q_regex},
+                {"description": q_regex},
+                {"name": q_regex}
+            ]},
+            {"_id": 0, "rm_id": 1, "description": 1, "name": 1}
+        ).limit(limit)
+        rm_list = await rm_cursor.to_list(limit)
+        
+        for rm in rm_list:
+            rm_id = rm["rm_id"]
+            items.append({
+                "item_id": rm_id,
+                "name": rm.get("description") or rm.get("name") or rm_id,
+                "current_stock": stock_map.get(rm_id, 0)
+            })
+    else:
+        # Aggregate FG stock grouped by buyer_sku_id
+        pipeline = [
+            {"$match": {"branch": branch}},
+            {"$group": {"_id": "$buyer_sku_id", "current_stock": {"$sum": "$current_stock"}}},
+            {"$match": {"current_stock": {"$gt": 0}}}
+        ]
+        inv_list = await db.branch_sku_inventory.aggregate(pipeline).to_list(10000)
+        stock_map = {i["_id"]: i["current_stock"] for i in inv_list if i.get("_id")}
+        all_sku_ids = list(stock_map.keys())
+        
+        # Search by buyer_sku_id or name
+        sku_cursor = db.buyer_skus.find(
+            {"buyer_sku_id": {"$in": all_sku_ids}, "$or": [
+                {"buyer_sku_id": q_regex},
+                {"name": q_regex}
+            ]},
+            {"_id": 0, "buyer_sku_id": 1, "name": 1}
+        ).limit(limit)
+        sku_list = await sku_cursor.to_list(limit)
+        
+        for sku in sku_list:
+            sku_id = sku["buyer_sku_id"]
+            items.append({
+                "item_id": sku_id,
+                "name": sku.get("name") or sku_id,
+                "current_stock": stock_map.get(sku_id, 0)
+            })
+    
+    items.sort(key=lambda x: x["item_id"])
+    return {"items": items, "total": len(items)}
+
+
+
 @router.get("/ibt-transfers/branch-stock/{item_type}/{branch}")
 async def get_branch_stock_items(item_type: str, branch: str):
     """Get all items with non-zero stock in a branch for IBT item selection.

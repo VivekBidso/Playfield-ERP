@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import StockItemSearch from "../components/StockItemSearch";
 import { 
   Plus, 
   ArrowRight, 
@@ -719,35 +720,19 @@ const IBT = () => {
                 <div key={index} className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <Label className="text-xs text-zinc-500">Item {index + 1}</Label>
-                    <Select 
-                      value={row.item_id} 
-                      onValueChange={(v) => {
-                        const stockItem = branchStockItems.find(i => i.item_id === v);
+                    <StockItemSearch
+                      branch={form.source_branch}
+                      type={form.transfer_type}
+                      value={row.item_id}
+                      onSelect={(item) => {
                         const updated = [...itemRows];
-                        updated[index] = { ...updated[index], item_id: v, availableStock: stockItem?.current_stock ?? null };
+                        updated[index] = { ...updated[index], item_id: item.item_id, availableStock: item.current_stock || null };
                         setItemRows(updated);
                       }}
-                      disabled={!form.source_branch || stockItemsLoading}
-                    >
-                      <SelectTrigger className="w-full" data-testid={`item-select-${index}`}>
-                        <SelectValue placeholder={
-                          !form.source_branch ? "Select source branch first" 
-                          : stockItemsLoading ? "Loading items..." 
-                          : branchStockItems.length === 0 ? "No items with stock in this branch" 
-                          : "Select item..."
-                        } />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {branchStockItems
-                          .filter(item => !itemRows.some((r, i) => i !== index && r.item_id === item.item_id))
-                          .map(item => (
-                            <SelectItem key={item.item_id} value={item.item_id}>
-                              {item.item_id} - {item.name?.substring(0, 30)} ({item.current_stock})
-                            </SelectItem>
-                          ))
-                        }
-                      </SelectContent>
-                    </Select>
+                      disabled={!form.source_branch}
+                      excludeIds={itemRows.filter((r, i) => i !== index && r.item_id).map(r => r.item_id)}
+                      testId={`item-search-${index}`}
+                    />
                     {row.availableStock !== null && row.item_id && (
                       <p className={`text-xs mt-1 ${row.availableStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
                         Available: {row.availableStock}

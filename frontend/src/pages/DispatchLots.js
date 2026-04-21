@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import StockItemSearch from "../components/StockItemSearch";
 import { 
   Package, Plus, Search, Send, FileText, Truck, Upload, Download, 
   Eye, Edit, Trash2, Check, X, AlertTriangle, Building, Calendar
@@ -840,25 +841,20 @@ const DispatchLots = () => {
               <div className="space-y-2">
                 {lotLines.map((line, idx) => (
                   <div key={idx} className="flex gap-2 items-center">
-                    <Select 
-                      value={line.buyer_sku_id} 
-                      onValueChange={(v) => {
-                        const updated = [...lotLines];
-                        updated[idx].buyer_sku_id = v;
-                        setLotLines(updated);
-                      }}
-                    >
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Select Buyer SKU" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {buyerSkus.map(sku => (
-                          <SelectItem key={sku.buyer_sku_id} value={sku.buyer_sku_id}>
-                            {sku.buyer_sku_id} - {sku.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex-1">
+                      <StockItemSearch
+                        searchEndpoint={`${process.env.REACT_APP_BACKEND_URL}/api/skus`}
+                        value={line.buyer_sku_id}
+                        onSelect={(item) => {
+                          const updated = [...lotLines];
+                          updated[idx].buyer_sku_id = item.item_id;
+                          setLotLines(updated);
+                        }}
+                        excludeIds={lotLines.filter((l, i) => i !== idx && l.buyer_sku_id).map(l => l.buyer_sku_id)}
+                        placeholder="Type SKU ID or name..."
+                        testId={`lot-sku-search-${idx}`}
+                      />
+                    </div>
                     <Input
                       type="number"
                       min="1"
@@ -1338,21 +1334,14 @@ const DispatchLots = () => {
                     {financeLines.map((line, idx) => (
                       <TableRow key={idx}>
                         <TableCell>
-                          <Select 
-                            value={line.buyer_sku_id} 
-                            onValueChange={(v) => handleFinanceLineSkuChange(idx, v)}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select SKU" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {buyerSkus.map(s => (
-                                <SelectItem key={s.buyer_sku_id} value={s.buyer_sku_id}>
-                                  {s.buyer_sku_id} - {s.name?.substring(0, 30)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <StockItemSearch
+                            searchEndpoint={`${process.env.REACT_APP_BACKEND_URL}/api/skus`}
+                            value={line.buyer_sku_id}
+                            onSelect={(item) => handleFinanceLineSkuChange(idx, item.item_id)}
+                            excludeIds={financeLines.filter((l, i) => i !== idx && l.buyer_sku_id).map(l => l.buyer_sku_id)}
+                            placeholder="Type SKU ID or name..."
+                            testId={`finance-sku-search-${idx}`}
+                          />
                         </TableCell>
                         <TableCell>
                           <Input 
@@ -1432,18 +1421,13 @@ const DispatchLots = () => {
           <div className="space-y-4">
             <div>
               <Label>SKU *</Label>
-              <Select value={addLineData.buyer_sku_id} onValueChange={handleAddLineLookup}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select SKU" />
-                </SelectTrigger>
-                <SelectContent>
-                  {buyerSkus.map(s => (
-                    <SelectItem key={s.buyer_sku_id} value={s.buyer_sku_id}>
-                      {s.buyer_sku_id} - {s.name?.substring(0, 40)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StockItemSearch
+                searchEndpoint={`${process.env.REACT_APP_BACKEND_URL}/api/skus`}
+                value={addLineData.buyer_sku_id}
+                onSelect={(item) => handleAddLineLookup(item.item_id)}
+                placeholder="Type SKU ID or name..."
+                testId="add-line-sku-search"
+              />
             </div>
             
             {skuLookup && (
