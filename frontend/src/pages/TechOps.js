@@ -466,6 +466,34 @@ const TechOps = () => {
     setBomUploading(false);
   };
 
+  const downloadBomTemplate = () => {
+    const XLSX = require('xlsx');
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ["RM ID", "BOM RM ID", "Weight in gm / Pc", "Wastage %"],
+      ["INP_001", "POLY_001", 100, "2%"],
+      ["INP_001", "POLY_002", 100, "2%"],
+      ["INP_001", "MB_001", 20, "2%"],
+      ["INMFAB_001", "MTL_001", 100, "2%"],
+      ["INMFAB_001", "MTL_002", 50, "2%"],
+      ["INM_001", "INMFAB_001", 1, "0%"],
+      ["INM_001", "PWD_001", 50, "2%"]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, "RM BOM Template");
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'RM_BOM_Upload_Template.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleSaveBom = async () => {
     try {
       if (bomForm.components.length === 0) {
@@ -1646,6 +1674,9 @@ const TechOps = () => {
                 className="mt-1"
                 data-testid="bom-upload-file"
               />
+              <Button variant="link" className="px-0 text-xs h-auto mt-1" onClick={downloadBomTemplate} data-testid="download-bom-template">
+                <Download className="w-3 h-3 mr-1" /> Download Template
+              </Button>
             </div>
             <div>
               <Label>If BOM already exists</Label>
