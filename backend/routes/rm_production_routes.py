@@ -411,17 +411,17 @@ async def bulk_upload_bom(
         for comp in components:
             comp_rm = await db.raw_materials.find_one(
                 {"rm_id": comp["component_rm_id"]},
-                {"_id": 0, "rm_id": 1, "category": 1, "description": 1}
+                {"_id": 0, "rm_id": 1, "category": 1, "description": 1, "uom": 1}
             )
             if not comp_rm:
                 errors.append(f"{rm_id}: Component RM {comp['component_rm_id']} not found (row {comp['row']})")
                 has_error = True
                 break
             
-            # Auto-detect UOM from component's category
+            # UOM resolution: RM-level first, then category default
             comp_cat = comp_rm.get("category", "")
             comp_cat_cfg = cat_config.get(comp_cat, {})
-            comp_uom = comp_cat_cfg.get("default_uom", "PCS") or "PCS"
+            comp_uom = comp_rm.get("uom") or comp_cat_cfg.get("default_uom", "PCS") or "PCS"
             
             # If UOM is KG, the quantity column is grams — convert display
             # Store as-is (grams for weight-based, pieces for piece-based)

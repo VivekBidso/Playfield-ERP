@@ -391,7 +391,7 @@ async def search_raw_materials(
         elif source_type:
             query["source_type"] = source_type
     
-    cursor = db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1, "bom_level": 1, "source_type": 1}).limit(limit).sort("rm_id", 1)
+    cursor = db.raw_materials.find(query, {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1, "bom_level": 1, "source_type": 1, "uom": 1}).limit(limit).sort("rm_id", 1)
     results = await cursor.to_list(limit)
     
     items = [{
@@ -399,7 +399,8 @@ async def search_raw_materials(
         "name": r.get("description") or r.get("name") or r["rm_id"],
         "category": r.get("category", ""),
         "bom_level": r.get("bom_level"),
-        "source_type": r.get("source_type")
+        "source_type": r.get("source_type"),
+        "uom": r.get("uom")
     } for r in results]
     
     return {"items": items, "total": len(items)}
@@ -419,6 +420,9 @@ async def create_raw_material(input: RawMaterialCreate, current_user: User = Dep
     seq = await get_next_rm_sequence(input.category)
     rm_id = f"{input.category}_{seq:05d}"
     
+    # Set UOM and source_type from input or category default
+    cat_config = all_categories.get(input.category, {})
+    
     rm = RawMaterial(
         rm_id=rm_id,
         category=input.category,
@@ -431,7 +435,10 @@ async def create_raw_material(input: RawMaterialCreate, current_user: User = Dep
         processing_cost=input.processing_cost,
         secondary_l1_rm_id=input.secondary_l1_rm_id,
         powder_qty_grams=input.powder_qty_grams,
-        coating_scrap_factor=input.coating_scrap_factor
+        coating_scrap_factor=input.coating_scrap_factor,
+        uom=input.uom or cat_config.get("default_uom") or "PCS",
+        source_type=input.source_type or cat_config.get("default_source_type") or "PURCHASED",
+        bom_level=cat_config.get("bom_level") or 1
     )
     
     doc = rm.model_dump()
@@ -1100,6 +1107,10 @@ async def update_raw_material(rm_id: str, data: dict):
         update_fields["is_brand_specific"] = data["is_brand_specific"]
     if "status" in data and data["status"]:
         update_fields["status"] = data["status"]
+    if "uom" in data and data["uom"]:
+        update_fields["uom"] = data["uom"]
+    if "source_type" in data and data["source_type"]:
+        update_fields["source_type"] = data["source_type"]
     
     if update_fields:
         update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()

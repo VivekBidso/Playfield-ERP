@@ -97,6 +97,8 @@ const RMRepository = () => {
   const [selectedAddCategory, setSelectedAddCategory] = useState("");
   const [categoryData, setCategoryData] = useState({});
   const [lowStockThreshold, setLowStockThreshold] = useState(10);
+  const [addUom, setAddUom] = useState("");
+  const [addSourceType, setAddSourceType] = useState("");
   
   // Loading
   const [loading, setLoading] = useState(false);
@@ -640,7 +642,9 @@ const RMRepository = () => {
       await axios.post(`${API}/raw-materials`, {
         category: selectedAddCategory,
         category_data: categoryData,
-        low_stock_threshold: lowStockThreshold
+        low_stock_threshold: lowStockThreshold,
+        uom: addUom || undefined,
+        source_type: addSourceType || undefined
       });
       toast.success("Raw material added successfully");
       setShowAddDialog(false);
@@ -655,6 +659,8 @@ const RMRepository = () => {
     setSelectedAddCategory("");
     setCategoryData({});
     setLowStockThreshold(10);
+    setAddUom("");
+    setAddSourceType("");
   };
 
   const downloadCategoryTemplate = (category) => {
@@ -2124,7 +2130,18 @@ const RMRepository = () => {
               <Label>Category *</Label>
               <Select 
                 value={selectedAddCategory || "select"} 
-                onValueChange={(v) => { setSelectedAddCategory(v === "select" ? "" : v); setCategoryData({}); }}
+                onValueChange={(v) => { 
+                  const cat = v === "select" ? "" : v;
+                  setSelectedAddCategory(cat); 
+                  setCategoryData({}); 
+                  if (cat && rmCategories[cat]) {
+                    setAddUom(rmCategories[cat].default_uom || "PCS");
+                    setAddSourceType(rmCategories[cat].default_source_type || "PURCHASED");
+                  } else {
+                    setAddUom("");
+                    setAddSourceType("");
+                  }
+                }}
               >
                 <SelectTrigger data-testid="add-category-select">
                   <SelectValue placeholder="Select category" />
@@ -2167,6 +2184,40 @@ const RMRepository = () => {
                     onChange={(e) => setLowStockThreshold(parseInt(e.target.value) || 10)}
                     min="1"
                   />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>UOM</Label>
+                    <Select value={addUom || "PCS"} onValueChange={setAddUom}>
+                      <SelectTrigger data-testid="add-uom-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PCS">PCS (Pieces)</SelectItem>
+                        <SelectItem value="KG">KG (Kilograms)</SelectItem>
+                        <SelectItem value="GM">GM (Grams)</SelectItem>
+                        <SelectItem value="MTR">MTR (Meters)</SelectItem>
+                        <SelectItem value="LTR">LTR (Litres)</SelectItem>
+                        <SelectItem value="SET">SET</SelectItem>
+                        <SelectItem value="PAIR">PAIR</SelectItem>
+                        <SelectItem value="ROLL">ROLL</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Source Type</Label>
+                    <Select value={addSourceType || "PURCHASED"} onValueChange={setAddSourceType}>
+                      <SelectTrigger data-testid="add-source-type-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PURCHASED">Purchased</SelectItem>
+                        <SelectItem value="MANUFACTURED">Manufactured</SelectItem>
+                        <SelectItem value="BOTH">Both</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 
                 <div className="flex justify-between pt-4">

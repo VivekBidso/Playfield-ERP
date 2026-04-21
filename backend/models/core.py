@@ -30,6 +30,12 @@ class RawMaterial(BaseModel):
     model_ids: List[str] = []  # Optional: Tag to multiple models
     is_brand_specific: bool = False  # Flag for brand-specific RMs (labels, assets, etc.)
     
+    # Per-RM overrides (take priority over category defaults)
+    uom: Optional[str] = None  # PCS, KG, MTR, etc. Falls back to category default_uom
+    source_type: Optional[str] = None  # PURCHASED, MANUFACTURED, BOTH. Falls back to category default
+    bom_level: Optional[Any] = None  # L1, L2, L3 or int
+    has_bom: bool = False
+    
     status: str = "ACTIVE"  # ACTIVE, INACTIVE, DISCONTINUED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
@@ -53,6 +59,9 @@ class RawMaterialCreate(BaseModel):
     vertical_ids: List[str] = []
     model_ids: List[str] = []
     is_brand_specific: bool = False
+    # Per-RM overrides
+    uom: Optional[str] = None
+    source_type: Optional[str] = None
 
 
 class RawMaterialUpdate(BaseModel):
@@ -64,6 +73,8 @@ class RawMaterialUpdate(BaseModel):
     model_ids: Optional[List[str]] = None
     is_brand_specific: Optional[bool] = None
     status: Optional[str] = None
+    uom: Optional[str] = None
+    source_type: Optional[str] = None
 
 
 class RMRequest(BaseModel):
