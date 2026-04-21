@@ -65,8 +65,10 @@ const StockItemSearch = ({ branch, type = "RM", searchEndpoint, value, onSelect,
       let items = [];
 
       if (searchEndpoint) {
-        // Custom endpoint mode (e.g., SKU catalog search)
-        const res = await axios.get(searchEndpoint, { params: { search: q }, headers });
+        // Custom endpoint mode — append q as query parameter
+        const separator = searchEndpoint.includes('?') ? '&' : '?';
+        const url = `${searchEndpoint}${separator}q=${encodeURIComponent(q)}&limit=20`;
+        const res = await axios.get(url, { headers });
         const data = res.data;
         // Normalize: could be array or { items: [] } or { buyer_skus: [] }
         const rawItems = Array.isArray(data) ? data : (data.items || data.buyer_skus || []);

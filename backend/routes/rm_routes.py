@@ -350,23 +350,20 @@ async def get_rm_categories():
 @router.get("/raw-materials/search")
 async def search_raw_materials(
     q: str = "",
+    search: str = "",
     source_type: Optional[str] = None,
     max_bom_level: Optional[int] = None,
     limit: int = 20
 ):
     """
     Search raw materials by rm_id or description.
-    
-    Args:
-        q: Search query (min 2 chars)
-        source_type: Filter by source - 'MANUFACTURED', 'PURCHASED', 'BOTH', or 'NOT_PURCHASED' (excludes PURCHASED)
-        max_bom_level: Only return RMs with bom_level <= this value (for component selection)
-        limit: Max results (default 20)
+    Accepts both 'q' and 'search' as query param names.
     """
-    if len(q) < 2:
+    query_text = q or search
+    if len(query_text) < 2:
         return {"items": [], "total": 0}
     
-    q_regex = {"$regex": q, "$options": "i"}
+    q_regex = {"$regex": query_text, "$options": "i"}
     query = {"$or": [{"rm_id": q_regex}, {"description": q_regex}, {"name": q_regex}]}
     
     if source_type == "NOT_PURCHASED":
