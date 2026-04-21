@@ -21,6 +21,17 @@ const Reports = () => {
   const [activeTab, setActiveTab] = useState("dispatch-origin");
   const [loading, setLoading] = useState(false);
   
+  // Historical data state
+  const [historicalSalesStats, setHistoricalSalesStats] = useState(null);
+  const [historicalProdStats, setHistoricalProdStats] = useState(null);
+  const [salesSummary, setSalesSummary] = useState(null);
+  const [prodSummary, setProdSummary] = useState(null);
+  const [salesGroupBy, setSalesGroupBy] = useState("customer");
+  const [prodGroupBy, setProdGroupBy] = useState("branch");
+  const [salesUploading, setSalesUploading] = useState(false);
+  const [prodUploading, setProdUploading] = useState(false);
+  const [uploadMode, setUploadMode] = useState("append");
+  
   // Report data states
   const [dispatchOriginData, setDispatchOriginData] = useState(null);
   const [productionByUnitData, setProductionByUnitData] = useState(null);
@@ -107,6 +118,7 @@ const Reports = () => {
     else if (activeTab === "production-unit") fetchProductionByUnitReport();
     else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
+    else if (activeTab === "historical") fetchHistoricalData();
   }, [activeTab]);
 
   const handleRefresh = () => {
@@ -114,6 +126,101 @@ const Reports = () => {
     else if (activeTab === "production-unit") fetchProductionByUnitReport();
     else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
+    else if (activeTab === "historical") fetchHistoricalData();
+  };
+
+  const fetchHistoricalData = async () => {
+    try {
+      const [salesRes, prodRes] = await Promise.all([
+        axios.get(`${API}/historical-sales/stats`),
+        axios.get(`${API}/historical-production/stats`)
+      ]);
+      setHistoricalSalesStats(salesRes.data);
+      setHistoricalProdStats(prodRes.data);
+      // Fetch summaries
+      const [salesSum, prodSum] = await Promise.all([
+        axios.get(`${API}/historical-sales/summary?group_by=${salesGroupBy}`),
+        axios.get(`${API}/historical-production/summary?group_by=${prodGroupBy}`)
+      ]);
+      setSalesSummary(salesSum.data);
+      setProdSummary(prodSum.data);
+    } catch (err) {
+      console.error("Failed to fetch historical data:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "historical" && historicalSalesStats) {
+      axios.get(`${API}/historical-sales/summary?group_by=${salesGroupBy}`).then(r => setSalesSummary(r.data)).catch(() => {});
+    }
+  }, [salesGroupBy]);
+
+  useEffect(() => {
+    if (activeTab === "historical" && historicalProdStats) {
+      axios.get(`${API}/historical-production/summary?group_by=${prodGroupBy}`).then(r => setProdSummary(r.data)).catch(() => {});
+    }
+  }, [prodGroupBy]);
+
+  const handleSalesUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSalesUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await axios.post(`${API}/historical-sales/upload?mode=${uploadMode}`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success(res.data.message);
+      if (res.data.errors?.length) toast.error(`${res.data.errors.length} errors`);
+      fetchHistoricalData();
+    } catch (err) {
+      toast.error(`Upload failed: ${err.response?.data?.detail || err.message}`);
+    }
+    setSalesUploading(false);
+    e.target.value = "";
+  };
+
+  const handleProdUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setProdUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await axios.post(`${API}/historical-production/upload?mode=${uploadMode}`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success(res.data.message);
+      if (res.data.errors?.length) toast.error(`${res.data.errors.length} errors`);
+      if (res.data.skus_without_asp?.length) toast.info(`${res.data.skus_without_asp.length} SKUs have no ASP data`);
+      fetchHistoricalData();
+    } catch (err) {
+      toast.error(`Upload failed: ${err.response?.data?.detail || err.message}`);
+    }
+    setProdUploading(false);
+    e.target.value = "";
+  };
+
+  const downloadTemplate = (type) => {
+    const wb = XLSX.utils.book_new();
+    if (type === "sales") {
+      const data = [["Buyer SKU", "Customer ID", "Qty", "Month", "ASP"], ["EL_KS_BE_001", "ABC Toys", 500, "Jun 2025", 1200], ["EL_KS_BE_001", "XYZ Corp", 300, "Jun 2025", 1150]];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Historical Sales");
+    } else {
+      const data = [["Buyer SKU", "Branch ID", "Qty", "Month"], ["EL_KS_BE_001", "Unit 1 Vedica", 800, "Jun 2025"], ["EL_KS_BE_001", "Unit 4 Goa", 200, "Jun 2025"]];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Historical Production");
+    }
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_upload_template.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const exportToExcel = (data, filename) => {
@@ -193,7 +300,7 @@ const Reports = () => {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-5 w-full max-w-3xl">
           <TabsTrigger value="dispatch-origin" className="text-xs">
             <Package className="h-3 w-3 mr-1" />
             Dispatch Origin
@@ -209,6 +316,10 @@ const Reports = () => {
           <TabsTrigger value="buyer-history" className="text-xs">
             <Users className="h-3 w-3 mr-1" />
             Buyer History
+          </TabsTrigger>
+          <TabsTrigger value="historical" className="text-xs" data-testid="historical-tab">
+            <FileText className="h-3 w-3 mr-1" />
+            Historical Data
           </TabsTrigger>
         </TabsList>
 
@@ -576,6 +687,187 @@ const Reports = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Historical Data Tab */}
+        <TabsContent value="historical">
+          <div className="space-y-6">
+            {/* Upload Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Sales Upload */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Historical Sales Upload</CardTitle>
+                  <CardDescription className="text-xs">Buyer SKU | Customer ID | Qty | Month | ASP</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Select value={uploadMode} onValueChange={setUploadMode}>
+                      <SelectTrigger className="w-32 h-8 text-xs" data-testid="upload-mode-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="append">Append</SelectItem>
+                        <SelectItem value="overwrite">Overwrite</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input type="file" accept=".xlsx,.xls" onChange={handleSalesUpload} disabled={salesUploading} className="text-xs h-8" data-testid="sales-upload-input" />
+                  </div>
+                  <Button variant="link" className="px-0 text-xs h-auto" onClick={() => downloadTemplate("sales")} data-testid="download-sales-template">
+                    <Download className="w-3 h-3 mr-1" /> Download Template
+                  </Button>
+                  {historicalSalesStats && historicalSalesStats.total_records > 0 && (
+                    <div className="text-xs text-muted-foreground bg-zinc-50 rounded p-2">
+                      <span className="font-medium">{historicalSalesStats.total_records}</span> records | 
+                      <span className="font-medium ml-1">{historicalSalesStats.months?.length}</span> months | 
+                      Revenue: <span className="font-medium text-emerald-600">Rs {(historicalSalesStats.total_revenue || 0).toLocaleString()}</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Production Upload */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Historical Production Upload</CardTitle>
+                  <CardDescription className="text-xs">Buyer SKU | Branch ID | Qty | Month</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Select value={uploadMode} onValueChange={setUploadMode}>
+                      <SelectTrigger className="w-32 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="append">Append</SelectItem>
+                        <SelectItem value="overwrite">Overwrite</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input type="file" accept=".xlsx,.xls" onChange={handleProdUpload} disabled={prodUploading} className="text-xs h-8" data-testid="prod-upload-input" />
+                  </div>
+                  <Button variant="link" className="px-0 text-xs h-auto" onClick={() => downloadTemplate("production")} data-testid="download-prod-template">
+                    <Download className="w-3 h-3 mr-1" /> Download Template
+                  </Button>
+                  {historicalProdStats && historicalProdStats.total_records > 0 && (
+                    <div className="text-xs text-muted-foreground bg-zinc-50 rounded p-2">
+                      <span className="font-medium">{historicalProdStats.total_records}</span> records | 
+                      <span className="font-medium ml-1">{historicalProdStats.months?.length}</span> months |
+                      Value: <span className="font-medium text-emerald-600">Rs {(historicalProdStats.total_value || 0).toLocaleString()}</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Sales Summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex justify-between items-center">
+                  <CardTitle className="text-base">Sales Summary</CardTitle>
+                  <Select value={salesGroupBy} onValueChange={setSalesGroupBy}>
+                    <SelectTrigger className="w-36 h-8 text-xs" data-testid="sales-group-by">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="customer">By Customer</SelectItem>
+                      <SelectItem value="model">By Model</SelectItem>
+                      <SelectItem value="vertical">By Vertical</SelectItem>
+                      <SelectItem value="bidso_sku">By Bidso SKU</SelectItem>
+                      <SelectItem value="month">By Month</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {salesSummary?.data?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">{salesGroupBy === "customer" ? "Customer" : salesGroupBy === "model" ? "Model" : salesGroupBy === "vertical" ? "Vertical" : salesGroupBy === "bidso_sku" ? "Bidso SKU" : "Month"}</TableHead>
+                          <TableHead className="text-xs text-right">Qty</TableHead>
+                          <TableHead className="text-xs text-right">Revenue (Rs)</TableHead>
+                          <TableHead className="text-xs text-right">Avg ASP</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {salesSummary.data.map((row, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs font-medium">{row.customer_name || row.model_code || row.vertical_code || row.bidso_sku_id || row.month_key || "-"}</TableCell>
+                            <TableCell className="text-xs text-right font-mono">{row.total_qty?.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right font-mono text-emerald-600">{row.total_revenue?.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right font-mono">{row.avg_asp?.toLocaleString()}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="font-bold bg-zinc-50">
+                          <TableCell className="text-xs">TOTAL</TableCell>
+                          <TableCell className="text-xs text-right font-mono">{salesSummary.totals?.total_qty?.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs text-right font-mono text-emerald-600">{salesSummary.totals?.total_revenue?.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs text-right">-</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground text-sm">No historical sales data. Upload to get started.</div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Production Summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex justify-between items-center">
+                  <CardTitle className="text-base">Production Summary</CardTitle>
+                  <Select value={prodGroupBy} onValueChange={setProdGroupBy}>
+                    <SelectTrigger className="w-36 h-8 text-xs" data-testid="prod-group-by">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="branch">By Branch</SelectItem>
+                      <SelectItem value="model">By Model</SelectItem>
+                      <SelectItem value="vertical">By Vertical</SelectItem>
+                      <SelectItem value="month">By Month</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {prodSummary?.data?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">{prodGroupBy === "branch" ? "Branch" : prodGroupBy === "model" ? "Model" : prodGroupBy === "vertical" ? "Vertical" : "Month"}</TableHead>
+                          <TableHead className="text-xs text-right">Production Qty</TableHead>
+                          <TableHead className="text-xs text-right">Value (Rs)</TableHead>
+                          <TableHead className="text-xs text-right">Avg ASP</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {prodSummary.data.map((row, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs font-medium">{row.branch_name || row.model_code || row.vertical_code || row.month_key || "-"}</TableCell>
+                            <TableCell className="text-xs text-right font-mono">{row.total_qty?.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right font-mono text-emerald-600">{row.total_value?.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs text-right font-mono">{row.avg_asp?.toLocaleString()}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="font-bold bg-zinc-50">
+                          <TableCell className="text-xs">TOTAL</TableCell>
+                          <TableCell className="text-xs text-right font-mono">{prodSummary.totals?.total_qty?.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs text-right font-mono text-emerald-600">{prodSummary.totals?.total_value?.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs text-right">-</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground text-sm">No historical production data. Upload to get started.</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
