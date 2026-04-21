@@ -574,6 +574,7 @@ Example:
 - [x] Inter-branch stock transfers
 - [x] QC checklists and approvals
 - [x] Excel export/import throughout
+- [x] RM Price History & Margin Calculation (April 21, 2026) — 3-mo rolling avg BOM cost + ASP margin report
 
 ---
 

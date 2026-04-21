@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## April 21, 2026
+
+### RM Price History & Margin Calculation (P0 complete)
+- **New collection** `rm_prices_history` storing { date, invoice_no, vendor_id, vendor_name, rm_id, price_per_unit, month_key }
+- **New backend module** `/app/backend/routes/rm_price_routes.py` registered at `/api/rm-prices/*`
+- **Endpoints:**
+  - `POST /rm-prices/upload` — Excel (Date | Invoice No | Vendor ID | RM ID | Price); append/overwrite modes; validates vendor + RM IDs
+  - `GET /rm-prices/template` — downloadable Excel template with instructions
+  - `GET /rm-prices/stats` — totals, unique counts, date range, rolling window start
+  - `GET /rm-prices/avg-prices?window_months=3` — simple rolling 3-month average per RM with rm_name/category enrichment
+  - `GET /rm-prices/history` — paginated invoice list with rm_id/vendor_id filters
+  - `GET /rm-prices/bom-cost/{buyer_sku_id}` — derived BOM cost + per-RM line breakdown (avg_price × qty)
+  - `POST /rm-prices/bom-cost-bulk` — compact map of costs for a list of SKU IDs (table enrichment)
+  - `GET /rm-prices/margin-report` — per-SKU Margin % = (Avg ASP − BOM Cost)/ASP × 100 joining historical_sales; totals include overall_margin_pct + gross profit
+  - `DELETE /rm-prices/history` — admin clear-all
+- **Frontend — RM Repository:** New "Price History" tab with upload widget, 4 stat cards, average price table, invoice history log with filters
+- **Frontend — SKU Management (Buyer SKU tab):** New "BOM Cost" column (bulk-fetched on page load) + "Derived BOM Cost" emerald panel in the View BOM dialog with per-RM avg price/line cost breakdown and missing-price warnings
+- **Frontend — Reports:** New "Margin Report" tab showing totals (revenue/COGS/gross profit/overall margin %), per-SKU table with colour-coded margin % (≥30% green, ≥10% amber, else red), month range filter + Excel export
+- **Testing:** 11/11 backend pytest cases passed; all frontend data-testids verified by testing agent
+
 ## April 17, 2026
 
 ### Inventory Consolidation & Dedup
