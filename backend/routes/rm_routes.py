@@ -438,7 +438,11 @@ async def create_raw_material(input: RawMaterialCreate, current_user: User = Dep
         coating_scrap_factor=input.coating_scrap_factor,
         uom=input.uom or cat_config.get("default_uom") or "PCS",
         source_type=input.source_type or cat_config.get("default_source_type") or "PURCHASED",
-        bom_level=cat_config.get("bom_level") or 1
+        bom_level=cat_config.get("bom_level") or 1,
+        dual_uom=input.dual_uom,
+        procurement_uom=input.procurement_uom if input.dual_uom else None,
+        consumption_uom=input.consumption_uom if input.dual_uom else None,
+        conversion_factor=input.conversion_factor if input.dual_uom else None
     )
     
     doc = rm.model_dump()
@@ -1111,6 +1115,14 @@ async def update_raw_material(rm_id: str, data: dict):
         update_fields["uom"] = data["uom"]
     if "source_type" in data and data["source_type"]:
         update_fields["source_type"] = data["source_type"]
+    if "dual_uom" in data:
+        update_fields["dual_uom"] = bool(data["dual_uom"])
+    if "procurement_uom" in data:
+        update_fields["procurement_uom"] = data["procurement_uom"] or None
+    if "consumption_uom" in data:
+        update_fields["consumption_uom"] = data["consumption_uom"] or None
+    if "conversion_factor" in data:
+        update_fields["conversion_factor"] = float(data["conversion_factor"]) if data["conversion_factor"] else None
     
     if update_fields:
         update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()

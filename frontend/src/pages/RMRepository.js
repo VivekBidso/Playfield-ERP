@@ -99,6 +99,10 @@ const RMRepository = () => {
   const [lowStockThreshold, setLowStockThreshold] = useState(10);
   const [addUom, setAddUom] = useState("");
   const [addSourceType, setAddSourceType] = useState("");
+  const [addDualUom, setAddDualUom] = useState(false);
+  const [addProcurementUom, setAddProcurementUom] = useState("");
+  const [addConsumptionUom, setAddConsumptionUom] = useState("");
+  const [addConversionFactor, setAddConversionFactor] = useState("");
   
   // Loading
   const [loading, setLoading] = useState(false);
@@ -135,7 +139,11 @@ const RMRepository = () => {
     model_ids: [],
     is_brand_specific: false,
     uom: "",
-    source_type: ""
+    source_type: "",
+    dual_uom: false,
+    procurement_uom: "",
+    consumption_uom: "",
+    conversion_factor: ""
   });
   
   // Pagination
@@ -493,7 +501,11 @@ const RMRepository = () => {
       model_ids: rm.model_ids || [],
       is_brand_specific: rm.is_brand_specific || false,
       uom: rm.uom || catConfig.default_uom || "PCS",
-      source_type: rm.source_type || catConfig.default_source_type || "PURCHASED"
+      source_type: rm.source_type || catConfig.default_source_type || "PURCHASED",
+      dual_uom: rm.dual_uom || false,
+      procurement_uom: rm.procurement_uom || "",
+      consumption_uom: rm.consumption_uom || "",
+      conversion_factor: rm.conversion_factor || ""
     });
     setShowTagDialog(true);
   };
@@ -650,7 +662,11 @@ const RMRepository = () => {
         category_data: categoryData,
         low_stock_threshold: lowStockThreshold,
         uom: addUom || undefined,
-        source_type: addSourceType || undefined
+        source_type: addSourceType || undefined,
+        dual_uom: addDualUom,
+        procurement_uom: addDualUom ? addProcurementUom : undefined,
+        consumption_uom: addDualUom ? addConsumptionUom : undefined,
+        conversion_factor: addDualUom && addConversionFactor ? parseFloat(addConversionFactor) : undefined
       });
       toast.success("Raw material added successfully");
       setShowAddDialog(false);
@@ -667,6 +683,10 @@ const RMRepository = () => {
     setLowStockThreshold(10);
     setAddUom("");
     setAddSourceType("");
+    setAddDualUom(false);
+    setAddProcurementUom("");
+    setAddConsumptionUom("");
+    setAddConversionFactor("");
   };
 
   const downloadCategoryTemplate = (category) => {
@@ -1775,6 +1795,70 @@ const RMRepository = () => {
               </div>
             </div>
 
+            {/* Dual UOM Toggle */}
+            <div className="space-y-3 border-t pt-3">
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="edit-dual-uom" 
+                  checked={tagForm.dual_uom} 
+                  onChange={(e) => setTagForm({...tagForm, dual_uom: e.target.checked})}
+                  className="h-4 w-4 rounded border-gray-300"
+                  data-testid="edit-dual-uom-toggle"
+                />
+                <Label htmlFor="edit-dual-uom" className="text-sm cursor-pointer">
+                  Different UOM for procurement & consumption
+                </Label>
+              </div>
+              
+              {tagForm.dual_uom && (
+                <div className="grid grid-cols-3 gap-3 pl-6">
+                  <div>
+                    <Label className="text-xs">Procurement UOM</Label>
+                    <Select value={tagForm.procurement_uom || "KG"} onValueChange={(v) => setTagForm({...tagForm, procurement_uom: v})}>
+                      <SelectTrigger className="h-8 text-xs" data-testid="edit-procurement-uom">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="KG">KG</SelectItem>
+                        <SelectItem value="GM">GM</SelectItem>
+                        <SelectItem value="MTR">MTR</SelectItem>
+                        <SelectItem value="LTR">LTR</SelectItem>
+                        <SelectItem value="ROLL">ROLL</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Consumption UOM</Label>
+                    <Select value={tagForm.consumption_uom || "PCS"} onValueChange={(v) => setTagForm({...tagForm, consumption_uom: v})}>
+                      <SelectTrigger className="h-8 text-xs" data-testid="edit-consumption-uom">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PCS">PCS</SelectItem>
+                        <SelectItem value="GM">GM</SelectItem>
+                        <SelectItem value="SET">SET</SelectItem>
+                        <SelectItem value="PAIR">PAIR</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Conversion Factor</Label>
+                    <Input 
+                      type="number" 
+                      step="0.0001"
+                      value={tagForm.conversion_factor} 
+                      onChange={(e) => setTagForm({...tagForm, conversion_factor: e.target.value})}
+                      placeholder="e.g. 0.005"
+                      className="h-8 text-xs font-mono"
+                      data-testid="edit-conversion-factor"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-0.5">1 consumption unit = X procurement units</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Brand Specific Flag */}
             <div className="flex items-center gap-2">
               <Checkbox 
@@ -2259,6 +2343,70 @@ const RMRepository = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+                
+                {/* Dual UOM Toggle */}
+                <div className="space-y-3 border-t pt-3">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      id="add-dual-uom" 
+                      checked={addDualUom} 
+                      onChange={(e) => setAddDualUom(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300"
+                      data-testid="add-dual-uom-toggle"
+                    />
+                    <Label htmlFor="add-dual-uom" className="text-sm cursor-pointer">
+                      Different UOM for procurement & consumption
+                    </Label>
+                  </div>
+                  
+                  {addDualUom && (
+                    <div className="grid grid-cols-3 gap-3 pl-6">
+                      <div>
+                        <Label className="text-xs">Procurement UOM</Label>
+                        <Select value={addProcurementUom || "KG"} onValueChange={setAddProcurementUom}>
+                          <SelectTrigger className="h-8 text-xs" data-testid="add-procurement-uom">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="KG">KG</SelectItem>
+                            <SelectItem value="GM">GM</SelectItem>
+                            <SelectItem value="MTR">MTR</SelectItem>
+                            <SelectItem value="LTR">LTR</SelectItem>
+                            <SelectItem value="ROLL">ROLL</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Consumption UOM</Label>
+                        <Select value={addConsumptionUom || "PCS"} onValueChange={setAddConsumptionUom}>
+                          <SelectTrigger className="h-8 text-xs" data-testid="add-consumption-uom">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PCS">PCS</SelectItem>
+                            <SelectItem value="GM">GM</SelectItem>
+                            <SelectItem value="SET">SET</SelectItem>
+                            <SelectItem value="PAIR">PAIR</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Conversion Factor</Label>
+                        <Input 
+                          type="number" 
+                          step="0.0001"
+                          value={addConversionFactor} 
+                          onChange={(e) => setAddConversionFactor(e.target.value)}
+                          placeholder="e.g. 0.005"
+                          className="h-8 text-xs font-mono"
+                          data-testid="add-conversion-factor"
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-0.5">1 consumption unit = X procurement units</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="flex justify-between pt-4">

@@ -36,6 +36,12 @@ class RawMaterial(BaseModel):
     bom_level: Optional[Any] = None  # L1, L2, L3 or int
     has_bom: bool = False
     
+    # Dual UOM (when procurement and consumption UOM differ)
+    dual_uom: bool = False  # Flag: True if procurement ≠ consumption UOM
+    procurement_uom: Optional[str] = None  # How you buy it (KG, MTR, LTR)
+    consumption_uom: Optional[str] = None  # How BOM references it (PCS, GM)
+    conversion_factor: Optional[float] = None  # 1 consumption unit = X procurement units
+    
     status: str = "ACTIVE"  # ACTIVE, INACTIVE, DISCONTINUED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
@@ -62,6 +68,11 @@ class RawMaterialCreate(BaseModel):
     # Per-RM overrides
     uom: Optional[str] = None
     source_type: Optional[str] = None
+    # Dual UOM
+    dual_uom: bool = False
+    procurement_uom: Optional[str] = None
+    consumption_uom: Optional[str] = None
+    conversion_factor: Optional[float] = None
 
 
 class RawMaterialUpdate(BaseModel):
@@ -75,6 +86,11 @@ class RawMaterialUpdate(BaseModel):
     status: Optional[str] = None
     uom: Optional[str] = None
     source_type: Optional[str] = None
+    # Dual UOM
+    dual_uom: Optional[bool] = None
+    procurement_uom: Optional[str] = None
+    consumption_uom: Optional[str] = None
+    conversion_factor: Optional[float] = None
 
 
 class RMRequest(BaseModel):
