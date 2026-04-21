@@ -152,6 +152,15 @@ const RMRepository = () => {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Price History tab state
+  const [priceStats, setPriceStats] = useState(null);
+  const [avgPrices, setAvgPrices] = useState([]);
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [priceFilter, setPriceFilter] = useState({ rm_id: "", vendor_id: "" });
+  const [priceUploading, setPriceUploading] = useState(false);
+  const [priceUploadMode, setPriceUploadMode] = useState("append");
+  const priceFileInputRef = useRef(null);
+
   useEffect(() => {
     fetchMasterData();
     fetchRmCategories();
@@ -169,6 +178,8 @@ const RMRepository = () => {
       fetchBuyerSkuRequests();
     } else if (activeTab === "clone-requests") {
       fetchBidsoCloneRequests();
+    } else if (activeTab === "price-history") {
+      fetchPriceData();
     }
   }, [activeTab, filters, currentPage, pageSize]);
 
@@ -402,6 +413,64 @@ const RMRepository = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ============ Price History handlers ============
+  const fetchPriceData = async () => {
+    try {
+      const [statsRes, avgRes] = await Promise.all([
+        axios.get(`${API}/rm-prices/stats`),
+        axios.get(`${API}/rm-prices/avg-prices`)
+      ]);
+      setPriceStats(statsRes.data);
+      setAvgPrices(avgRes.data.items || []);
+      await fetchPriceHistory();
+    } catch (error) {
+      toast.error("Failed to fetch price data");
+    }
+  };
+
+  const fetchPriceHistory = async (overrides = {}) => {
+    try {
+      const params = new URLSearchParams({ page_size: 200 });
+      const rmFilter = overrides.rm_id !== undefined ? overrides.rm_id : priceFilter.rm_id;
+      const vFilter = overrides.vendor_id !== undefined ? overrides.vendor_id : priceFilter.vendor_id;
+      if (rmFilter) params.append("rm_id", rmFilter);
+      if (vFilter) params.append("vendor_id", vFilter);
+      const res = await axios.get(`${API}/rm-prices/history?${params}`);
+      setPriceHistory(res.data.items || []);
+    } catch (error) {
+      console.error("Failed to fetch price history", error);
+    }
+  };
+
+  const handlePriceUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPriceUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await axios.post(
+        `${API}/rm-prices/upload?mode=${priceUploadMode}`,
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      toast.success(res.data.message);
+      if (res.data.error_count > 0) {
+        toast.error(`${res.data.error_count} rows had errors. First: ${res.data.errors?.[0] || ""}`);
+      }
+      await fetchPriceData();
+    } catch (err) {
+      toast.error(`Upload failed: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setPriceUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const downloadPriceTemplate = () => {
+    window.open(`${API}/rm-prices/template`, "_blank");
   };
 
   const handleViewCloneDetail = async (request) => {
@@ -942,6 +1011,10 @@ const RMRepository = () => {
             {pendingCloneCount > 0 && (
               <Badge className="ml-2 bg-green-500">{pendingCloneCount}</Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="price-history" data-testid="price-history-tab">
+            <Database className="h-4 w-4 mr-2" />
+            Price History
           </TabsTrigger>
         </TabsList>
 
@@ -1642,9 +1715,181 @@ const RMRepository = () => {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
 
-      {/* Edit Tags Dialog */}
+        {/* Price History Tab */}
+        <TabsContent value="price-history" className="space-y-4">
+          {/* Upload + Stats */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Upload className="h-4 w-4" /> Upload RM Prices
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Expected columns: <span className="font-mono">Date | Invoice No | Vendor ID | RM ID | Price</span>.
+                Price is per unit. System computes a simple 3-month rolling average per RM and uses it to derive BOM cost.
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs">Mode</Label>
+                  <Select value={priceUploadMode} onValueChange={setPriceUploadMode}>
+                    <SelectTrigger className="w-32 h-9 text-xs" data-testid="price-upload-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="append">Append</SelectItem>
+                      <SelectItem value="overwrite">Overwrite All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  ref={priceFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handlePriceUpload}
+                  disabled={priceUploading}
+                  className="max-w-xs text-xs"
+                  data-testid="price-upload-input"
+                />
+                <Button variant="outline" size="sm" onClick={downloadPriceTemplate} data-testid="download-price-template">
+                  <Download className="h-4 w-4 mr-1" /> Template
+                </Button>
+              </div>
+              {priceStats && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+                  <div className="border rounded p-3 bg-zinc-50">
+                    <div className="text-xs text-muted-foreground">Total Records</div>
+                    <div className="text-xl font-semibold">{priceStats.total_records?.toLocaleString()}</div>
+                  </div>
+                  <div className="border rounded p-3 bg-zinc-50">
+                    <div className="text-xs text-muted-foreground">Unique RMs</div>
+                    <div className="text-xl font-semibold">{priceStats.unique_rms?.toLocaleString()}</div>
+                  </div>
+                  <div className="border rounded p-3 bg-zinc-50">
+                    <div className="text-xs text-muted-foreground">Unique Vendors</div>
+                    <div className="text-xl font-semibold">{priceStats.unique_vendors}</div>
+                  </div>
+                  <div className="border rounded p-3 bg-emerald-50">
+                    <div className="text-xs text-muted-foreground">RMs with Avg Price</div>
+                    <div className="text-xl font-semibold text-emerald-700">{priceStats.rms_with_avg_price}</div>
+                  </div>
+                </div>
+              )}
+              {priceStats?.date_range?.min && (
+                <div className="text-xs text-muted-foreground">
+                  Data range: {priceStats.date_range.min?.slice(0,10)} → {priceStats.date_range.max?.slice(0,10)} ·
+                  Rolling window start: {priceStats.window_start?.slice(0,10)}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Avg Prices Table */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Average Prices (3-Month Rolling)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {avgPrices.length === 0 ? (
+                <div className="text-center text-sm text-muted-foreground py-6">
+                  No price data yet. Upload an Excel file to get started.
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-96 border rounded">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-zinc-50 sticky top-0">
+                        <TableHead className="text-xs">RM ID</TableHead>
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Category</TableHead>
+                        <TableHead className="text-xs text-right">Avg Price</TableHead>
+                        <TableHead className="text-xs text-right">Records</TableHead>
+                        <TableHead className="text-xs">Latest Invoice</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {avgPrices.map((r) => (
+                        <TableRow key={r.rm_id}>
+                          <TableCell className="font-mono text-xs">{r.rm_id}</TableCell>
+                          <TableCell className="text-xs">{r.rm_name || "-"}</TableCell>
+                          <TableCell className="text-xs">{r.category || "-"}</TableCell>
+                          <TableCell className="text-xs text-right font-mono text-emerald-700">
+                            Rs {r.avg_price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                          </TableCell>
+                          <TableCell className="text-xs text-right">{r.record_count}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {r.latest_date?.slice(0,10)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Price History Log */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base">Invoice History</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Filter by RM ID"
+                    value={priceFilter.rm_id}
+                    onChange={(e) => setPriceFilter({ ...priceFilter, rm_id: e.target.value })}
+                    className="h-8 text-xs w-40"
+                    data-testid="price-filter-rm"
+                  />
+                  <Input
+                    placeholder="Filter by Vendor ID"
+                    value={priceFilter.vendor_id}
+                    onChange={(e) => setPriceFilter({ ...priceFilter, vendor_id: e.target.value })}
+                    className="h-8 text-xs w-40"
+                    data-testid="price-filter-vendor"
+                  />
+                  <Button size="sm" variant="outline" onClick={() => fetchPriceHistory()}>Apply</Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {priceHistory.length === 0 ? (
+                <div className="text-center text-sm text-muted-foreground py-6">No history records.</div>
+              ) : (
+                <div className="overflow-x-auto max-h-96 border rounded">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-zinc-50 sticky top-0">
+                        <TableHead className="text-xs">Date</TableHead>
+                        <TableHead className="text-xs">Invoice No</TableHead>
+                        <TableHead className="text-xs">Vendor</TableHead>
+                        <TableHead className="text-xs">RM ID</TableHead>
+                        <TableHead className="text-xs text-right">Price/Unit</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {priceHistory.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="text-xs">{r.date?.slice(0,10)}</TableCell>
+                          <TableCell className="text-xs font-mono">{r.invoice_no}</TableCell>
+                          <TableCell className="text-xs" title={r.vendor_name}>
+                            <span className="font-mono">{r.vendor_id}</span>
+                            <span className="text-muted-foreground ml-1 truncate">· {r.vendor_name}</span>
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">{r.rm_id}</TableCell>
+                          <TableCell className="text-xs text-right font-mono">Rs {r.price_per_unit?.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
       <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

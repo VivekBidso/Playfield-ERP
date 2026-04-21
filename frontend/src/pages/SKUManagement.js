@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { 
   Package, Layers, Plus, Search, ChevronRight, Lock, Unlock, 
-  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag, AlertTriangle, Check, X, Loader2
+  Edit, Trash2, Copy, FileSpreadsheet, ArrowRight, Download, Upload, RefreshCw, Database, Tag, AlertTriangle, Check, X, Loader2, TrendingUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +86,9 @@ const SKUManagement = () => {
   const [selectedBuyerSKU, setSelectedBuyerSKU] = useState(null);
   const [buyerFullBOM, setBuyerFullBOM] = useState(null);
   const [buyerBOMLoading, setBuyerBOMLoading] = useState(false);
+  const [buyerBOMCost, setBuyerBOMCost] = useState(null);
+  // Derived BOM cost map (buyer_sku_id -> {total_cost, rm_count, missing_price_count})
+  const [bomCostMap, setBomCostMap] = useState({});
   
   // BOM Item Edit
   const [editingBOMItem, setEditingBOMItem] = useState(null);
@@ -226,9 +229,26 @@ const SKUManagement = () => {
       if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
       
       const res = await axios.get(url, { headers: getHeaders() });
-      setBuyerSKUs(res.data.items || []);
+      const items = res.data.items || [];
+      setBuyerSKUs(items);
       setBuyerTotal(res.data.total || 0);
       setBuyerTotalPages(res.data.total_pages || 1);
+
+      // Fetch derived BOM cost for each SKU in the page (bulk)
+      if (items.length > 0) {
+        try {
+          const ids = items.map(s => s.buyer_sku_id).filter(Boolean);
+          const costRes = await axios.post(
+            `${API}/rm-prices/bom-cost-bulk`,
+            { buyer_sku_ids: ids },
+            { headers: getHeaders() }
+          );
+          setBomCostMap(costRes.data.costs || {});
+        } catch (err) {
+          // Non-fatal: proceed without costs
+          setBomCostMap({});
+        }
+      }
     } catch (error) {
       toast.error("Failed to fetch Buyer SKUs");
     } finally {
@@ -359,9 +379,15 @@ const SKUManagement = () => {
     setSelectedBuyerSKU(buyerSKU);
     setBuyerBOMLoading(true);
     setShowBuyerBOMDialog(true);
+    setBuyerBOMCost(null);
     try {
-      const res = await axios.get(`${API}/sku-management/bom/full/${buyerSKU.buyer_sku_id}`, { headers: getHeaders() });
-      setBuyerFullBOM(res.data);
+      const [bomRes, costRes] = await Promise.all([
+        axios.get(`${API}/sku-management/bom/full/${buyerSKU.buyer_sku_id}`, { headers: getHeaders() }),
+        axios.get(`${API}/rm-prices/bom-cost/${buyerSKU.buyer_sku_id}`, { headers: getHeaders() })
+          .catch(() => ({ data: null })),
+      ]);
+      setBuyerFullBOM(bomRes.data);
+      setBuyerBOMCost(costRes.data);
     } catch (error) {
       toast.error("Failed to fetch Buyer SKU BOM");
       setBuyerFullBOM(null);
@@ -1287,6 +1313,7 @@ const SKUManagement = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>HSN Code</TableHead>
                     <TableHead>GST %</TableHead>
+                    <TableHead className="text-right">BOM Cost</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -1294,18 +1321,20 @@ const SKUManagement = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                         Loading...
                       </TableCell>
                     </TableRow>
                   ) : buyerSKUs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                         No Buyer SKUs found. Create from a Bidso SKU first.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    buyerSKUs.map(sku => (
+                    buyerSKUs.map(sku => {
+                      const costInfo = bomCostMap[sku.buyer_sku_id];
+                      return (
                       <TableRow key={sku.id} data-testid={`buyer-row-${sku.buyer_sku_id}`}>
                         <TableCell>
                           <span className="font-mono font-medium text-green-600">{sku.buyer_sku_id}</span>
@@ -1327,6 +1356,22 @@ const SKUManagement = () => {
                             <Badge variant="outline">{sku.gst_rate}%</Badge>
                           ) : (
                             <span className="text-amber-500 text-xs">Not set</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right" data-testid={`bom-cost-${sku.buyer_sku_id}`}>
+                          {costInfo && costInfo.total_cost > 0 ? (
+                            <div className="space-y-0.5">
+                              <div className="font-mono font-medium text-emerald-700">
+                                Rs {costInfo.total_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              {costInfo.missing_price_count > 0 && (
+                                <div className="text-[10px] text-amber-600" title="Some RMs are missing price data">
+                                  {costInfo.missing_price_count}/{costInfo.rm_count} RM prices missing
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">No price data</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -1357,7 +1402,8 @@ const SKUManagement = () => {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1717,7 +1763,63 @@ const SKUManagement = () => {
                   <p className="text-xs text-purple-600">Parent Bidso SKU</p>
                 </div>
               </div>
-              
+
+              {/* Derived BOM Cost Panel */}
+              {buyerBOMCost && (
+                <div className="border border-emerald-200 bg-emerald-50/50 rounded-lg p-4" data-testid="bom-cost-panel">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium text-emerald-800 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" />
+                        Derived BOM Cost (3-mo rolling avg)
+                      </h4>
+                      <p className="text-xs text-emerald-700 mt-1">
+                        {buyerBOMCost.rm_count - buyerBOMCost.missing_price_count} / {buyerBOMCost.rm_count} RMs priced
+                        {buyerBOMCost.missing_price_count > 0 && (
+                          <span className="text-amber-600 ml-2">({buyerBOMCost.missing_price_count} missing)</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-bold text-emerald-700 font-mono" data-testid="total-bom-cost">
+                        Rs {(buyerBOMCost.total_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-xs text-emerald-600">per unit</p>
+                    </div>
+                  </div>
+                  {buyerBOMCost.items?.length > 0 && (
+                    <div className="mt-3 max-h-56 overflow-y-auto border border-emerald-100 rounded bg-white">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-emerald-50">
+                            <TableHead className="text-xs">RM ID</TableHead>
+                            <TableHead className="text-xs">Name</TableHead>
+                            <TableHead className="text-xs text-right">Qty</TableHead>
+                            <TableHead className="text-xs text-right">Avg Price</TableHead>
+                            <TableHead className="text-xs text-right">Line Cost</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {buyerBOMCost.items.map((it, idx) => (
+                            <TableRow key={idx} className={!it.has_price ? "bg-amber-50" : ""}>
+                              <TableCell className="font-mono text-xs">{it.rm_id}</TableCell>
+                              <TableCell className="text-xs text-gray-600">{it.rm_name || "-"}</TableCell>
+                              <TableCell className="text-xs text-right">{it.quantity}</TableCell>
+                              <TableCell className="text-xs text-right font-mono">
+                                {it.has_price ? `Rs ${it.avg_price.toLocaleString()}` : <span className="text-amber-600">No price</span>}
+                              </TableCell>
+                              <TableCell className="text-xs text-right font-mono font-medium">
+                                Rs {it.line_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Separator />
               
               {/* Common BOM Section */}

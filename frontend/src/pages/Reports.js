@@ -31,6 +31,11 @@ const Reports = () => {
   const [salesUploading, setSalesUploading] = useState(false);
   const [prodUploading, setProdUploading] = useState(false);
   const [uploadMode, setUploadMode] = useState("append");
+
+  // Margin report state
+  const [marginReport, setMarginReport] = useState(null);
+  const [marginLoading, setMarginLoading] = useState(false);
+  const [marginFilters, setMarginFilters] = useState({ from_month: "", to_month: "" });
   
   // Report data states
   const [dispatchOriginData, setDispatchOriginData] = useState(null);
@@ -119,6 +124,7 @@ const Reports = () => {
     else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
     else if (activeTab === "historical") fetchHistoricalData();
+    else if (activeTab === "margin") fetchMarginReport();
   }, [activeTab]);
 
   const handleRefresh = () => {
@@ -127,6 +133,22 @@ const Reports = () => {
     else if (activeTab === "forecast-actual") fetchForecastVsActualReport();
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
     else if (activeTab === "historical") fetchHistoricalData();
+    else if (activeTab === "margin") fetchMarginReport();
+  };
+
+  const fetchMarginReport = async () => {
+    setMarginLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (marginFilters.from_month) params.append("from_month", marginFilters.from_month);
+      if (marginFilters.to_month) params.append("to_month", marginFilters.to_month);
+      const res = await axios.get(`${API}/rm-prices/margin-report?${params}`);
+      setMarginReport(res.data);
+    } catch (err) {
+      toast.error(`Failed to load margin report: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setMarginLoading(false);
+    }
   };
 
   const fetchHistoricalData = async () => {
@@ -300,7 +322,7 @@ const Reports = () => {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+        <TabsList className="grid grid-cols-6 w-full max-w-4xl">
           <TabsTrigger value="dispatch-origin" className="text-xs">
             <Package className="h-3 w-3 mr-1" />
             Dispatch Origin
@@ -320,6 +342,10 @@ const Reports = () => {
           <TabsTrigger value="historical" className="text-xs" data-testid="historical-tab">
             <FileText className="h-3 w-3 mr-1" />
             Historical Data
+          </TabsTrigger>
+          <TabsTrigger value="margin" className="text-xs" data-testid="margin-tab">
+            <TrendingUp className="h-3 w-3 mr-1" />
+            Margin Report
           </TabsTrigger>
         </TabsList>
 
@@ -868,6 +894,154 @@ const Reports = () => {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Margin Report Tab */}
+        <TabsContent value="margin" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    Margin Report (ASP vs Derived BOM Cost)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Margin % = (Avg ASP − BOM Cost) / Avg ASP × 100. Uses 3-month rolling avg RM prices.
+                  </CardDescription>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div>
+                    <label className="text-xs text-muted-foreground">From (YYYY-MM)</label>
+                    <Input
+                      placeholder="2025-06"
+                      value={marginFilters.from_month}
+                      onChange={(e) => setMarginFilters({ ...marginFilters, from_month: e.target.value })}
+                      className="w-32 h-8 text-xs"
+                      data-testid="margin-from-month"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">To (YYYY-MM)</label>
+                    <Input
+                      placeholder="2025-09"
+                      value={marginFilters.to_month}
+                      onChange={(e) => setMarginFilters({ ...marginFilters, to_month: e.target.value })}
+                      className="w-32 h-8 text-xs"
+                      data-testid="margin-to-month"
+                    />
+                  </div>
+                  <Button size="sm" onClick={fetchMarginReport} disabled={marginLoading} data-testid="margin-apply">
+                    Apply
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => marginReport && exportToExcel(marginReport.items, "margin_report")}
+                    disabled={!marginReport?.items?.length}
+                  >
+                    <Download className="h-4 w-4 mr-1" /> Export
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {marginLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Calculating margins...</div>
+              ) : marginReport ? (
+                <div className="space-y-4">
+                  {/* Totals Row */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="p-3 bg-blue-50 rounded">
+                      <div className="text-xs text-muted-foreground">SKUs</div>
+                      <div className="text-xl font-bold text-blue-700">{marginReport.count}</div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 rounded">
+                      <div className="text-xs text-muted-foreground">Total Revenue</div>
+                      <div className="text-xl font-bold text-emerald-700">
+                        Rs {marginReport.totals?.total_revenue?.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-amber-50 rounded">
+                      <div className="text-xs text-muted-foreground">Total COGS</div>
+                      <div className="text-xl font-bold text-amber-700">
+                        Rs {marginReport.totals?.total_cogs?.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-purple-50 rounded">
+                      <div className="text-xs text-muted-foreground">Gross Profit</div>
+                      <div className="text-xl font-bold text-purple-700">
+                        Rs {marginReport.totals?.gross_profit?.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-indigo-50 rounded">
+                      <div className="text-xs text-muted-foreground">Overall Margin %</div>
+                      <div className="text-xl font-bold text-indigo-700" data-testid="overall-margin-pct">
+                        {marginReport.totals?.overall_margin_pct}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {marginReport.items?.length > 0 ? (
+                    <div className="overflow-x-auto border rounded max-h-[60vh]">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-zinc-50 sticky top-0">
+                            <TableHead className="text-xs">Buyer SKU</TableHead>
+                            <TableHead className="text-xs">Name</TableHead>
+                            <TableHead className="text-xs">Brand</TableHead>
+                            <TableHead className="text-xs">Model</TableHead>
+                            <TableHead className="text-xs text-right">Avg ASP</TableHead>
+                            <TableHead className="text-xs text-right">BOM Cost</TableHead>
+                            <TableHead className="text-xs text-right">Margin</TableHead>
+                            <TableHead className="text-xs text-right">Margin %</TableHead>
+                            <TableHead className="text-xs text-right">Qty Sold</TableHead>
+                            <TableHead className="text-xs text-right">Revenue</TableHead>
+                            <TableHead className="text-xs text-right">Gross Profit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {marginReport.items.map((r, idx) => {
+                            const pctClass = r.margin_pct >= 30 ? "text-emerald-700"
+                              : r.margin_pct >= 10 ? "text-amber-700"
+                              : "text-red-600";
+                            return (
+                              <TableRow key={idx}>
+                                <TableCell className="font-mono text-xs">{r.buyer_sku_id}</TableCell>
+                                <TableCell className="text-xs max-w-[180px] truncate" title={r.buyer_sku_name}>{r.buyer_sku_name}</TableCell>
+                                <TableCell className="text-xs">{r.brand_code}</TableCell>
+                                <TableCell className="text-xs">{r.model_code}</TableCell>
+                                <TableCell className="text-xs text-right font-mono">Rs {r.avg_asp?.toLocaleString()}</TableCell>
+                                <TableCell className="text-xs text-right font-mono">
+                                  {r.bom_cost > 0 ? `Rs ${r.bom_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-amber-600">No price</span>}
+                                  {r.missing_price_count > 0 && r.bom_cost > 0 && (
+                                    <div className="text-[10px] text-amber-600">({r.missing_price_count} RM missing)</div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs text-right font-mono">Rs {r.margin_value?.toLocaleString()}</TableCell>
+                                <TableCell className={`text-xs text-right font-mono font-semibold ${pctClass}`} data-testid={`margin-pct-${r.buyer_sku_id}`}>
+                                  {r.margin_pct}%
+                                </TableCell>
+                                <TableCell className="text-xs text-right">{r.total_qty?.toLocaleString()}</TableCell>
+                                <TableCell className="text-xs text-right font-mono text-emerald-700">Rs {r.total_revenue?.toLocaleString()}</TableCell>
+                                <TableCell className="text-xs text-right font-mono text-purple-700">Rs {r.gross_profit?.toLocaleString()}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground py-6">
+                      No margin data. Upload Historical Sales + RM Prices to populate this report.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">Click Apply to load margin data.</div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

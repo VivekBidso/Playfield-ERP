@@ -51,6 +51,7 @@ from routes.rm_production_routes import router as rm_production_router
 from routes.inventory_routes import router as inventory_router
 from routes.admin_db_routes import router as admin_db_router
 from routes.historical_routes import router as historical_router
+from routes.rm_price_routes import router as rm_price_router
 
 # Include all routers
 api_router.include_router(auth_router)
@@ -78,6 +79,7 @@ api_router.include_router(rm_production_router)
 api_router.include_router(inventory_router)
 api_router.include_router(admin_db_router)
 api_router.include_router(historical_router)
+api_router.include_router(rm_price_router)
 
 # Register main router
 app.include_router(api_router)
