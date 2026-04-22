@@ -503,6 +503,29 @@ async def create_rm_inward_bill(
         response["zoho_bill_id"] = zoho_result.get("zoho_bill_id")
         response["zoho_message"] = "Bill also created in Zoho Books"
     
+    # Emit event
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.RM_INWARD_RECEIVED,
+            {
+                "bill_id": bill_id,
+                "bill_number": input.bill_number,
+                "vendor_id": input.vendor_id,
+                "vendor_name": input.vendor_name,
+                "branch": input.branch,
+                "branch_id": input.branch_id,
+                "line_item_count": len(input.line_items),
+                "rm_ids": [it.get("rm_id") for it in input.line_items],
+                "total_quantity": sum(float(it.get("quantity", 0)) for it in input.line_items),
+                "grand_total": input.totals.get("grand_total", 0),
+                "zoho_synced": zoho_result is not None,
+            },
+            source_module="rm_inward",
+        )
+    except Exception as e:
+        logger.warning(f"Event publish failed (RM_INWARD_RECEIVED): {e}")
+
     return response
 
 

@@ -617,6 +617,26 @@ async def create_ibt_transfer(data: IBTCreate):
     await db.ibt_transfers.insert_one(transfer)
     del transfer["_id"]
     
+    # Emit event
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.IBT_REQUESTED,
+            {
+                "transfer_id": transfer["id"],
+                "transfer_code": transfer_code,
+                "transfer_type": data.transfer_type,
+                "source_branch": data.source_branch,
+                "destination_branch": data.destination_branch,
+                "item_count": len(validated_items),
+                "total_quantity": total_quantity,
+            },
+            source_module="procurement",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Event publish failed (IBT_REQUESTED): {e}")
+
     return {
         "message": f"IBT {transfer_code} created with {len(validated_items)} item(s)",
         "transfer": serialize_doc(transfer)
@@ -766,6 +786,27 @@ async def dispatch_ibt_transfer(
         {"$set": update_data}
     )
     
+    # Emit event
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.IBT_SHIPPED,
+            {
+                "transfer_id": transfer_id,
+                "transfer_code": transfer.get("transfer_code"),
+                "transfer_type": transfer.get("transfer_type"),
+                "source_branch": transfer.get("source_branch"),
+                "destination_branch": transfer.get("destination_branch"),
+                "item_count": len(items),
+                "total_dispatched": total_dispatched,
+                "vehicle_number": vehicle_number,
+            },
+            source_module="procurement",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Event publish failed (IBT_SHIPPED): {e}")
+
     return {
         "message": f"Transfer {transfer.get('transfer_code')} dispatched with {len(items)} item(s)",
         "dispatched_quantity": total_dispatched,
@@ -945,6 +986,30 @@ async def receive_ibt_transfer(transfer_id: str, data: IBTReceiveRequest):
         result["shortage_records"] = len(shortage_records)
         result["shortage_status"] = "PENDING_INVESTIGATION"
     
+    # Emit event
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.IBT_COMPLETED,
+            {
+                "transfer_id": transfer_id,
+                "transfer_code": transfer.get("transfer_code"),
+                "transfer_type": transfer.get("transfer_type"),
+                "source_branch": transfer.get("source_branch"),
+                "destination_branch": transfer.get("destination_branch"),
+                "item_count": len(updated_items),
+                "total_dispatched": total_dispatched,
+                "total_received": total_received,
+                "total_variance": total_variance,
+                "has_shortage": bool(shortage_records),
+                "shortage_count": len(shortage_records),
+            },
+            source_module="procurement",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Event publish failed (IBT_COMPLETED): {e}")
+
     return result
 
 

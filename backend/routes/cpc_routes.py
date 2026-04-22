@@ -1082,6 +1082,26 @@ async def complete_production_schedule(schedule_id: str, completed_quantity: int
             {"$set": {"status": "FULLY_PRODUCED"}}
         )
     
+    # Emit event
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.SCHEDULE_COMPLETED,
+            {
+                "schedule_id": schedule_id,
+                "schedule_code": schedule.get("schedule_code"),
+                "sku_id": sku_id,
+                "branch": branch,
+                "branch_id": branch_id,
+                "completed_quantity": completed_quantity,
+                "dispatch_lot_id": schedule.get("dispatch_lot_id"),
+                "fg_inventory_updated": fg_updated,
+            },
+            source_module="cpc",
+        )
+    except Exception as e:
+        logger.warning(f"Event publish failed (SCHEDULE_COMPLETED): {e}")
+
     return {
         "message": f"Production schedule {schedule.get('schedule_code')} completed with {completed_quantity} units",
         "schedule_id": schedule_id,
@@ -2722,6 +2742,29 @@ async def upload_production_plan_excel(
     total_allocated = sum(r["allocated"] for r in row_results)
     total_not_allocated = sum(r["not_allocated"] for r in row_results)
     
+    # Emit event for the upload (summary level)
+    try:
+        from services.event_system import event_bus, EventType
+        await event_bus.publish(
+            EventType.SCHEDULE_UPLOAD,
+            {
+                "upload_id": upload_id,
+                "mode": mode,
+                "total_rows": len(df),
+                "scheduled": scheduled_count,
+                "partial": partial_count,
+                "rejected": rejected_count,
+                "errors": error_count,
+                "total_allocated": total_allocated,
+                "total_not_allocated": total_not_allocated,
+                "schedules_created": created_count,
+            },
+            source_module="cpc",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Event publish failed (SCHEDULE_UPLOAD): {e}")
+
     # Return file as StreamingResponse
     return StreamingResponse(
         output,
