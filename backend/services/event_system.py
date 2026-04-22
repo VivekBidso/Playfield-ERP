@@ -392,25 +392,40 @@ async def handle_dispatch_shipped(event: Event):
 
 async def handle_ibt_completed(event: Event):
     """When IBT is completed, log the transfer"""
-    transfer_id = event.payload.get("transfer_id")
-    from_branch = event.payload.get("from_branch")
-    to_branch = event.payload.get("to_branch")
-    rm_id = event.payload.get("rm_id")
-    quantity = event.payload.get("quantity")
-    
-    logger.info(f"IBT Completed: {quantity} units of {rm_id} from {from_branch} to {to_branch}")
-    
+    p = event.payload
+    transfer_id = p.get("transfer_id")
+    transfer_code = p.get("transfer_code")
+    transfer_type = p.get("transfer_type")
+    source_branch = p.get("source_branch")
+    destination_branch = p.get("destination_branch")
+    item_count = p.get("item_count", 0)
+    total_dispatched = p.get("total_dispatched", 0)
+    total_received = p.get("total_received", 0)
+    total_variance = p.get("total_variance", 0)
+    has_shortage = p.get("has_shortage", False)
+
+    logger.info(
+        f"IBT Completed: {transfer_code} ({transfer_type}) "
+        f"{source_branch} → {destination_branch} | {item_count} item(s) | "
+        f"dispatched={total_dispatched}, received={total_received}, variance={total_variance}"
+    )
+
     # Create audit log
     await db.audit_logs.insert_one({
         "id": str(uuid.uuid4()),
         "entity_type": "IBT",
         "entity_id": transfer_id,
+        "reference_code": transfer_code,
         "action": "COMPLETED",
         "changes": {
-            "from_branch": from_branch,
-            "to_branch": to_branch,
-            "rm_id": rm_id,
-            "quantity": quantity
+            "transfer_type": transfer_type,
+            "source_branch": source_branch,
+            "destination_branch": destination_branch,
+            "item_count": item_count,
+            "total_dispatched": total_dispatched,
+            "total_received": total_received,
+            "total_variance": total_variance,
+            "has_shortage": has_shortage,
         },
         "created_at": datetime.now(timezone.utc).isoformat()
     })
