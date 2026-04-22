@@ -276,14 +276,17 @@ const RMRepository = () => {
       summaryWs['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
       
-      // Define columns to export
-      const columns = [
+      // Common columns that appear on every category sheet
+      const commonColumns = [
         { key: 'rm_id', header: 'RM ID' },
         { key: 'description', header: 'Description' },
-        { key: 'category', header: 'Category' },
         { key: 'source_type', header: 'Source Type' },
-        { key: 'bom_level', header: 'BOM Level' },
         { key: 'uom', header: 'UOM' },
+        { key: 'dual_uom', header: 'Dual UOM' },
+        { key: 'procurement_uom', header: 'Procurement UOM' },
+        { key: 'consumption_uom', header: 'Consumption UOM' },
+        { key: 'conversion_factor', header: 'Conversion Factor' },
+        { key: 'low_stock_threshold', header: 'Low Stock Threshold' },
         { key: 'hsn_code', header: 'HSN Code' },
         { key: 'gst_rate', header: 'GST Rate (%)' },
         { key: 'min_order_qty', header: 'Min Order Qty' },
@@ -292,22 +295,46 @@ const RMRepository = () => {
         { key: 'created_at', header: 'Created At' }
       ];
       
-      // Create a sheet for each category
+      // Create a sheet for each category with its specific schema columns
       Object.entries(categorizedRMs).sort((a, b) => a[0].localeCompare(b[0])).forEach(([category, rms]) => {
+        const catConfig = rmCategories[category] || {};
+        const descCols = catConfig.description_columns || [];
+        
+        // Category-specific columns (from rm_categories.description_columns)
+        const catSpecificColumns = descCols
+          .slice()
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .map(col => ({
+            key: `category_data.${col.key}`,
+            header: col.label || col.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+          }));
+        
+        // Merge: common + cat-specific
+        const columns = [...commonColumns, ...catSpecificColumns];
+        
         const sheetData = rms.map(rm => {
           const row = {};
           columns.forEach(col => {
-            let value = rm[col.key];
+            let value;
+            if (col.key.startsWith('category_data.')) {
+              const innerKey = col.key.split('.')[1];
+              value = rm.category_data?.[innerKey];
+            } else {
+              value = rm[col.key];
+            }
             if (col.key === 'created_at' && value) {
               try { value = new Date(value).toLocaleDateString(); } catch(e) { /* keep raw */ }
             }
+            if (typeof value === 'boolean') value = value ? 'Yes' : 'No';
             row[col.header] = value ?? '';
           });
           return row;
         });
         
-        const ws = XLSX.utils.json_to_sheet(sheetData);
-        ws['!cols'] = columns.map(() => ({ wch: 15 }));
+        const ws = XLSX.utils.json_to_sheet(sheetData, {
+          header: columns.map(c => c.header)
+        });
+        ws['!cols'] = columns.map(c => ({ wch: Math.max(14, c.header.length + 2) }));
         
         // Sheet name: max 31 chars, no special chars
         const catName = getCategoryName(category, rmCategories);
