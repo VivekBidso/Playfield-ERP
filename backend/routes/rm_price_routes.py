@@ -276,7 +276,7 @@ async def download_rm_price_template():
         "Required columns (first row is header):",
         "  - Date: Invoice/Purchase date (YYYY-MM-DD, DD-MM-YYYY, or Excel date)",
         "  - Invoice No: Unique invoice number from vendor",
-        "  - Vendor ID: Existing Vendor ID in the system (e.g., VND001)",
+        "  - Vendor ID: Existing Vendor ID in the system (see 'Vendors' tab)",
         "  - RM ID: Existing Raw Material ID (e.g., INP_1001)",
         "  - Price: Price PER UNIT (numeric, > 0)",
         "",
@@ -289,6 +289,21 @@ async def download_rm_price_template():
     for i, line in enumerate(lines, 1):
         ws_info.cell(row=i, column=1, value=line)
     ws_info.column_dimensions["A"].width = 90
+
+    # Vendors reference tab
+    ws_vendors = wb.create_sheet("Vendors")
+    ws_vendors.cell(row=1, column=1, value="Vendor ID").font = Font(bold=True)
+    ws_vendors.cell(row=1, column=2, value="Vendor Name").font = Font(bold=True)
+    ws_vendors.cell(row=1, column=1).fill = header_fill
+    ws_vendors.cell(row=1, column=2).fill = header_fill
+    ws_vendors.cell(row=1, column=1).font = header_font
+    ws_vendors.cell(row=1, column=2).font = header_font
+    vendors = await db.vendors.find({}, {"_id": 0, "vendor_id": 1, "name": 1}).sort("vendor_id", 1).to_list(5000)
+    for idx, v in enumerate(vendors, 2):
+        ws_vendors.cell(row=idx, column=1, value=v.get("vendor_id", ""))
+        ws_vendors.cell(row=idx, column=2, value=v.get("name", ""))
+    ws_vendors.column_dimensions["A"].width = 16
+    ws_vendors.column_dimensions["B"].width = 50
 
     out = io.BytesIO()
     wb.save(out)

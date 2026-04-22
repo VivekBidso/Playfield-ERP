@@ -220,18 +220,44 @@ const Reports = () => {
     e.target.value = "";
   };
 
-  const downloadTemplate = (type) => {
+  const downloadTemplate = async (type) => {
     const wb = XLSX.utils.book_new();
     if (type === "sales") {
       const data = [["Buyer SKU", "Customer ID", "Qty", "Month", "ASP"], ["EL_KS_BE_001", "ABC Toys", 500, "Jun 2025", 1200], ["EL_KS_BE_001", "XYZ Corp", 300, "Jun 2025", 1150]];
       const ws = XLSX.utils.aoa_to_sheet(data);
       ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws, "Historical Sales");
+
+      // Customer reference tab
+      try {
+        const res = await axios.get(`${API}/buyers`);
+        const customers = res.data || [];
+        const custRows = [["Customer ID", "Customer Name"]];
+        customers.forEach(c => custRows.push([c.customer_code || c.code || c.id || "", c.name || ""]));
+        const wsCust = XLSX.utils.aoa_to_sheet(custRows);
+        wsCust['!cols'] = [{ wch: 16 }, { wch: 40 }];
+        XLSX.utils.book_append_sheet(wb, wsCust, "Customers");
+      } catch (err) {
+        console.error("Failed to fetch customers for template", err);
+      }
     } else {
       const data = [["Buyer SKU", "Branch ID", "Qty", "Month"], ["EL_KS_BE_001", "Unit 1 Vedica", 800, "Jun 2025"], ["EL_KS_BE_001", "Unit 4 Goa", 200, "Jun 2025"]];
       const ws = XLSX.utils.aoa_to_sheet(data);
       ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, ws, "Historical Production");
+
+      // Branch reference tab
+      try {
+        const res = await axios.get(`${API}/branches`);
+        const branches = res.data || [];
+        const bRows = [["Branch ID", "Branch Name"]];
+        branches.forEach(b => bRows.push([b.branch_id || b.id || "", b.name || ""]));
+        const wsB = XLSX.utils.aoa_to_sheet(bRows);
+        wsB['!cols'] = [{ wch: 18 }, { wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, wsB, "Branches");
+      } catch (err) {
+        console.error("Failed to fetch branches for template", err);
+      }
     }
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
