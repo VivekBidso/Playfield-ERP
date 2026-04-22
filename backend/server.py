@@ -114,7 +114,7 @@ async def startup_event():
     
     # Define all test users that should exist
     TEST_USERS = [
-        {"email": "admin@factory.com", "name": "Master Admin", "role": "master_admin", "password": "admin123"},
+        {"email": "admin@factory.com", "name": "Master Admin", "role": "master_admin", "password": "bidso123"},
         {"email": "masteradmin@bidso.com", "name": "Master Admin", "role": "master_admin", "password": "bidso123"},
         {"email": "demandplanner@bidso.com", "name": "Test Demand Planner", "role": "demand_planner", "password": "bidso123", "branches": ["Unit 1 Vedica", "Unit 2 Trikes"]},
         {"email": "techops@bidso.com", "name": "Tech Ops Engineer", "role": "tech_ops_engineer", "password": "bidso123"},
