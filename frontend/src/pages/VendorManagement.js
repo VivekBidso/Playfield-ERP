@@ -346,6 +346,30 @@ const VendorManagement = () => {
     toast.success("Exported to Excel");
   };
 
+  const exportVendorRMPrices = async () => {
+    try {
+      const response = await axios.get(`${API}/vendor-rm-prices/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(response.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vendor_rm_prices_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Vendor × RM price mappings exported");
+    } catch (error) {
+      if (error.response?.status === 404) {
+        toast.error("No vendor-RM price mappings exist yet");
+      } else {
+        toast.error(error.response?.data?.detail || "Export failed");
+      }
+    }
+  };
+
   const filteredComparison = comparisonReport.filter(r =>
     r.rm_id.toLowerCase().includes(rmSearchQuery.toLowerCase()) ||
     r.rm_category?.toLowerCase().includes(rmSearchQuery.toLowerCase())
@@ -373,6 +397,14 @@ const VendorManagement = () => {
           </Button>
           <Button variant="secondary" onClick={exportVendors} className="uppercase text-xs">
             <Download className="w-4 h-4 mr-2" /> Export
+          </Button>
+          <Button 
+            variant="secondary" 
+            onClick={exportVendorRMPrices} 
+            className="uppercase text-xs"
+            data-testid="export-vendor-rm-prices"
+          >
+            <Download className="w-4 h-4 mr-2" /> Export Prices
           </Button>
           <input 
             type="file" 

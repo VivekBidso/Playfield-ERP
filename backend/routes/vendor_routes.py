@@ -268,6 +268,92 @@ async def delete_vendor_rm_price(price_id: str):
     return {"message": "Price deleted"}
 
 
+@router.get("/vendor-rm-prices/export")
+async def export_vendor_rm_prices():
+    """Export all Vendor × RM price mappings as Excel.
+
+    Columns: Vendor ID | Vendor Name | RM ID | RM Description | Price | Currency | Last Invoice Date
+    Last Invoice Date is derived from rm_prices_history (most recent invoice for that vendor+rm pair).
+    """
+    prices = await db.vendor_rm_prices.find({}, {"_id": 0}).sort("vendor_id", 1).to_list(100000)
+    if not prices:
+        raise HTTPException(status_code=404, detail="No vendor-RM price mappings exist")
+
+    # Pre-load vendor and RM lookups
+    vendor_docs = await db.vendors.find(
+        {}, {"_id": 0, "vendor_id": 1, "name": 1}
+    ).to_list(10000)
+    vendor_map = {v["vendor_id"]: v.get("name", "") for v in vendor_docs}
+
+    rm_ids = list({p["rm_id"] for p in prices if p.get("rm_id")})
+    rm_docs = await db.raw_materials.find(
+        {"rm_id": {"$in": rm_ids}},
+        {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1}
+    ).to_list(len(rm_ids) or 1)
+    rm_map = {r["rm_id"]: r for r in rm_docs}
+
+    # Last-invoice date per (vendor_id, rm_id) from rm_prices_history
+    pipeline = [
+        {"$group": {
+            "_id": {"vendor_id": "$vendor_id", "rm_id": "$rm_id"},
+            "last_date": {"$max": "$date"},
+        }}
+    ]
+    last_invoice_map = {}
+    async for row in db.rm_prices_history.aggregate(pipeline):
+        key = (row["_id"].get("vendor_id"), row["_id"].get("rm_id"))
+        last_invoice_map[key] = row.get("last_date")
+
+    # Build workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Vendor RM Prices"
+
+    headers = ["Vendor ID", "Vendor Name", "RM ID", "RM Description", "Price", "Currency", "Last Invoice Date"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for idx, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=idx, value=h)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center")
+
+    for r_idx, p in enumerate(prices, start=2):
+        vendor_id = p.get("vendor_id", "")
+        rm_id = p.get("rm_id", "")
+        rm_info = rm_map.get(rm_id, {})
+        description = rm_info.get("description") or rm_info.get("name") or ""
+        last_inv = last_invoice_map.get((vendor_id, rm_id))
+        last_inv_str = ""
+        if last_inv:
+            try:
+                last_inv_str = last_inv.strftime("%Y-%m-%d") if hasattr(last_inv, "strftime") else str(last_inv)[:10]
+            except Exception:
+                last_inv_str = str(last_inv)[:10]
+
+        ws.cell(row=r_idx, column=1, value=vendor_id)
+        ws.cell(row=r_idx, column=2, value=vendor_map.get(vendor_id, ""))
+        ws.cell(row=r_idx, column=3, value=rm_id)
+        ws.cell(row=r_idx, column=4, value=description)
+        ws.cell(row=r_idx, column=5, value=p.get("price", 0))
+        ws.cell(row=r_idx, column=6, value=p.get("currency", "INR"))
+        ws.cell(row=r_idx, column=7, value=last_inv_str)
+
+    for col_letter, width in zip("ABCDEFG", [12, 38, 14, 46, 12, 10, 16]):
+        ws.column_dimensions[col_letter].width = width
+    ws.freeze_panes = "A2"
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    filename = f"vendor_rm_prices_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ============ Bulk Upload: Vendor Master ============
 
 @router.post("/vendors/bulk-upload")
