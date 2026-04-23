@@ -1,9 +1,15 @@
 """Vendor routes - Vendor management, pricing, purchase entries"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import uuid
+import io
+import re
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 
 from database import db
 from models import User, Vendor, VendorCreate, VendorRMPrice, VendorRMPriceCreate, PurchaseEntry, PurchaseEntryCreate
@@ -260,6 +266,323 @@ async def delete_vendor_rm_price(price_id: str):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Price not found")
     return {"message": "Price deleted"}
+
+
+# ============ Bulk Upload: Vendor Master ============
+
+@router.post("/vendors/bulk-upload")
+async def bulk_upload_vendors(file: UploadFile = File(...)):
+    """Bulk upload vendors from Excel. Columns: Name, GST, Address, POC, Email, Phone.
+    Skips vendors that already exist by name (case-insensitive)."""
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+
+    contents = await file.read()
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(contents), read_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel: {e}")
+    sheet = workbook.active
+
+    headers = [str(cell.value).strip().lower() if cell.value else "" for cell in sheet[1]]
+    header_map = {
+        'name': 'name', 'vendor name': 'name',
+        'gst': 'gst', 'gstin': 'gst', 'gst number': 'gst',
+        'address': 'address',
+        'poc': 'poc', 'point of contact': 'poc', 'contact person': 'poc',
+        'email': 'email', 'email address': 'email',
+        'phone': 'phone', 'phone number': 'phone', 'mobile': 'phone',
+    }
+    field_indices = {}
+    for i, h in enumerate(headers):
+        if h in header_map:
+            field_indices[header_map[h]] = i
+
+    if 'name' not in field_indices:
+        raise HTTPException(status_code=400, detail="'Name' column is required")
+
+    created = 0
+    skipped = 0
+    errors: List[str] = []
+
+    for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+        try:
+            name = row[field_indices['name']] if field_indices.get('name') is not None else None
+            if not name:
+                continue
+            name = str(name).strip()
+
+            existing = await db.vendors.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
+            if existing:
+                skipped += 1
+                continue
+
+            vendor_data = {'name': name}
+            for field in ['gst', 'address', 'poc', 'email', 'phone']:
+                i = field_indices.get(field)
+                if i is not None and row[i]:
+                    vendor_data[field] = str(row[i]).strip()
+
+            vendor_id = await get_next_vendor_id()
+            vendor = Vendor(**vendor_data, vendor_id=vendor_id)
+            doc = vendor.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.vendors.insert_one(doc)
+            created += 1
+        except Exception as e:
+            errors.append(f"Row {idx}: {e}")
+
+    return {"created": created, "skipped": skipped, "errors": errors[:20], "total_errors": len(errors)}
+
+
+# ============ Bulk Upload: Vendor RM Prices ============
+
+@router.get("/vendor-rm-prices/template")
+async def download_vendor_rm_price_template():
+    """Excel template with Vendors and RM IDs reference tabs for bulk price upload."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Vendor RM Prices"
+
+    headers = ["Vendor ID", "RM ID", "Price", "Currency", "Min Order Qty", "Lead Time Days", "Notes"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for idx, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=idx, value=h)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center")
+
+    samples = [
+        ["VND_001", "INP_1001", 125.50, "INR", 100, 7, "Preferred vendor"],
+        ["VND_002", "INP_1001", 128.00, "INR", 50, 10, ""],
+        ["VND_001", "ACC_001", 42.75, "INR", 500, 5, ""],
+    ]
+    for r, row in enumerate(samples, 2):
+        for cidx, val in enumerate(row, 1):
+            ws.cell(row=r, column=cidx, value=val)
+    for col_letter, width in zip("ABCDEFG", [14, 14, 10, 10, 14, 14, 30]):
+        ws.column_dimensions[col_letter].width = width
+
+    ws_info = wb.create_sheet("Instructions")
+    lines = [
+        "Vendor RM Price Bulk Upload",
+        "",
+        "Required columns (first row is header):",
+        "  - Vendor ID: Existing Vendor ID (see 'Vendors' tab)",
+        "  - RM ID: Existing Raw Material ID (see 'RM IDs' tab)",
+        "  - Price: Numeric (> 0), price per unit",
+        "",
+        "Optional columns:",
+        "  - Currency: INR (default) / USD",
+        "  - Min Order Qty: integer (default 1)",
+        "  - Lead Time Days: integer (default 7)",
+        "  - Notes: free text",
+        "",
+        "Modes (upload parameter):",
+        "  - upsert: update existing vendor+RM pair, or insert new (DEFAULT)",
+        "  - replace-vendor: wipe ALL existing prices for each Vendor ID in the file first, then insert",
+        "",
+        "Rows with unknown Vendor ID or RM ID are rejected with an error.",
+    ]
+    for i, line in enumerate(lines, 1):
+        ws_info.cell(row=i, column=1, value=line)
+    ws_info.column_dimensions["A"].width = 90
+
+    # Vendors reference tab
+    ws_v = wb.create_sheet("Vendors")
+    ws_v.cell(row=1, column=1, value="Vendor ID").font = Font(bold=True)
+    ws_v.cell(row=1, column=2, value="Vendor Name").font = Font(bold=True)
+    ws_v.cell(row=1, column=1).fill = header_fill
+    ws_v.cell(row=1, column=2).fill = header_fill
+    ws_v.cell(row=1, column=1).font = header_font
+    ws_v.cell(row=1, column=2).font = header_font
+    vendors = await db.vendors.find({}, {"_id": 0, "vendor_id": 1, "name": 1}).sort("vendor_id", 1).to_list(5000)
+    for idx, v in enumerate(vendors, 2):
+        ws_v.cell(row=idx, column=1, value=v.get("vendor_id", ""))
+        ws_v.cell(row=idx, column=2, value=v.get("name", ""))
+    ws_v.column_dimensions["A"].width = 16
+    ws_v.column_dimensions["B"].width = 50
+
+    # RM IDs reference tab
+    ws_rm = wb.create_sheet("RM IDs")
+    for i, h in enumerate(["RM ID", "Category", "Description"], 1):
+        c = ws_rm.cell(row=1, column=i, value=h)
+        c.fill = header_fill
+        c.font = header_font
+    rms = await db.raw_materials.find(
+        {"status": {"$ne": "INACTIVE"}},
+        {"_id": 0, "rm_id": 1, "category": 1, "description": 1}
+    ).sort("rm_id", 1).to_list(20000)
+    for idx, rm in enumerate(rms, 2):
+        ws_rm.cell(row=idx, column=1, value=rm.get("rm_id", ""))
+        ws_rm.cell(row=idx, column=2, value=rm.get("category", ""))
+        ws_rm.cell(row=idx, column=3, value=rm.get("description", ""))
+    ws_rm.column_dimensions["A"].width = 16
+    ws_rm.column_dimensions["B"].width = 12
+    ws_rm.column_dimensions["C"].width = 50
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=vendor_rm_prices_template.xlsx"},
+    )
+
+
+@router.post("/vendor-rm-prices/bulk-upload")
+async def bulk_upload_vendor_rm_prices(
+    file: UploadFile = File(...),
+    mode: str = Query("upsert", description="'upsert' or 'replace-vendor'"),
+):
+    """Bulk upload Vendor-RM-Price mappings.
+
+    Columns (header row 1): Vendor ID | RM ID | Price | Currency | Min Order Qty | Lead Time Days | Notes
+    Unknown Vendor IDs and RM IDs are rejected per row.
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+
+    contents = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel: {e}")
+    sheet = wb.active
+
+    headers_raw = [str(c.value or "").strip().lower() for c in sheet[1]]
+    col = {}
+    for idx, h in enumerate(headers_raw):
+        if h in ("vendor id", "vendor_id"):
+            col["vendor_id"] = idx
+        elif h in ("rm id", "rm_id"):
+            col["rm_id"] = idx
+        elif h == "price":
+            col["price"] = idx
+        elif h == "currency":
+            col["currency"] = idx
+        elif h in ("min order qty", "min_order_qty"):
+            col["min_order_qty"] = idx
+        elif h in ("lead time days", "lead_time_days"):
+            col["lead_time_days"] = idx
+        elif h == "notes":
+            col["notes"] = idx
+
+    required = ["vendor_id", "rm_id", "price"]
+    missing = [k for k in required if k not in col]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing columns: {missing}. Found: {headers_raw}")
+
+    # Pre-load valid vendor and rm IDs for validation speed
+    vendor_ids = set(await db.vendors.distinct("vendor_id"))
+    rm_ids_known = set(await db.raw_materials.distinct("rm_id"))
+
+    # Collect rows
+    valid_rows = []
+    errors: List[str] = []
+    vendors_in_file: set = set()
+
+    for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+        if not any(row):
+            continue
+        try:
+            vendor_id = str(row[col["vendor_id"]] or "").strip()
+            rm_id = str(row[col["rm_id"]] or "").strip()
+            price_raw = row[col["price"]]
+
+            if not vendor_id or not rm_id:
+                errors.append(f"Row {idx}: Missing Vendor ID or RM ID")
+                continue
+            if vendor_id not in vendor_ids:
+                errors.append(f"Row {idx}: Vendor '{vendor_id}' not found")
+                continue
+            if rm_id not in rm_ids_known:
+                errors.append(f"Row {idx}: RM '{rm_id}' not found")
+                continue
+            try:
+                price = float(price_raw)
+            except (TypeError, ValueError):
+                errors.append(f"Row {idx}: Invalid price '{price_raw}'")
+                continue
+            if price <= 0:
+                errors.append(f"Row {idx}: Price must be > 0")
+                continue
+
+            currency = (str(row[col["currency"]]).strip() if "currency" in col and row[col["currency"]] else "INR")
+            try:
+                moq = int(row[col["min_order_qty"]]) if "min_order_qty" in col and row[col["min_order_qty"]] else 1
+            except (TypeError, ValueError):
+                moq = 1
+            try:
+                lead = int(row[col["lead_time_days"]]) if "lead_time_days" in col and row[col["lead_time_days"]] else 7
+            except (TypeError, ValueError):
+                lead = 7
+            notes = str(row[col["notes"]]).strip() if "notes" in col and row[col["notes"]] else ""
+
+            valid_rows.append({
+                "vendor_id": vendor_id,
+                "rm_id": rm_id,
+                "price": round(price, 4),
+                "currency": currency,
+                "min_order_qty": moq,
+                "lead_time_days": lead,
+                "notes": notes,
+            })
+            vendors_in_file.add(vendor_id)
+        except Exception as e:
+            errors.append(f"Row {idx}: {e}")
+
+    # Replace-vendor mode wipes all existing prices for vendors in the file
+    deleted = 0
+    if mode == "replace-vendor" and vendors_in_file:
+        res = await db.vendor_rm_prices.delete_many({"vendor_id": {"$in": list(vendors_in_file)}})
+        deleted = res.deleted_count
+
+    # Upsert each row
+    now_iso = datetime.now(timezone.utc).isoformat()
+    created = 0
+    updated = 0
+    for r in valid_rows:
+        existing = await db.vendor_rm_prices.find_one(
+            {"vendor_id": r["vendor_id"], "rm_id": r["rm_id"]},
+            {"_id": 0, "id": 1}
+        )
+        if existing and mode != "replace-vendor":
+            await db.vendor_rm_prices.update_one(
+                {"id": existing["id"]},
+                {"$set": {
+                    "price": r["price"],
+                    "currency": r["currency"],
+                    "min_order_qty": r["min_order_qty"],
+                    "lead_time_days": r["lead_time_days"],
+                    "notes": r["notes"],
+                    "updated_at": now_iso,
+                }}
+            )
+            updated += 1
+        else:
+            doc = {
+                "id": str(uuid.uuid4()),
+                **r,
+                "is_active": True,
+                "updated_at": now_iso,
+                "effective_date": now_iso,
+            }
+            await db.vendor_rm_prices.insert_one(doc)
+            created += 1
+
+    return {
+        "message": f"Processed {len(valid_rows)} rows",
+        "created": created,
+        "updated": updated,
+        "deleted_previous": deleted,
+        "vendors_in_file": len(vendors_in_file),
+        "errors": errors[:50],
+        "error_count": len(errors),
+        "mode": mode,
+    }
 
 
 # ============ Purchase Entries (RM Inward) ============

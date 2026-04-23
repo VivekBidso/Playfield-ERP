@@ -28,6 +28,7 @@ const VendorManagement = () => {
   const [loading, setLoading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const fileInputRef = useRef(null);
+  const priceFileInputRef = useRef(null);
   
   const [showAddVendorDialog, setShowAddVendorDialog] = useState(false);
   const [showAddPriceDialog, setShowAddPriceDialog] = useState(false);
@@ -277,6 +278,45 @@ const VendorManagement = () => {
     }
   };
 
+  const handlePriceBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setLoading(true);
+    try {
+      const response = await axios.post(`${API}/vendor-rm-prices/bulk-upload?mode=upsert`, formData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUploadResult({
+        created: response.data.created,
+        skipped: response.data.updated,
+        total_errors: response.data.error_count,
+        errors: response.data.errors,
+        _type: 'price',
+      });
+      if (response.data.created + response.data.updated > 0) {
+        toast.success(`${response.data.created} new, ${response.data.updated} updated price records`);
+      }
+      if (response.data.error_count > 0) {
+        toast.error(`${response.data.error_count} rows had errors — see Last Upload Result`);
+      }
+      if (selectedVendor) fetchVendorDetails(selectedVendor.vendor_id);
+      fetchComparisonReport();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Price upload failed");
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const downloadPriceTemplate = () => {
+    window.open(`${API}/vendor-rm-prices/template`, '_blank');
+  };
+
   const downloadVendorTemplate = () => {
     const ws = XLSX.utils.aoa_to_sheet([
       ['Name', 'GST', 'Address', 'POC', 'Email', 'Phone'],
@@ -324,9 +364,12 @@ const VendorManagement = () => {
             Manage vendors and RM pricing • {vendors.length} vendors
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="secondary" onClick={downloadVendorTemplate} className="uppercase text-xs">
-            <Download className="w-4 h-4 mr-2" /> Template
+            <Download className="w-4 h-4 mr-2" /> Vendor Template
+          </Button>
+          <Button variant="secondary" onClick={downloadPriceTemplate} className="uppercase text-xs" data-testid="download-price-template">
+            <Download className="w-4 h-4 mr-2" /> Price Template
           </Button>
           <Button variant="secondary" onClick={exportVendors} className="uppercase text-xs">
             <Download className="w-4 h-4 mr-2" /> Export
@@ -338,25 +381,51 @@ const VendorManagement = () => {
             accept=".xlsx,.xls"
             className="hidden"
           />
+          <input
+            type="file"
+            ref={priceFileInputRef}
+            onChange={handlePriceBulkUpload}
+            accept=".xlsx,.xls"
+            className="hidden"
+          />
           <Button 
             onClick={() => fileInputRef.current.click()}
             disabled={loading}
             className="uppercase text-xs"
+            variant="outline"
           >
-            <Upload className="w-4 h-4 mr-2" /> Bulk Upload
+            <Upload className="w-4 h-4 mr-2" /> Bulk Upload Vendors
+          </Button>
+          <Button 
+            onClick={() => priceFileInputRef.current.click()}
+            disabled={loading}
+            className="uppercase text-xs"
+            data-testid="bulk-upload-prices-btn"
+          >
+            <Upload className="w-4 h-4 mr-2" /> Bulk Upload Prices
           </Button>
         </div>
       </div>
 
       {/* Upload Result */}
       {uploadResult && (
-        <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-sm">
-          <h3 className="font-bold text-sm mb-2">Last Upload Result</h3>
+        <div className="mb-6 p-4 bg-zinc-50 border border-zinc-200 rounded-sm" data-testid="upload-result">
+          <h3 className="font-bold text-sm mb-2">
+            Last Upload Result {uploadResult._type === 'price' ? '(Vendor RM Prices)' : '(Vendors)'}
+          </h3>
           <div className="grid grid-cols-3 gap-4 text-sm font-mono">
-            <div><span className="text-green-600 font-bold">{uploadResult.created}</span> created</div>
-            <div><span className="text-yellow-600 font-bold">{uploadResult.skipped}</span> skipped</div>
+            <div><span className="text-green-600 font-bold">{uploadResult.created}</span> {uploadResult._type === 'price' ? 'new' : 'created'}</div>
+            <div><span className="text-yellow-600 font-bold">{uploadResult.skipped}</span> {uploadResult._type === 'price' ? 'updated' : 'skipped'}</div>
             <div><span className="text-red-600 font-bold">{uploadResult.total_errors}</span> errors</div>
           </div>
+          {uploadResult.errors && uploadResult.errors.length > 0 && (
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer text-red-600 font-medium">View first {uploadResult.errors.length} errors</summary>
+              <ul className="mt-2 space-y-0.5 font-mono text-red-700 max-h-40 overflow-y-auto">
+                {uploadResult.errors.map((err, idx) => (<li key={idx}>· {err}</li>))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 
