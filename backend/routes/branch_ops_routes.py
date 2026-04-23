@@ -110,7 +110,7 @@ async def check_rm_availability_for_production(
         
         if available < required:
             rm_info = rm_details.get(rm_id, {})
-            description = generate_rm_description(
+            description = await generate_rm_description(
                 rm_info.get("category", ""),
                 rm_info.get("category_data", {}),
                 rm_info.get("name", "")
@@ -739,7 +739,7 @@ async def get_rm_shortage_report(
             ).to_list(5000)
             for rm in rms:
                 rm_details[rm["rm_id"]] = {
-                    "description": generate_rm_description(
+                    "description": await generate_rm_description(
                         rm.get("category", ""), 
                         rm.get("category_data", {}), 
                         rm.get("name", "")
@@ -884,7 +884,7 @@ async def export_rm_shortage_report(
     for rm in all_rms:
         rm_details[rm["rm_id"]] = {
             "rm_id": rm["rm_id"],
-            "description": generate_rm_description(
+            "description": await generate_rm_description(
                 rm.get("category", ""),
                 rm.get("category_data", {}),
                 rm.get("name", "")
