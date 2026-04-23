@@ -94,6 +94,38 @@ async def get_vendors():
     return vendors
 
 
+@router.get("/vendors/{vendor_id}")
+async def get_vendor_detail(vendor_id: str):
+    """Get a single vendor + their tagged RM prices (enriched with RM description)."""
+    # Accept either vendor_id code (VND_001) or internal id
+    vendor = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail=f"Vendor {vendor_id} not found")
+
+    prices = await db.vendor_rm_prices.find(
+        {"vendor_id": vendor["vendor_id"]},
+        {"_id": 0}
+    ).sort("updated_at", -1).to_list(5000)
+
+    # Enrich with RM description/category
+    rm_ids = [p["rm_id"] for p in prices if p.get("rm_id")]
+    rm_info = {}
+    if rm_ids:
+        async for rm in db.raw_materials.find(
+            {"rm_id": {"$in": rm_ids}},
+            {"_id": 0, "rm_id": 1, "description": 1, "category": 1, "category_data": 1}
+        ):
+            rm_info[rm["rm_id"]] = rm
+    for p in prices:
+        rm = rm_info.get(p.get("rm_id"), {})
+        p["rm_description"] = rm.get("description") or rm.get("category_data", {}).get("name")
+        p["rm_category"] = rm.get("category")
+
+    return {"vendor": vendor, "rm_prices": prices}
+
+
 @router.post("/vendors", response_model=Vendor)
 @require_permission("Vendor", "CREATE")
 async def create_vendor(input: VendorCreate, current_user: User = Depends(get_current_user)):
