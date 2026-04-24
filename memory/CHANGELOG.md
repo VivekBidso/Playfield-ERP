@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## April 23, 2026
+
+### Training Module Framework + Branch Ops Pilot
+- **New backend module** `services/training_pdf.py` (ReportLab) and `routes/training_routes.py`
+- **Endpoints:** `GET /api/training/modules`, `GET /api/training/branch-ops/download`
+- **Capture script:** `scripts/capture_branch_ops_screenshots.py` (Playwright) — logs in, navigates Branch Ops, captures 8 screenshots of the real flow (sidebar, dashboard, filters, row, complete dialog, pre-check OK, pre-check shortage, completed row), writes `flow_metadata.json`
+- **Added `reportlab==4.4.10`** + `playwright` + `pdf2image`; installed `poppler-utils` for PDF render validation
+- **Output:** 11-page A4 PDF (1.1 MB) with cover, 8 sections, 8 real screenshots, I/O tables, FAQ
+- **Bug fixed during build:** 3 unawaited `generate_rm_description(...)` calls in `branch_ops_routes.py` — was causing 500 on `/branch-ops/schedules/{id}/complete`, `/branch-ops/rm-consumption/export`, and one more path
+
+### Vendor × RM Price Mapping
+- **NEW `GET /api/vendor-rm-prices/export`** — Excel download with exactly: Vendor ID | Vendor Name | RM ID | RM Description | Price | Currency | Last Invoice Date (derived from `rm_prices_history` max date per vendor+rm combo)
+- **NEW `GET /api/vendor-rm-prices/template`** — 4-sheet workbook (main + Instructions + Vendors reference + RM IDs reference)
+- **NEW `POST /api/vendor-rm-prices/bulk-upload?mode=upsert|replace-vendor`** — bulk Vendor↔RM↔Price mapping upload with row-level validation
+- **NEW `POST /api/vendors/bulk-upload`** — missing vendor master bulk upload (was 405, now live)
+- **NEW `GET /api/vendors/{vendor_id}`** — was missing (caused "Failed to fetch vendor details" error). Returns vendor + enriched RM prices with description/category
+- **Frontend Vendor Management toolbar (new buttons):** Vendor Template · **Price Template** · Export · **Export Prices** · Bulk Upload Vendors · **Bulk Upload Prices**
+- Upload result card enhanced with error drilldown
+
+### Event System Instrumentation
+- **New EventTypes:** `SCHEDULE_UPLOAD`, `SCHEDULE_COMPLETED`, `RM_INWARD_RECEIVED`
+- **Publishers wired:** CPC production plan upload, CPC schedule completion, IBT create/dispatch/receive, RM Inward bill create
+- **Aligned subscriber** `handle_ibt_completed` to read new multi-item payload (source_branch/destination_branch/item_count/total_dispatched/total_received/total_variance/has_shortage)
+- All publishers wrapped in try/except → can't break business flow
+- Verified: 1 `SCHEDULE_COMPLETED` event fired during testing landed in `db.events`; `handle_ibt_completed` writes audit_logs correctly with `reference_code=transfer_code`
+
+### RM Export — Category-specific columns
+- **Frontend `RMRepository.js`** — "Export All RMs" now produces a workbook with ONE sheet per category (INP, INM, ACC, ELC, PM, LB, BS, SP, MB, POLY…). Each sheet has common columns (RM ID, Description, UOM, Dual UOM, HSN, GST, etc.) + category-specific columns pulled dynamically from `rm_categories.description_columns` (e.g., INP gets: Mould Code, Model Name, Part Name, Colour, Mb, Per Unit Weight, Unit)
+
+### Historical Upload Templates — Reference Tabs Added
+- **`Reports.js downloadTemplate()`** — Historical Sales template now includes **Customers** reference sheet (Customer ID + Name via `/api/buyers`); Historical Production template now includes **Branches** reference sheet (Branch ID + Name via `/api/branches`)
+- **`rm_price_routes.py /template`** — added **Vendors** reference tab (Vendor ID + Name, 505 rows)
+
+### Admin Password Fix for Deployment
+- **`server.py`** line 117 — changed seeded admin password from `admin123` to `bidso123` to match `test_credentials.md`
+- **`.gitignore`** — rewrote (removed malformed `-e` history artifacts); `memory/test_credentials.md` now excluded
+
 ## April 21, 2026
 
 ### RM Price History & Margin Calculation (P0 complete)
