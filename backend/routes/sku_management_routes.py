@@ -2176,30 +2176,42 @@ async def export_all_bom():
 
 async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
     """Get combined BOM (common + brand-specific) for a Buyer SKU"""
+    import logging
+    logger = logging.getLogger(__name__)
+
     buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
     if not buyer_sku:
         return None
     
-    bidso_sku_id = buyer_sku["bidso_sku_id"]
-    brand_id = buyer_sku["brand_id"]
-    brand_code = buyer_sku["brand_code"]
+    bidso_sku_id = buyer_sku.get("bidso_sku_id")
+    brand_id = buyer_sku.get("brand_id")
+    brand_code = buyer_sku.get("brand_code", "")
     
     # Get common BOM
-    common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
+    common_bom = None
+    if bidso_sku_id:
+        common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0})
     common_items_raw = common_bom.get("items", []) if common_bom else []
     
     # Get brand-specific BOM
-    brand_bom = await db.brand_specific_bom.find_one(
-        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
-        {"_id": 0}
-    )
+    brand_bom = None
+    if bidso_sku_id and brand_id:
+        brand_bom = await db.brand_specific_bom.find_one(
+            {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id},
+            {"_id": 0}
+        )
     brand_items_raw = brand_bom.get("items", []) if brand_bom else []
     
+    # Filter out any None / non-dict items defensively
+    common_items_raw = [it for it in common_items_raw if isinstance(it, dict)]
+    brand_items_raw = [it for it in brand_items_raw if isinstance(it, dict)]
+
     # Collect all RM IDs to fetch descriptions
     all_rm_ids = set()
     for item in common_items_raw + brand_items_raw:
-        if item.get("rm_id"):
-            all_rm_ids.add(item["rm_id"])
+        rid = item.get("rm_id")
+        if rid:
+            all_rm_ids.add(rid)
     
     # Fetch RM details from raw_materials collection
     rm_details = {}
@@ -2209,34 +2221,40 @@ async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
             {"_id": 0, "rm_id": 1, "name": 1, "category": 1, "category_data": 1}
         )
         async for rm in rm_cursor:
-            rm_id = rm.get("rm_id")
-            category = rm.get("category", "")
-            cat_data = rm.get("category_data", {}) or {}
-            
-            # Generate description based on category-specific format
-            description = await generate_rm_description(category, cat_data, rm.get("name", ""))
-            rm_details[rm_id] = description
+            try:
+                rm_id = rm.get("rm_id")
+                if not rm_id:
+                    continue
+                category = rm.get("category", "") or ""
+                cat_data = rm.get("category_data") or {}
+                if not isinstance(cat_data, dict):
+                    cat_data = {}
+                description = await generate_rm_description(category, cat_data, rm.get("name", "") or "")
+                rm_details[rm_id] = description or rm.get("name", "") or rm_id
+            except Exception as e:
+                logger.warning(f"BOM full: failed to compute description for RM {rm.get('rm_id')}: {e}")
+                rm_details[rm.get("rm_id")] = rm.get("name", "") or rm.get("rm_id", "")
     
     # Enrich common items with descriptions
     common_items = []
     for item in common_items_raw:
-        rm_id = item.get("rm_id", "")
+        rm_id = item.get("rm_id", "") or ""
         common_items.append({
             "rm_id": rm_id,
-            "rm_name": rm_details.get(rm_id, item.get("rm_name", "")),
-            "quantity": item.get("quantity", 1),
-            "unit": item.get("unit", "PCS")
+            "rm_name": rm_details.get(rm_id) or item.get("rm_name", "") or rm_id,
+            "quantity": item.get("quantity", 1) or 0,
+            "unit": item.get("unit", "PCS") or "PCS"
         })
     
     # Enrich brand-specific items with descriptions
     brand_items = []
     for item in brand_items_raw:
-        rm_id = item.get("rm_id", "")
+        rm_id = item.get("rm_id", "") or ""
         brand_items.append({
             "rm_id": rm_id,
-            "rm_name": rm_details.get(rm_id, item.get("rm_name", "")),
-            "quantity": item.get("quantity", 1),
-            "unit": item.get("unit", "PCS")
+            "rm_name": rm_details.get(rm_id) or item.get("rm_name", "") or rm_id,
+            "quantity": item.get("quantity", 1) or 0,
+            "unit": item.get("unit", "PCS") or "PCS"
         })
     
     # Combine
@@ -2249,18 +2267,25 @@ async def get_full_bom_for_buyer_sku(buyer_sku_id: str) -> dict:
         "common_items": common_items,
         "brand_specific_items": brand_items,
         "total_items": total_items,
-        "is_common_bom_locked": common_bom.get("is_locked", False) if common_bom else False
+        "is_common_bom_locked": (common_bom or {}).get("is_locked", False)
     }
 
 
 @router.get("/bom/full/{buyer_sku_id}")
 async def get_full_bom(buyer_sku_id: str):
     """Get full BOM for a Buyer SKU (common + brand-specific)"""
-    full_bom = await get_full_bom_for_buyer_sku(buyer_sku_id)
-    if not full_bom:
-        raise HTTPException(status_code=404, detail="Buyer SKU not found")
-    
-    return full_bom
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        full_bom = await get_full_bom_for_buyer_sku(buyer_sku_id)
+        if not full_bom:
+            raise HTTPException(status_code=404, detail=f"Buyer SKU {buyer_sku_id} not found")
+        return full_bom
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to fetch full BOM for {buyer_sku_id}")
+        raise HTTPException(status_code=500, detail=f"Internal error fetching BOM for {buyer_sku_id}: {type(e).__name__}: {e}")
 
 
 # ============ Brand-Specific BOM Edit with Approval Workflow ============
