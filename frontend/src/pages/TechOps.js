@@ -458,7 +458,7 @@ const TechOps = () => {
       
       setBomUploadOpen(false);
       if (bomFileRef.current) bomFileRef.current.value = "";
-      fetchRmBoms();
+      fetchAllData();
     } catch (error) {
       const msg = error.response?.data?.detail || error.message;
       toast.error(`Upload failed: ${msg}`);
