@@ -36,6 +36,20 @@ const Reports = () => {
   const [marginReport, setMarginReport] = useState(null);
   const [marginLoading, setMarginLoading] = useState(false);
   const [marginFilters, setMarginFilters] = useState({ from_month: "", to_month: "" });
+
+  // Buyer SKU BOM Cost state
+  const [bscFilters, setBscFilters] = useState({
+    vertical_code: "",
+    model_code: "",
+    brand_id: "",
+    buyer_sku_id: "",
+  });
+  const [bscVerticals, setBscVerticals] = useState([]);
+  const [bscModels, setBscModels] = useState([]);
+  const [bscBrands, setBscBrands] = useState([]);
+  const [bscBuyerSKUs, setBscBuyerSKUs] = useState([]);
+  const [bscDetail, setBscDetail] = useState(null);
+  const [bscLoading, setBscLoading] = useState(false);
   
   // Report data states
   const [dispatchOriginData, setDispatchOriginData] = useState(null);
@@ -125,6 +139,7 @@ const Reports = () => {
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
     else if (activeTab === "historical") fetchHistoricalData();
     else if (activeTab === "margin") fetchMarginReport();
+    else if (activeTab === "buyer-sku-bom-cost") fetchBscVerticals();
   }, [activeTab]);
 
   const handleRefresh = () => {
@@ -134,6 +149,10 @@ const Reports = () => {
     else if (activeTab === "buyer-history") fetchBuyerHistoryReport();
     else if (activeTab === "historical") fetchHistoricalData();
     else if (activeTab === "margin") fetchMarginReport();
+    else if (activeTab === "buyer-sku-bom-cost") {
+      fetchBscVerticals();
+      if (bscFilters.buyer_sku_id) fetchBscDetail(bscFilters.buyer_sku_id);
+    }
   };
 
   const fetchMarginReport = async () => {
@@ -148,6 +167,125 @@ const Reports = () => {
       toast.error(`Failed to load margin report: ${err.response?.data?.detail || err.message}`);
     } finally {
       setMarginLoading(false);
+    }
+  };
+
+  // ========== Buyer SKU BOM Cost handlers ==========
+  const fetchBscVerticals = async () => {
+    try {
+      const [vRes, bRes] = await Promise.all([
+        axios.get(`${API}/verticals`),
+        axios.get(`${API}/brands`),
+      ]);
+      setBscVerticals((vRes.data || []).filter(v => v.status === "ACTIVE" || !v.status));
+      setBscBrands((bRes.data || []).filter(b => b.status === "ACTIVE" || !b.status));
+      // Initial buyer SKU list: empty until vertical is picked, but seed full list once
+      fetchBscBuyerSKUs({});
+    } catch (err) {
+      console.error("Failed to fetch verticals/brands", err);
+    }
+  };
+
+  const fetchBscModels = async (verticalCode) => {
+    if (!verticalCode) {
+      setBscModels([]);
+      return;
+    }
+    try {
+      const res = await axios.get(`${API}/models`);
+      const all = res.data || [];
+      // Find vertical_id for the given code
+      const v = bscVerticals.find(x => x.code === verticalCode);
+      const filtered = v ? all.filter(m => m.vertical_id === v.id) : [];
+      setBscModels(filtered);
+    } catch (err) {
+      console.error("Failed to fetch models", err);
+    }
+  };
+
+  const fetchBscBuyerSKUs = async (filters) => {
+    const params = new URLSearchParams();
+    params.append("page_size", "500");
+    if (filters.vertical_code) params.append("vertical_code", filters.vertical_code);
+    if (filters.model_code) params.append("model_code", filters.model_code);
+    if (filters.brand_id) params.append("brand_id", filters.brand_id);
+    try {
+      const res = await axios.get(`${API}/sku-management/buyer-skus?${params}`);
+      const items = res.data?.items || res.data || [];
+      setBscBuyerSKUs(items);
+    } catch (err) {
+      console.error("Failed to fetch buyer SKUs", err);
+      setBscBuyerSKUs([]);
+    }
+  };
+
+  const fetchBscDetail = async (buyerSkuId) => {
+    if (!buyerSkuId) {
+      setBscDetail(null);
+      return;
+    }
+    setBscLoading(true);
+    try {
+      const res = await axios.get(`${API}/rm-prices/buyer-sku-cost-detail/${buyerSkuId}`);
+      setBscDetail(res.data);
+    } catch (err) {
+      toast.error(`Failed to load BOM cost: ${err.response?.data?.detail || err.message}`);
+      setBscDetail(null);
+    } finally {
+      setBscLoading(false);
+    }
+  };
+
+  const handleBscFilterChange = (key, value) => {
+    const next = { ...bscFilters, [key]: value };
+    if (key === "vertical_code") {
+      next.model_code = "";
+      next.brand_id = "";
+      next.buyer_sku_id = "";
+      fetchBscModels(value);
+    } else if (key === "model_code") {
+      next.brand_id = "";
+      next.buyer_sku_id = "";
+    } else if (key === "brand_id") {
+      next.buyer_sku_id = "";
+    }
+    setBscFilters(next);
+    if (key !== "buyer_sku_id") {
+      setBscDetail(null);
+      // refresh SKU dropdown when any of vertical/model/brand changes
+      fetchBscBuyerSKUs(next);
+    } else {
+      fetchBscDetail(value);
+    }
+  };
+
+  const handleBscExport = async () => {
+    const params = new URLSearchParams();
+    if (bscFilters.vertical_code) params.append("vertical_code", bscFilters.vertical_code);
+    if (bscFilters.model_code) params.append("model_code", bscFilters.model_code);
+    if (bscFilters.brand_id) params.append("brand_id", bscFilters.brand_id);
+    if (bscFilters.buyer_sku_id) params.append("buyer_sku_id", bscFilters.buyer_sku_id);
+    try {
+      const res = await axios.get(`${API}/rm-prices/buyer-sku-cost-export?${params}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      const suffix = [bscFilters.vertical_code, bscFilters.brand_id?.slice(0, 8), bscFilters.buyer_sku_id]
+        .filter(Boolean).join("_") || "all";
+      a.download = `buyer_sku_bom_cost_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Exported");
+    } catch (err) {
+      if (err.response?.status === 404) {
+        toast.error("No Buyer SKUs match the filter");
+      } else {
+        toast.error("Export failed");
+      }
     }
   };
 
@@ -348,7 +486,7 @@ const Reports = () => {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-6 w-full max-w-4xl">
+        <TabsList className="grid grid-cols-7 w-full max-w-5xl">
           <TabsTrigger value="dispatch-origin" className="text-xs">
             <Package className="h-3 w-3 mr-1" />
             Dispatch Origin
@@ -372,6 +510,10 @@ const Reports = () => {
           <TabsTrigger value="margin" className="text-xs" data-testid="margin-tab">
             <TrendingUp className="h-3 w-3 mr-1" />
             Margin Report
+          </TabsTrigger>
+          <TabsTrigger value="buyer-sku-bom-cost" className="text-xs" data-testid="buyer-sku-bom-cost-tab">
+            <FileText className="h-3 w-3 mr-1" />
+            Buyer SKU BOM Cost
           </TabsTrigger>
         </TabsList>
 
@@ -1065,6 +1207,218 @@ const Reports = () => {
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">Click Apply to load margin data.</div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Buyer SKU BOM Cost Tab */}
+        <TabsContent value="buyer-sku-bom-cost" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Buyer SKU BOM Cost
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Avg price uses 3-month rolling avg from purchase invoices, with fallback to lowest tagged Vendor Price Mapping when invoices aren't available.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Filter bar */}
+              <div className="bg-orange-50 border border-orange-100 rounded p-3 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-orange-900">Select Vertical</label>
+                    <Select
+                      value={bscFilters.vertical_code || "_all"}
+                      onValueChange={(v) => handleBscFilterChange("vertical_code", v === "_all" ? "" : v)}
+                    >
+                      <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-vertical">
+                        <SelectValue placeholder="Choose vertical..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All Verticals</SelectItem>
+                        {bscVerticals.map(v => (
+                          <SelectItem key={v.code || v.id || v.vertical_code} value={v.code || v.vertical_code}>
+                            {v.name || v.code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-900">Select Model</label>
+                    <Select
+                      value={bscFilters.model_code || "_all"}
+                      onValueChange={(v) => handleBscFilterChange("model_code", v === "_all" ? "" : v)}
+                      disabled={!bscFilters.vertical_code}
+                    >
+                      <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-model">
+                        <SelectValue placeholder={bscFilters.vertical_code ? "Choose model..." : "Pick vertical first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All Models</SelectItem>
+                        {bscModels.map(m => (
+                          <SelectItem key={m.code || m.id || m.model_code} value={m.code || m.model_code}>
+                            {m.name || m.code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-900">Select Brand</label>
+                    <Select
+                      value={bscFilters.brand_id || "_all"}
+                      onValueChange={(v) => handleBscFilterChange("brand_id", v === "_all" ? "" : v)}
+                    >
+                      <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-brand">
+                        <SelectValue placeholder="Choose brand..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All Brands</SelectItem>
+                        {bscBrands.map(b => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name} ({b.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-900">Select Buyer SKU</label>
+                    <Select
+                      value={bscFilters.buyer_sku_id || "_none"}
+                      onValueChange={(v) => handleBscFilterChange("buyer_sku_id", v === "_none" ? "" : v)}
+                    >
+                      <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-buyer-sku">
+                        <SelectValue placeholder="Choose Buyer SKU..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <SelectItem value="_none">— Pick one —</SelectItem>
+                        {bscBuyerSKUs.map(s => (
+                          <SelectItem key={s.buyer_sku_id} value={s.buyer_sku_id}>
+                            {s.buyer_sku_id} · {s.name?.slice(0, 40)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {bscBuyerSKUs.length > 0 && (
+                      <div className="text-[10px] text-orange-700 mt-1">{bscBuyerSKUs.length} SKUs available</div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button size="sm" variant="outline" onClick={handleBscExport} data-testid="bsc-export-btn">
+                    <Download className="h-4 w-4 mr-1" /> Export Excel
+                  </Button>
+                </div>
+              </div>
+
+              {/* Cost summary */}
+              {bscLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading BOM cost...</div>
+              ) : bscDetail ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="border rounded p-3 bg-amber-50">
+                      <div className="text-xs text-muted-foreground">BOM Cost</div>
+                      <div className="text-2xl font-bold text-amber-800 font-mono" data-testid="bsc-total-cost">
+                        Rs {bscDetail.total_cost?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        {bscDetail.invoice_count} from invoices · {bscDetail.vendor_map_count} from vendor map
+                        {bscDetail.missing_price_count > 0 && (
+                          <span className="text-red-600"> · {bscDetail.missing_price_count} no price</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="border rounded p-3 bg-blue-50">
+                      <div className="text-xs text-muted-foreground">Avg ASP</div>
+                      <div className="text-2xl font-bold text-blue-800 font-mono">
+                        {bscDetail.avg_asp != null ? (
+                          <>Rs {bscDetail.avg_asp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                        ) : (
+                          <span className="text-muted-foreground text-base font-normal">Not uploaded</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className={`border rounded p-3 ${
+                      bscDetail.margin_pct == null ? "bg-zinc-50" :
+                      bscDetail.margin_pct >= 30 ? "bg-emerald-50 border-emerald-300" :
+                      bscDetail.margin_pct >= 10 ? "bg-amber-50 border-amber-300" :
+                      "bg-red-50 border-red-300"
+                    }`}>
+                      <div className="text-xs text-muted-foreground">Margin %</div>
+                      <div className={`text-2xl font-bold font-mono ${
+                        bscDetail.margin_pct == null ? "text-muted-foreground" :
+                        bscDetail.margin_pct >= 30 ? "text-emerald-700" :
+                        bscDetail.margin_pct >= 10 ? "text-amber-700" :
+                        "text-red-700"
+                      }`} data-testid="bsc-margin-pct">
+                        {bscDetail.margin_pct != null ? `${bscDetail.margin_pct}%` : "—"}
+                      </div>
+                      {bscDetail.margin_value != null && (
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          Margin Value: Rs {bscDetail.margin_value.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* BOM table */}
+                  <div className="border rounded overflow-x-auto max-h-[60vh]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-emerald-100 sticky top-0">
+                          <TableHead className="text-xs font-semibold">RM ID</TableHead>
+                          <TableHead className="text-xs font-semibold">RM Name</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Quantity</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Avg Price</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Line Cost</TableHead>
+                          <TableHead className="text-xs font-semibold">Source</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {bscDetail.items?.map((it, idx) => (
+                          <TableRow key={idx} className={!it.price_source ? "bg-red-50" : "bg-emerald-50/40"}>
+                            <TableCell className="text-xs font-mono">{it.rm_id}</TableCell>
+                            <TableCell className="text-xs">{it.rm_name}</TableCell>
+                            <TableCell className="text-xs text-right">{it.quantity} {it.unit}</TableCell>
+                            <TableCell className="text-xs text-right font-mono">
+                              {it.price_source ? (
+                                <>Rs {it.avg_price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</>
+                              ) : (
+                                <span className="text-red-600 font-semibold">No price</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs text-right font-mono">
+                              {it.price_source ? <>Rs {it.line_cost?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</> : "—"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {it.price_source === "invoice" && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800">Invoice</span>
+                              )}
+                              {it.price_source === "vendor_map" && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-800">Vendor map</span>
+                              )}
+                              {!it.price_source && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold">No price</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              ) : bscFilters.buyer_sku_id ? (
+                <div className="text-center py-8 text-muted-foreground">No data for this Buyer SKU.</div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  Select a Vertical → Model → Brand → Buyer SKU to view its BOM cost. Or use Export Excel for filtered bulk download.
+                </div>
               )}
             </CardContent>
           </Card>

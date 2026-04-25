@@ -71,6 +71,79 @@ async def compute_avg_prices(window_months: int = 3) -> dict:
     return result
 
 
+async def compute_avg_with_fallback(rm_ids: list, window_months: int = 3) -> dict:
+    """For each RM, return avg price with source attribution.
+
+    Priority:
+      1. rm_prices_history (last `window_months` months) -> source='invoice'
+      2. vendor_rm_prices (lowest tagged vendor price) -> source='vendor_map'
+      3. None -> source=None
+
+    Returns { rm_id: {avg_price, source, record_count, vendor_count} }
+    """
+    if not rm_ids:
+        return {}
+
+    # 1. Invoice history (preferred)
+    start = _rolling_window_start(window_months)
+    invoice_pipeline = [
+        {"$match": {"date": {"$gte": start}, "rm_id": {"$in": list(rm_ids)}}},
+        {"$group": {
+            "_id": "$rm_id",
+            "avg_price": {"$avg": "$price_per_unit"},
+            "record_count": {"$sum": 1},
+        }},
+    ]
+    result = {}
+    async for row in db.rm_prices_history.aggregate(invoice_pipeline):
+        rm_id = row["_id"]
+        if not rm_id:
+            continue
+        result[rm_id] = {
+            "rm_id": rm_id,
+            "avg_price": round(row["avg_price"] or 0, 4),
+            "source": "invoice",
+            "record_count": row["record_count"],
+            "vendor_count": 0,
+        }
+
+    # 2. Fallback to vendor_rm_prices for RMs not yet covered
+    missing = [r for r in rm_ids if r not in result]
+    if missing:
+        vendor_pipeline = [
+            {"$match": {"rm_id": {"$in": missing}, "is_active": {"$ne": False}}},
+            {"$group": {
+                "_id": "$rm_id",
+                "min_price": {"$min": "$price"},
+                "vendor_count": {"$sum": 1},
+            }},
+        ]
+        async for row in db.vendor_rm_prices.aggregate(vendor_pipeline):
+            rm_id = row["_id"]
+            if not rm_id:
+                continue
+            result[rm_id] = {
+                "rm_id": rm_id,
+                "avg_price": round(row["min_price"] or 0, 4),
+                "source": "vendor_map",
+                "record_count": 0,
+                "vendor_count": row["vendor_count"],
+            }
+
+    # 3. Mark remaining as no data
+    for rm_id in rm_ids:
+        if rm_id not in result:
+            result[rm_id] = {
+                "rm_id": rm_id,
+                "avg_price": 0,
+                "source": None,
+                "record_count": 0,
+                "vendor_count": 0,
+            }
+
+    return result
+
+
 async def get_bom_cost_for_buyer_sku(buyer_sku_id: str, avg_price_map: dict) -> dict:
     """Compute derived BOM cost for a Buyer SKU using supplied avg_price map."""
     buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
@@ -559,3 +632,247 @@ async def margin_report(
         },
         "count": len(report),
     }
+
+
+# ==================== Buyer SKU BOM Cost (with fallback pricing) ====================
+
+@router.get("/buyer-sku-cost-detail/{buyer_sku_id}")
+async def buyer_sku_cost_detail(buyer_sku_id: str):
+    """Return BOM with avg-price (3-mo rolling, vendor_rm_prices fallback) + ASP + Margin %."""
+    buyer_sku = await db.buyer_skus.find_one({"buyer_sku_id": buyer_sku_id}, {"_id": 0})
+    if not buyer_sku:
+        raise HTTPException(status_code=404, detail=f"Buyer SKU {buyer_sku_id} not found")
+
+    bidso_sku_id = buyer_sku.get("bidso_sku_id")
+    brand_id = buyer_sku.get("brand_id")
+
+    common_bom = await db.common_bom.find_one({"bidso_sku_id": bidso_sku_id}, {"_id": 0}) if bidso_sku_id else None
+    brand_bom = await db.brand_specific_bom.find_one(
+        {"bidso_sku_id": bidso_sku_id, "brand_id": brand_id}, {"_id": 0}
+    ) if (bidso_sku_id and brand_id) else None
+
+    bom_items = []
+    seen = set()
+    for src_label, bom_doc in (("common", common_bom), ("brand_specific", brand_bom)):
+        if not bom_doc:
+            continue
+        for it in bom_doc.get("items", []):
+            if not isinstance(it, dict):
+                continue
+            rid = it.get("rm_id")
+            if not rid or rid in seen:
+                continue
+            seen.add(rid)
+            bom_items.append({
+                "rm_id": rid,
+                "quantity": float(it.get("quantity") or 0),
+                "unit": it.get("unit", "PCS"),
+                "bom_source": src_label,
+            })
+
+    # Fetch RM descriptions
+    rm_ids = [b["rm_id"] for b in bom_items]
+    rm_info = {}
+    if rm_ids:
+        async for rm in db.raw_materials.find(
+            {"rm_id": {"$in": rm_ids}},
+            {"_id": 0, "rm_id": 1, "name": 1, "description": 1, "category": 1, "category_data": 1}
+        ):
+            rm_info[rm["rm_id"]] = rm
+
+    # Compute avg with fallback
+    price_map = await compute_avg_with_fallback(rm_ids)
+
+    items = []
+    total_cost = 0.0
+    missing = 0
+    invoice_count = 0
+    vendor_map_count = 0
+    for b in bom_items:
+        rid = b["rm_id"]
+        rm = rm_info.get(rid, {})
+        rm_name = rm.get("description") or rm.get("name") or rid
+        pinfo = price_map.get(rid, {})
+        avg_price = pinfo.get("avg_price", 0)
+        source = pinfo.get("source")
+        line_cost = round(b["quantity"] * avg_price, 4)
+        total_cost += line_cost
+        if source is None:
+            missing += 1
+        elif source == "invoice":
+            invoice_count += 1
+        elif source == "vendor_map":
+            vendor_map_count += 1
+        items.append({
+            "rm_id": rid,
+            "rm_name": rm_name,
+            "rm_category": rm.get("category"),
+            "quantity": b["quantity"],
+            "unit": b["unit"],
+            "avg_price": avg_price,
+            "line_cost": line_cost,
+            "price_source": source,
+            "bom_source": b["bom_source"],
+        })
+
+    total_cost = round(total_cost, 2)
+
+    # ASP from historical_sales
+    asp_pipeline = [
+        {"$match": {"buyer_sku_id": buyer_sku_id, "asp": {"$gt": 0}}},
+        {"$group": {"_id": None, "avg_asp": {"$avg": "$asp"}, "qty": {"$sum": "$qty"}, "records": {"$sum": 1}}},
+    ]
+    asp_data = await db.historical_sales.aggregate(asp_pipeline).to_list(1)
+    avg_asp = None
+    margin_value = None
+    margin_pct = None
+    if asp_data:
+        avg_asp = round(asp_data[0]["avg_asp"] or 0, 2)
+        if avg_asp > 0:
+            margin_value = round(avg_asp - total_cost, 2)
+            margin_pct = round(((avg_asp - total_cost) / avg_asp) * 100, 2)
+
+    return {
+        "buyer_sku_id": buyer_sku_id,
+        "buyer_sku_name": buyer_sku.get("name"),
+        "bidso_sku_id": bidso_sku_id,
+        "brand_id": brand_id,
+        "brand_code": buyer_sku.get("brand_code"),
+        "vertical_code": buyer_sku.get("vertical_code"),
+        "model_code": buyer_sku.get("model_code"),
+        "items": items,
+        "total_cost": total_cost,
+        "avg_asp": avg_asp,
+        "margin_value": margin_value,
+        "margin_pct": margin_pct,
+        "rm_count": len(items),
+        "invoice_count": invoice_count,
+        "vendor_map_count": vendor_map_count,
+        "missing_price_count": missing,
+    }
+
+
+@router.get("/buyer-sku-cost-export")
+async def buyer_sku_cost_export(
+    vertical_code: Optional[str] = None,
+    model_code: Optional[str] = None,
+    brand_id: Optional[str] = None,
+    buyer_sku_id: Optional[str] = None,
+):
+    """Export Buyer SKU BOM with fallback prices.
+
+    Excel columns: Buyer SKU ID | RM ID | RM Description | Qty | Price
+    Filters apply progressively (vertical → model → brand → SKU).
+    """
+    q = {"status": {"$ne": "INACTIVE"}}
+    if vertical_code:
+        q["vertical_code"] = vertical_code
+    if model_code:
+        q["model_code"] = model_code
+    if brand_id:
+        q["brand_id"] = brand_id
+    if buyer_sku_id:
+        q["buyer_sku_id"] = buyer_sku_id
+
+    buyer_skus = await db.buyer_skus.find(q, {"_id": 0}).sort("buyer_sku_id", 1).to_list(20000)
+    if not buyer_skus:
+        raise HTTPException(status_code=404, detail="No Buyer SKUs match the filter")
+
+    # Collect bidsoid+brand pairs to load BOMs efficiently
+    bidso_ids = list({s.get("bidso_sku_id") for s in buyer_skus if s.get("bidso_sku_id")})
+    brand_ids = list({s.get("brand_id") for s in buyer_skus if s.get("brand_id")})
+
+    common_boms = {}
+    if bidso_ids:
+        async for cb in db.common_bom.find({"bidso_sku_id": {"$in": bidso_ids}}, {"_id": 0}):
+            common_boms[cb["bidso_sku_id"]] = cb.get("items", [])
+    brand_boms = {}
+    if bidso_ids and brand_ids:
+        async for bb in db.brand_specific_bom.find(
+            {"bidso_sku_id": {"$in": bidso_ids}, "brand_id": {"$in": brand_ids}},
+            {"_id": 0}
+        ):
+            brand_boms[(bb["bidso_sku_id"], bb["brand_id"])] = bb.get("items", [])
+
+    # Collect all unique RM IDs for price + description prefetch
+    all_rm_ids = set()
+    for items in common_boms.values():
+        for it in items:
+            if isinstance(it, dict) and it.get("rm_id"):
+                all_rm_ids.add(it["rm_id"])
+    for items in brand_boms.values():
+        for it in items:
+            if isinstance(it, dict) and it.get("rm_id"):
+                all_rm_ids.add(it["rm_id"])
+
+    rm_info = {}
+    if all_rm_ids:
+        async for rm in db.raw_materials.find(
+            {"rm_id": {"$in": list(all_rm_ids)}},
+            {"_id": 0, "rm_id": 1, "name": 1, "description": 1}
+        ):
+            rm_info[rm["rm_id"]] = rm.get("description") or rm.get("name") or rm["rm_id"]
+
+    price_map = await compute_avg_with_fallback(list(all_rm_ids))
+
+    # Build workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Buyer SKU BOM Cost"
+
+    headers = ["Buyer SKU ID", "RM ID", "RM Description", "Qty", "Price"]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for idx, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=idx, value=h)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center")
+
+    row = 2
+    for sku in buyer_skus:
+        seen = set()
+        bsku_id = sku.get("buyer_sku_id")
+        bidso = sku.get("bidso_sku_id")
+        bid = sku.get("brand_id")
+        items_list = []
+        items_list.extend(common_boms.get(bidso, []))
+        items_list.extend(brand_boms.get((bidso, bid), []))
+        for it in items_list:
+            if not isinstance(it, dict):
+                continue
+            rid = it.get("rm_id")
+            if not rid or rid in seen:
+                continue
+            seen.add(rid)
+            qty = float(it.get("quantity") or 0)
+            price = price_map.get(rid, {}).get("avg_price", 0)
+            ws.cell(row=row, column=1, value=bsku_id)
+            ws.cell(row=row, column=2, value=rid)
+            ws.cell(row=row, column=3, value=rm_info.get(rid, ""))
+            ws.cell(row=row, column=4, value=qty)
+            ws.cell(row=row, column=5, value=price)
+            row += 1
+
+    for col_letter, width in zip("ABCDE", [16, 14, 50, 10, 12]):
+        ws.column_dimensions[col_letter].width = width
+    ws.freeze_panes = "A2"
+
+    suffix_parts = []
+    if vertical_code:
+        suffix_parts.append(vertical_code)
+    if brand_id:
+        suffix_parts.append(brand_id[:8])
+    if buyer_sku_id:
+        suffix_parts.append(buyer_sku_id)
+    suffix = "_".join(suffix_parts) if suffix_parts else "all"
+    filename = f"buyer_sku_bom_cost_{suffix}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

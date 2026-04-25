@@ -976,6 +976,8 @@ async def get_buyer_skus(
     bidso_sku_id: Optional[str] = None,
     brand_id: Optional[str] = None,
     buyer_id: Optional[str] = None,
+    vertical_code: Optional[str] = None,
+    model_code: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: bool = False,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -991,6 +993,13 @@ async def get_buyer_skus(
         query["brand_id"] = brand_id
     if buyer_id:
         query["buyer_id"] = buyer_id
+    # vertical_code and model_code are encoded as the first two parts of bidso_sku_id
+    if vertical_code and model_code:
+        query["bidso_sku_id"] = {"$regex": f"^{vertical_code}_{model_code}_"}
+    elif vertical_code:
+        query["bidso_sku_id"] = {"$regex": f"^{vertical_code}_"}
+    elif model_code:
+        query["bidso_sku_id"] = {"$regex": f"^[^_]+_{model_code}_"}
     
     # Handle search with pagination
     if search:
