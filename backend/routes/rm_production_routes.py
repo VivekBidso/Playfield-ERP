@@ -6,9 +6,13 @@ In-House RM Production Routes
 - Production Reports
 """
 from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile
+from fastapi.responses import StreamingResponse
 from typing import Optional, List
 from datetime import datetime, timezone
 import uuid
+import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 
 from models.production import (
     RMCategory, RMCategoryCreate, RMCategoryUpdate, DescriptionColumn,
@@ -163,6 +167,157 @@ async def get_all_boms(
     
     boms = await db.rm_bom.find(query, {"_id": 0}).sort("rm_id", 1).to_list(1000)
     return boms
+
+
+@router.get("/rm-bom/export")
+async def export_rm_boms(
+    level: str = Query("all", description="'2', '3', or 'all'"),
+    include_empty: bool = Query(True, description="Include L2/L3 RMs that have no BOM yet"),
+):
+    """Export L2/L3 RMs with their BOMs as Excel.
+
+    Format matches the bulk upload template (one row per component) so the
+    file can be edited and re-uploaded. Rows for RMs without a BOM appear
+    once with empty BOM columns when include_empty=true (seeding mode).
+    """
+    if level == "2":
+        levels = [2]
+    elif level == "3":
+        levels = [3]
+    else:
+        levels = [2, 3]
+
+    output_rms = await db.raw_materials.find(
+        {"bom_level": {"$in": levels}, "status": {"$ne": "INACTIVE"}},
+        {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1, "bom_level": 1}
+    ).sort("rm_id", 1).to_list(20000)
+
+    if not output_rms:
+        raise HTTPException(status_code=404, detail=f"No L{level} RMs found")
+
+    output_rm_ids = [r["rm_id"] for r in output_rms]
+    boms = await db.rm_bom.find(
+        {"rm_id": {"$in": output_rm_ids}}, {"_id": 0}
+    ).to_list(20000)
+    bom_map = {b["rm_id"]: b for b in boms}
+
+    component_rm_ids = set()
+    for b in boms:
+        for c in b.get("components", []):
+            cid = c.get("component_rm_id")
+            if cid:
+                component_rm_ids.add(cid)
+    comp_info = {}
+    if component_rm_ids:
+        async for rm in db.raw_materials.find(
+            {"rm_id": {"$in": list(component_rm_ids)}},
+            {"_id": 0, "rm_id": 1, "description": 1, "name": 1, "category": 1}
+        ):
+            comp_info[rm["rm_id"]] = rm
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "L2_L3 RM BOMs"
+
+    headers = [
+        "Output RM ID", "Output Description", "Level", "Output Category",
+        "BOM RM ID", "BOM RM Description", "BOM RM Category",
+        "Weight in gm / Pc", "Wastage %"
+    ]
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for idx, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=idx, value=h)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center")
+
+    row = 2
+    rms_with_bom = 0
+    rms_without_bom = 0
+    component_rows = 0
+
+    for r in output_rms:
+        rm_id = r["rm_id"]
+        desc = r.get("description") or r.get("name") or ""
+        lvl = r.get("bom_level")
+        cat = r.get("category")
+        bom = bom_map.get(rm_id)
+
+        if bom and bom.get("components"):
+            rms_with_bom += 1
+            for comp in bom["components"]:
+                cid = comp.get("component_rm_id", "")
+                cinfo = comp_info.get(cid, {})
+                cdesc = cinfo.get("description") or cinfo.get("name") or comp.get("component_name") or ""
+                ccat = cinfo.get("category", "")
+                qty = comp.get("quantity", 0)
+                wf = comp.get("wastage_factor", 1.0)
+                wastage_pct = round((wf - 1.0) * 100, 2) if wf else 0
+                wastage_str = f"{wastage_pct}%"
+
+                ws.cell(row=row, column=1, value=rm_id)
+                ws.cell(row=row, column=2, value=desc)
+                ws.cell(row=row, column=3, value=lvl)
+                ws.cell(row=row, column=4, value=cat)
+                ws.cell(row=row, column=5, value=cid)
+                ws.cell(row=row, column=6, value=cdesc)
+                ws.cell(row=row, column=7, value=ccat)
+                ws.cell(row=row, column=8, value=qty)
+                ws.cell(row=row, column=9, value=wastage_str)
+                row += 1
+                component_rows += 1
+        elif include_empty:
+            rms_without_bom += 1
+            ws.cell(row=row, column=1, value=rm_id)
+            ws.cell(row=row, column=2, value=desc)
+            ws.cell(row=row, column=3, value=lvl)
+            ws.cell(row=row, column=4, value=cat)
+            row += 1
+
+    for col_letter, width in zip("ABCDEFGHI", [14, 50, 7, 10, 14, 50, 10, 16, 12]):
+        ws.column_dimensions[col_letter].width = width
+    ws.freeze_panes = "A2"
+
+    info = wb.create_sheet("Instructions")
+    info_lines = [
+        "L2/L3 RM BOM Export — also acceptable as upload",
+        "",
+        "Each row defines ONE component of an Output RM's BOM.",
+        "Multiple rows with the same Output RM ID are grouped into one BOM.",
+        "",
+        "Columns:",
+        "  - Output RM ID: the L2 or L3 RM that is produced",
+        "  - Output Description: read-only context (ignored on upload)",
+        "  - Level: 2 or 3 (read-only)",
+        "  - Output Category: e.g. INP (L2) or INM (L3) (read-only)",
+        "  - BOM RM ID: a component RM consumed to produce 1 unit of the output",
+        "  - BOM RM Description: read-only context",
+        "  - BOM RM Category: read-only",
+        "  - Weight in gm / Pc: quantity of the component per unit of output",
+        "  - Wastage %: e.g. 2% means a 1.02 multiplier",
+        "",
+        "Empty rows (no BOM RM ID) indicate Output RMs that don't have a BOM yet — fill these in offline and re-upload to seed.",
+        "",
+        f"Filter applied: level={level}, include_empty={include_empty}",
+        f"Output RMs with BOM: {rms_with_bom}",
+        f"Output RMs without BOM: {rms_without_bom}",
+        f"Total component rows: {component_rows}",
+    ]
+    for i, line in enumerate(info_lines, 1):
+        info.cell(row=i, column=1, value=line)
+    info.column_dimensions["A"].width = 100
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    suffix = level if level in ("2", "3") else "all"
+    filename = f"L{suffix}_rm_boms_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/rm-bom/{rm_id}")
@@ -486,6 +641,7 @@ async def bulk_upload_bom(
         "row_errors": row_errors[:50],
         "processed": processed_boms[:50]
     }
+
 
 
 

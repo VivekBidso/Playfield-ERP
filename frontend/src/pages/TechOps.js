@@ -940,7 +940,37 @@ const TechOps = () => {
               <h2 className="text-lg font-bold">RM Bill of Materials</h2>
               <p className="text-sm text-muted-foreground">Define component recipes for manufactured RMs</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button 
+                variant="secondary" 
+                onClick={() => window.open(`${API}/rm-bom/export?level=2`, '_blank')} 
+                className="uppercase text-xs tracking-wide"
+                data-testid="export-l2-bom-btn"
+                title="Download all L2 (INP) RMs and their BOMs"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export L2
+              </Button>
+              <Button 
+                variant="secondary" 
+                onClick={() => window.open(`${API}/rm-bom/export?level=3`, '_blank')} 
+                className="uppercase text-xs tracking-wide"
+                data-testid="export-l3-bom-btn"
+                title="Download all L3 (INM) RMs and their BOMs"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export L3
+              </Button>
+              <Button 
+                variant="secondary" 
+                onClick={() => window.open(`${API}/rm-bom/export?level=all`, '_blank')} 
+                className="uppercase text-xs tracking-wide"
+                data-testid="export-all-bom-btn"
+                title="Download all L2 + L3 RMs and their BOMs"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export L2 + L3
+              </Button>
               <Button variant="outline" onClick={() => setBomUploadOpen(true)} className="uppercase text-xs tracking-wide" data-testid="bulk-upload-bom-btn">
                 <Upload className="w-4 h-4 mr-2" />
                 Bulk Upload
