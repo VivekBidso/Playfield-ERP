@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## April 25, 2026
+
+### Buyer SKU BOM Cost Report (Reports → new tab)
+- **NEW endpoint** `GET /api/rm-prices/buyer-sku-cost-detail/{buyer_sku_id}` — returns BOM line items with avg price (3-mo rolling from `rm_prices_history` → fallback to lowest tagged `vendor_rm_prices`), total BOM cost, avg ASP from `historical_sales`, margin % and margin value, plus source attribution counts (invoice/vendor_map/missing).
+- **NEW endpoint** `GET /api/rm-prices/buyer-sku-cost-export?vertical_code=&model_code=&brand_id=&buyer_sku_id=` — Excel export (Buyer SKU ID · RM ID · RM Description · Qty · Price). Filter resolution uses `bidso_sku_id` regex for vertical/model since those codes aren't denormalized on `buyer_skus`.
+- **`/api/sku-management/buyer-skus`** — already supports `vertical_code` / `model_code` / `brand_id` filters via bidso_sku_id regex; enriched response now carries `vertical_code`, `model_code`, `brand_name`, `vertical_name`, `model_name`.
+- **Frontend `Reports.js`** — new "Buyer SKU BOM Cost" tab with cascading dropdowns Vertical → Model → Brand → Buyer SKU, three KPI cards (BOM Cost / Avg ASP / Margin % colored by tier), full BOM table with per-row source badge (Invoice / Vendor map / No price) and Export Excel button.
+- **Verified end-to-end** with `AD_KS_BE_010` (37 RMs · 5 invoice · 16 vendor map · 16 missing → cost Rs 1,752.87, ASP 810, margin -116.4%).
+
 ## April 23, 2026
 
 ### Training Module Framework + Branch Ops Pilot

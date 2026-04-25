@@ -764,11 +764,14 @@ async def buyer_sku_cost_export(
     Excel columns: Buyer SKU ID | RM ID | RM Description | Qty | Price
     Filters apply progressively (vertical → model → brand → SKU).
     """
+    # vertical_code / model_code are encoded as the first two parts of bidso_sku_id
     q = {"status": {"$ne": "INACTIVE"}}
-    if vertical_code:
-        q["vertical_code"] = vertical_code
-    if model_code:
-        q["model_code"] = model_code
+    if vertical_code and model_code:
+        q["bidso_sku_id"] = {"$regex": f"^{vertical_code}_{model_code}_"}
+    elif vertical_code:
+        q["bidso_sku_id"] = {"$regex": f"^{vertical_code}_"}
+    elif model_code:
+        q["bidso_sku_id"] = {"$regex": f"^[^_]+_{model_code}_"}
     if brand_id:
         q["brand_id"] = brand_id
     if buyer_sku_id:
