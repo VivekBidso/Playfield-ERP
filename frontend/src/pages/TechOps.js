@@ -446,7 +446,7 @@ const TechOps = () => {
       const res = await axios.post(
         `${API}/rm-bom/bulk-upload?mode=${bomUploadMode}`,
         formData,
-        { headers: { ...getHeaders(), "Content-Type": "multipart/form-data" } }
+        { headers: { "Content-Type": "multipart/form-data" } }
       );
       
       const d = res.data;
