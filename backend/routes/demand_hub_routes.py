@@ -24,7 +24,7 @@ async def sync_bidso_skus_from_preview():
     """
     try:
         # Fetch the exported JSON from preview
-        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/bidso_skus_export.json"
+        preview_url = "https://mfg-ops-suite-3.preview.emergentagent.com/bidso_skus_export.json"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(preview_url)
@@ -78,7 +78,7 @@ async def sync_buyer_skus_from_preview():
     Now writes directly to buyer_skus collection (new model).
     """
     try:
-        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/buyer_skus_export.json"
+        preview_url = "https://mfg-ops-suite-3.preview.emergentagent.com/buyer_skus_export.json"
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(preview_url)
@@ -147,7 +147,7 @@ async def sync_common_boms_from_preview():
     Sync Common BOMs from preview environment.
     """
     try:
-        preview_url = "https://mfg-ops-suite-1.preview.emergentagent.com/common_boms_export.json"
+        preview_url = "https://mfg-ops-suite-3.preview.emergentagent.com/common_boms_export.json"
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(preview_url)
