@@ -30,7 +30,7 @@ next-env.d.ts
 dist/
 dist
 
-# Environment and credential files
+# Credentials (NOTE: .env files are intentionally NOT ignored — Emergent deploy needs them)
 *token.json*
 *credentials.json*
 memory/test_credentials.md
@@ -45,6 +45,7 @@ dump.rdb
 # System files
 .DS_Store
 *.pem
+*.key
 
 # Python
 __pycache__/
@@ -77,86 +78,5 @@ frontend/node_modules/.cache/
 
 # Test reports
 /test_reports/
-frontend/node_modules/.cache/default-development/39.pack
-frontend/node_modules/.cache/default-development/9.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/41.pack
-frontend/node_modules/.cache/default-development/43.pack
-frontend/node_modules/.cache/default-development/37.pack
-frontend/node_modules/.cache/default-development/44.pack
-frontend/node_modules/.cache/default-development/47.pack
-frontend/node_modules/.cache/default-development/46.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/50.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/54.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
 frontend/node_modules/.cache/default-development/1.pack
+frontend/node_modules/.cache/default-development/54.pack
