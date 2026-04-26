@@ -1,6 +1,14 @@
 # CHANGELOG
 
-## April 26, 2026
+## April 26, 2026 (later)
+
+### Buyer SKU BOM Cost — Belt-and-suspenders filter (works with old & new backend)
+- **Why:** User's production frontend was deployed but production **backend** was still on the older version that doesn't recognize `vertical_id`/`model_id` query params. FastAPI silently drops unknown params → only `brand_id` filtered → user saw FC SKUs from wrong verticals.
+- **Fix in `Reports.js`:**
+  - Frontend now sends BOTH UUIDs and codes: `vertical_id` + `vertical_code`, `model_id` + `model_code`. Old backend uses regex on `bidso_sku_id` prefix; new backend prefers UUID lookup.
+  - Added a **client-side defensive filter** that re-filters the response by `bidso_sku_id` prefix (`{vertical_code}_{model_code}_…`). This guarantees the dropdown is correct **regardless of which backend version is deployed**.
+- Same dual-param strategy applied to the **export** call (`/api/rm-prices/buyer-sku-cost-export`).
+- **Verified preview:** Walker (BW) → 66 SKUs · + Firstcry (FC) → 8 SKUs, all confirmed `FC_BW_*` prefixed.
 
 ### Demand Forecasts — "SKU BOM & Cost" tab removed
 - Removed the redundant `SKU BOM & Cost` tab from `/demand` (`Demand.js`). Same functionality lives in **Reports → Buyer SKU BOM Cost**, so we now have a single source of truth.

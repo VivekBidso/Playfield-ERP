@@ -218,14 +218,30 @@ const Reports = () => {
     const reqId = ++bscRequestIdRef.current;
     const params = new URLSearchParams();
     params.append("page_size", "2000");
+    // Send BOTH UUID and CODE so old (code-only) and new (UUID-aware) backends both filter correctly.
     if (filters.vertical_id) params.append("vertical_id", filters.vertical_id);
+    if (filters.vertical_code) params.append("vertical_code", filters.vertical_code);
     if (filters.model_id) params.append("model_id", filters.model_id);
+    if (filters.model_code) params.append("model_code", filters.model_code);
     if (filters.brand_id) params.append("brand_id", filters.brand_id);
     try {
       const res = await axios.get(`${API}/sku-management/buyer-skus?${params}`);
       // Discard if a newer request superseded this one
       if (reqId !== bscRequestIdRef.current) return;
-      const items = res.data?.items || res.data || [];
+      let items = res.data?.items || res.data || [];
+      // ---- Client-side defensive filter ----
+      // Some deployed backends may not honor vertical_code/model_code/vertical_id params
+      // (e.g. mid-rollout). Re-filter here using the bidso_sku_id prefix so the UI is
+      // always correct regardless of backend version.
+      if (filters.vertical_code || filters.model_code) {
+        items = items.filter(s => {
+          const bidso = s.bidso_sku_id || "";
+          const parts = bidso.split("_");
+          if (filters.vertical_code && parts[0] !== filters.vertical_code) return false;
+          if (filters.model_code && parts[1] !== filters.model_code) return false;
+          return true;
+        });
+      }
       setBscBuyerSKUs(items);
     } catch (err) {
       if (reqId !== bscRequestIdRef.current) return;
@@ -282,8 +298,11 @@ const Reports = () => {
 
   const handleBscExport = async () => {
     const params = new URLSearchParams();
+    // Send BOTH UUIDs and codes — old backends honor codes, new backends honor UUIDs.
     if (bscFilters.vertical_id) params.append("vertical_id", bscFilters.vertical_id);
+    if (bscFilters.vertical_code) params.append("vertical_code", bscFilters.vertical_code);
     if (bscFilters.model_id) params.append("model_id", bscFilters.model_id);
+    if (bscFilters.model_code) params.append("model_code", bscFilters.model_code);
     if (bscFilters.brand_id) params.append("brand_id", bscFilters.brand_id);
     if (bscFilters.buyer_sku_id) params.append("buyer_sku_id", bscFilters.buyer_sku_id);
     try {
