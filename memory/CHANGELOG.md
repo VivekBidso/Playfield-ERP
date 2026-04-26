@@ -2,6 +2,20 @@
 
 ## April 26, 2026
 
+### Buyer SKU BOM Cost — UUID-based filtering (production data robustness)
+- **Bug:** In production, picking a Vertical (e.g. Electric Rideon = code `EV`) returned **0** Buyer SKUs and made Export fail with "No Buyer SKUs match the filter". Root cause: the previous filter used a regex on `bidso_sku_id` prefix (`^EV_`) which only worked when SKUs strictly followed the `{vertical_code}_{model_code}_{numeric}` convention. Production data had bidso_sku_ids that didn't conform.
+- **Fix — switch to the same UUID relationships Tech Ops uses:**
+  - **Backend `GET /api/sku-management/buyer-skus`**: now accepts `vertical_id` and `model_id`. Resolves them against `db.bidso_skus` to get a list of matching `bidso_sku_id`s, then filters `db.buyer_skus` with `$in`. Code-regex path retained as backward-compat fallback.
+  - **Backend `GET /api/rm-prices/buyer-sku-cost-export`**: same UUID-based filtering.
+  - **Backend `GET /api/models?vertical_id=…`**: already supported; frontend now leverages it server-side instead of fetching all models and client-filtering by code.
+- **Frontend `Reports.js`:**
+  - Dropdowns now bind to `vertical_id` / `model_id` UUIDs (the Tech Ops master-data identifiers).
+  - Vertical/Model labels show "Name (CODE)" so the user sees both.
+  - Always shows "X SKUs match" inline (red when 0) regardless of count, so users get immediate feedback as they narrow filters.
+  - Export error path now reads the JSON detail out of the blob response for a meaningful toast.
+  - `Blob` constructor now wraps the response data, ensuring browser triggers the download reliably.
+- **Verified preview:** Electric Rideon → 53 SKUs match; + Zuno model → 21 SKUs match; Export returns 64 KB Excel.
+
 ### Buyer SKU BOM Cost — Race Condition Fix (production)
 - **Bug:** In production, picking Vertical → Model → Brand sometimes left the Buyer SKU dropdown showing wrong SKUs (e.g., EL/KM/CK SKUs while filter chip said "Lifelong"). Root cause: the initial unfiltered fetch of 500 SKUs (heavy due to per-row brand/buyer/bidso enrichment) resolved AFTER faster filtered fetches and overwrote them. Preview was fast enough to mask it; production wasn't.
 - **Fix in `Reports.js`:**

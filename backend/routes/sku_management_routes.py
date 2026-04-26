@@ -976,6 +976,8 @@ async def get_buyer_skus(
     bidso_sku_id: Optional[str] = None,
     brand_id: Optional[str] = None,
     buyer_id: Optional[str] = None,
+    vertical_id: Optional[str] = None,
+    model_id: Optional[str] = None,
     vertical_code: Optional[str] = None,
     model_code: Optional[str] = None,
     search: Optional[str] = None,
@@ -983,7 +985,13 @@ async def get_buyer_skus(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(50, ge=1, le=10000, description="Items per page (max 10000 for downloads)")
 ):
-    """Get all Buyer SKUs with optional filters and pagination"""
+    """Get all Buyer SKUs with optional filters and pagination.
+
+    Filtering by Vertical/Model uses UUIDs (vertical_id / model_id) — same source
+    of truth as Tech Ops. We resolve those UUIDs against `db.bidso_skus` to get
+    a list of bidso_sku_ids, then filter `db.buyer_skus` by that list.
+    Falls back to vertical_code / model_code regex on bidso_sku_id for backward compat.
+    """
     query = {}
     if not include_inactive:
         query["status"] = "ACTIVE"
@@ -993,8 +1001,24 @@ async def get_buyer_skus(
         query["brand_id"] = brand_id
     if buyer_id:
         query["buyer_id"] = buyer_id
-    # vertical_code and model_code are encoded as the first two parts of bidso_sku_id
-    if vertical_code and model_code:
+
+    # Preferred path: resolve vertical_id / model_id via bidso_skus → list of bidso_sku_ids
+    if vertical_id or model_id:
+        bidso_q = {}
+        if vertical_id:
+            bidso_q["vertical_id"] = vertical_id
+        if model_id:
+            bidso_q["model_id"] = model_id
+        bidso_ids = [b["bidso_sku_id"] async for b in db.bidso_skus.find(bidso_q, {"_id": 0, "bidso_sku_id": 1})]
+        if not bidso_ids:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
+        # Combine with explicit bidso_sku_id if both passed
+        if "bidso_sku_id" in query and isinstance(query["bidso_sku_id"], str):
+            query["bidso_sku_id"] = query["bidso_sku_id"] if query["bidso_sku_id"] in bidso_ids else "__no_match__"
+        else:
+            query["bidso_sku_id"] = {"$in": bidso_ids}
+    # Backward-compat: code-based regex filter (only used when UUIDs not supplied)
+    elif vertical_code and model_code:
         query["bidso_sku_id"] = {"$regex": f"^{vertical_code}_{model_code}_"}
     elif vertical_code:
         query["bidso_sku_id"] = {"$regex": f"^{vertical_code}_"}

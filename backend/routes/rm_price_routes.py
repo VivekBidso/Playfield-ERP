@@ -754,6 +754,8 @@ async def buyer_sku_cost_detail(buyer_sku_id: str):
 
 @router.get("/buyer-sku-cost-export")
 async def buyer_sku_cost_export(
+    vertical_id: Optional[str] = None,
+    model_id: Optional[str] = None,
     vertical_code: Optional[str] = None,
     model_code: Optional[str] = None,
     brand_id: Optional[str] = None,
@@ -763,10 +765,24 @@ async def buyer_sku_cost_export(
 
     Excel columns: Buyer SKU ID | RM ID | RM Description | Qty | Price
     Filters apply progressively (vertical → model → brand → SKU).
+
+    Vertical / Model filtering uses UUIDs (vertical_id / model_id) resolved against
+    `db.bidso_skus` → same source of truth as Tech Ops. Falls back to code-regex
+    on bidso_sku_id for backward compat.
     """
     # vertical_code / model_code are encoded as the first two parts of bidso_sku_id
     q = {"status": {"$ne": "INACTIVE"}}
-    if vertical_code and model_code:
+    if vertical_id or model_id:
+        bidso_q = {}
+        if vertical_id:
+            bidso_q["vertical_id"] = vertical_id
+        if model_id:
+            bidso_q["model_id"] = model_id
+        bidso_ids = [b["bidso_sku_id"] async for b in db.bidso_skus.find(bidso_q, {"_id": 0, "bidso_sku_id": 1})]
+        if not bidso_ids:
+            raise HTTPException(status_code=404, detail="No Buyer SKUs match the filter")
+        q["bidso_sku_id"] = {"$in": bidso_ids}
+    elif vertical_code and model_code:
         q["bidso_sku_id"] = {"$regex": f"^{vertical_code}_{model_code}_"}
     elif vertical_code:
         q["bidso_sku_id"] = {"$regex": f"^{vertical_code}_"}
@@ -864,6 +880,8 @@ async def buyer_sku_cost_export(
     suffix_parts = []
     if vertical_code:
         suffix_parts.append(vertical_code)
+    elif vertical_id:
+        suffix_parts.append(vertical_id[:8])
     if brand_id:
         suffix_parts.append(brand_id[:8])
     if buyer_sku_id:

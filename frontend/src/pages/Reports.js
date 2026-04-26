@@ -39,7 +39,9 @@ const Reports = () => {
 
   // Buyer SKU BOM Cost state
   const [bscFilters, setBscFilters] = useState({
+    vertical_id: "",
     vertical_code: "",
+    model_id: "",
     model_code: "",
     brand_id: "",
     buyer_sku_id: "",
@@ -190,18 +192,15 @@ const Reports = () => {
     }
   };
 
-  const fetchBscModels = async (verticalCode) => {
-    if (!verticalCode) {
+  const fetchBscModels = async (verticalId) => {
+    if (!verticalId) {
       setBscModels([]);
       return;
     }
     try {
-      const res = await axios.get(`${API}/models`);
-      const all = res.data || [];
-      // Find vertical_id for the given code
-      const v = bscVerticals.find(x => x.code === verticalCode);
-      const filtered = v ? all.filter(m => m.vertical_id === v.id) : [];
-      setBscModels(filtered);
+      const res = await axios.get(`${API}/models?vertical_id=${encodeURIComponent(verticalId)}`);
+      const all = (res.data || []).filter(m => m.status !== "INACTIVE");
+      setBscModels(all);
     } catch (err) {
       console.error("Failed to fetch models", err);
     }
@@ -210,7 +209,7 @@ const Reports = () => {
   const fetchBscBuyerSKUs = async (filters) => {
     // Don't fetch if no filter is set — keeps the dropdown empty until the user narrows down,
     // and prevents a slow unfiltered call from racing past faster filtered calls.
-    const hasAnyFilter = !!(filters.vertical_code || filters.model_code || filters.brand_id);
+    const hasAnyFilter = !!(filters.vertical_id || filters.model_id || filters.brand_id);
     if (!hasAnyFilter) {
       bscRequestIdRef.current += 1;
       setBscBuyerSKUs([]);
@@ -219,8 +218,8 @@ const Reports = () => {
     const reqId = ++bscRequestIdRef.current;
     const params = new URLSearchParams();
     params.append("page_size", "2000");
-    if (filters.vertical_code) params.append("vertical_code", filters.vertical_code);
-    if (filters.model_code) params.append("model_code", filters.model_code);
+    if (filters.vertical_id) params.append("vertical_id", filters.vertical_id);
+    if (filters.model_id) params.append("model_id", filters.model_id);
     if (filters.brand_id) params.append("brand_id", filters.brand_id);
     try {
       const res = await axios.get(`${API}/sku-management/buyer-skus?${params}`);
@@ -254,12 +253,18 @@ const Reports = () => {
 
   const handleBscFilterChange = (key, value) => {
     const next = { ...bscFilters, [key]: value };
-    if (key === "vertical_code") {
+    if (key === "vertical_id") {
+      // Find matching vertical to also store its code
+      const v = bscVerticals.find(x => x.id === value);
+      next.vertical_code = v?.code || "";
+      next.model_id = "";
       next.model_code = "";
       next.brand_id = "";
       next.buyer_sku_id = "";
       fetchBscModels(value);
-    } else if (key === "model_code") {
+    } else if (key === "model_id") {
+      const m = bscModels.find(x => x.id === value);
+      next.model_code = m?.code || "";
       next.brand_id = "";
       next.buyer_sku_id = "";
     } else if (key === "brand_id") {
@@ -277,15 +282,18 @@ const Reports = () => {
 
   const handleBscExport = async () => {
     const params = new URLSearchParams();
-    if (bscFilters.vertical_code) params.append("vertical_code", bscFilters.vertical_code);
-    if (bscFilters.model_code) params.append("model_code", bscFilters.model_code);
+    if (bscFilters.vertical_id) params.append("vertical_id", bscFilters.vertical_id);
+    if (bscFilters.model_id) params.append("model_id", bscFilters.model_id);
     if (bscFilters.brand_id) params.append("brand_id", bscFilters.brand_id);
     if (bscFilters.buyer_sku_id) params.append("buyer_sku_id", bscFilters.buyer_sku_id);
     try {
       const res = await axios.get(`${API}/rm-prices/buyer-sku-cost-export?${params}`, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(res.data);
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       const suffix = [bscFilters.vertical_code, bscFilters.brand_id?.slice(0, 8), bscFilters.buyer_sku_id]
@@ -293,15 +301,26 @@ const Reports = () => {
       a.download = `buyer_sku_bom_cost_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 200);
       toast.success("Exported");
     } catch (err) {
+      // axios with responseType:'blob' returns the error body as a blob — read it as text
+      let detail = "Export failed";
       if (err.response?.status === 404) {
-        toast.error("No Buyer SKUs match the filter");
-      } else {
-        toast.error("Export failed");
+        detail = "No Buyer SKUs match the filter";
+      } else if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          detail = parsed.detail || detail;
+        } catch {
+          // ignore
+        }
       }
+      toast.error(detail);
     }
   };
 
@@ -1247,8 +1266,8 @@ const Reports = () => {
                   <div>
                     <label className="text-xs font-medium text-orange-900">Select Vertical</label>
                     <Select
-                      value={bscFilters.vertical_code || "_all"}
-                      onValueChange={(v) => handleBscFilterChange("vertical_code", v === "_all" ? "" : v)}
+                      value={bscFilters.vertical_id || "_all"}
+                      onValueChange={(v) => handleBscFilterChange("vertical_id", v === "_all" ? "" : v)}
                     >
                       <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-vertical">
                         <SelectValue placeholder="Choose vertical..." />
@@ -1256,8 +1275,8 @@ const Reports = () => {
                       <SelectContent>
                         <SelectItem value="_all">All Verticals</SelectItem>
                         {bscVerticals.map(v => (
-                          <SelectItem key={v.code || v.id || v.vertical_code} value={v.code || v.vertical_code}>
-                            {v.name || v.code}
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.name} ({v.code})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1266,18 +1285,18 @@ const Reports = () => {
                   <div>
                     <label className="text-xs font-medium text-orange-900">Select Model</label>
                     <Select
-                      value={bscFilters.model_code || "_all"}
-                      onValueChange={(v) => handleBscFilterChange("model_code", v === "_all" ? "" : v)}
-                      disabled={!bscFilters.vertical_code}
+                      value={bscFilters.model_id || "_all"}
+                      onValueChange={(v) => handleBscFilterChange("model_id", v === "_all" ? "" : v)}
+                      disabled={!bscFilters.vertical_id}
                     >
                       <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-model">
-                        <SelectValue placeholder={bscFilters.vertical_code ? "Choose model..." : "Pick vertical first"} />
+                        <SelectValue placeholder={bscFilters.vertical_id ? "Choose model..." : "Pick vertical first"} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_all">All Models</SelectItem>
                         {bscModels.map(m => (
-                          <SelectItem key={m.code || m.id || m.model_code} value={m.code || m.model_code}>
-                            {m.name || m.code}
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name} ({m.code})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1307,11 +1326,11 @@ const Reports = () => {
                     <Select
                       value={bscFilters.buyer_sku_id || "_none"}
                       onValueChange={(v) => handleBscFilterChange("buyer_sku_id", v === "_none" ? "" : v)}
-                      disabled={!bscFilters.vertical_code && !bscFilters.model_code && !bscFilters.brand_id}
+                      disabled={!bscFilters.vertical_id && !bscFilters.model_id && !bscFilters.brand_id}
                     >
                       <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-buyer-sku">
                         <SelectValue placeholder={
-                          (!bscFilters.vertical_code && !bscFilters.model_code && !bscFilters.brand_id)
+                          (!bscFilters.vertical_id && !bscFilters.model_id && !bscFilters.brand_id)
                             ? "Pick Vertical / Model / Brand first"
                             : (bscBuyerSKUs.length === 0 ? "No SKUs match" : "Choose Buyer SKU...")
                         } />
@@ -1325,8 +1344,10 @@ const Reports = () => {
                         ))}
                       </SelectContent>
                     </Select>
-                    {bscBuyerSKUs.length > 0 && (
-                      <div className="text-[10px] text-orange-700 mt-1">{bscBuyerSKUs.length} SKUs available</div>
+                    {(bscFilters.vertical_id || bscFilters.model_id || bscFilters.brand_id) && (
+                      <div className={`text-[10px] mt-1 ${bscBuyerSKUs.length === 0 ? "text-red-600" : "text-orange-700"}`} data-testid="bsc-sku-count">
+                        {bscBuyerSKUs.length} SKU{bscBuyerSKUs.length === 1 ? "" : "s"} match
+                      </div>
                     )}
                   </div>
                 </div>
