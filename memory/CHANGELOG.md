@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## April 26, 2026
+
+### Buyer SKU BOM Cost — Race Condition Fix (production)
+- **Bug:** In production, picking Vertical → Model → Brand sometimes left the Buyer SKU dropdown showing wrong SKUs (e.g., EL/KM/CK SKUs while filter chip said "Lifelong"). Root cause: the initial unfiltered fetch of 500 SKUs (heavy due to per-row brand/buyer/bidso enrichment) resolved AFTER faster filtered fetches and overwrote them. Preview was fast enough to mask it; production wasn't.
+- **Fix in `Reports.js`:**
+  - Added `bscRequestIdRef` — every fetch tags itself with an incrementing id; stale responses are discarded.
+  - Removed initial unfiltered prefetch on tab load — Buyer SKU dropdown stays empty until at least one of Vertical / Model / Brand is picked.
+  - Buyer SKU `Select` is now `disabled` until a filter is set (placeholder: "Pick Vertical / Model / Brand first").
+  - Page size bumped from 500 → 2000.
+- Verified: Scooter + Aditi Toys filter now returns exactly Aditi-branded Scooter SKUs.
+
 ## April 25, 2026
 
 ### Buyer SKU BOM Cost Report (Reports → new tab)

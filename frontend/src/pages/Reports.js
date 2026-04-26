@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Download, FileText, Factory, TrendingUp, Users, Package, Filter, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,8 @@ const Reports = () => {
   const [bscBuyerSKUs, setBscBuyerSKUs] = useState([]);
   const [bscDetail, setBscDetail] = useState(null);
   const [bscLoading, setBscLoading] = useState(false);
+  // Guard against out-of-order responses (latest filter wins)
+  const bscRequestIdRef = useRef(0);
   
   // Report data states
   const [dispatchOriginData, setDispatchOriginData] = useState(null);
@@ -179,8 +181,10 @@ const Reports = () => {
       ]);
       setBscVerticals((vRes.data || []).filter(v => v.status === "ACTIVE" || !v.status));
       setBscBrands((bRes.data || []).filter(b => b.status === "ACTIVE" || !b.status));
-      // Initial buyer SKU list: empty until vertical is picked, but seed full list once
-      fetchBscBuyerSKUs({});
+      // Reset SKU dropdown — only fetch when at least one filter is picked,
+      // otherwise an unfiltered 500-row fetch can race and overwrite later filtered results.
+      bscRequestIdRef.current += 1;
+      setBscBuyerSKUs([]);
     } catch (err) {
       console.error("Failed to fetch verticals/brands", err);
     }
@@ -204,16 +208,28 @@ const Reports = () => {
   };
 
   const fetchBscBuyerSKUs = async (filters) => {
+    // Don't fetch if no filter is set — keeps the dropdown empty until the user narrows down,
+    // and prevents a slow unfiltered call from racing past faster filtered calls.
+    const hasAnyFilter = !!(filters.vertical_code || filters.model_code || filters.brand_id);
+    if (!hasAnyFilter) {
+      bscRequestIdRef.current += 1;
+      setBscBuyerSKUs([]);
+      return;
+    }
+    const reqId = ++bscRequestIdRef.current;
     const params = new URLSearchParams();
-    params.append("page_size", "500");
+    params.append("page_size", "2000");
     if (filters.vertical_code) params.append("vertical_code", filters.vertical_code);
     if (filters.model_code) params.append("model_code", filters.model_code);
     if (filters.brand_id) params.append("brand_id", filters.brand_id);
     try {
       const res = await axios.get(`${API}/sku-management/buyer-skus?${params}`);
+      // Discard if a newer request superseded this one
+      if (reqId !== bscRequestIdRef.current) return;
       const items = res.data?.items || res.data || [];
       setBscBuyerSKUs(items);
     } catch (err) {
+      if (reqId !== bscRequestIdRef.current) return;
       console.error("Failed to fetch buyer SKUs", err);
       setBscBuyerSKUs([]);
     }
@@ -1291,9 +1307,14 @@ const Reports = () => {
                     <Select
                       value={bscFilters.buyer_sku_id || "_none"}
                       onValueChange={(v) => handleBscFilterChange("buyer_sku_id", v === "_none" ? "" : v)}
+                      disabled={!bscFilters.vertical_code && !bscFilters.model_code && !bscFilters.brand_id}
                     >
                       <SelectTrigger className="h-9 text-xs mt-1" data-testid="bsc-buyer-sku">
-                        <SelectValue placeholder="Choose Buyer SKU..." />
+                        <SelectValue placeholder={
+                          (!bscFilters.vertical_code && !bscFilters.model_code && !bscFilters.brand_id)
+                            ? "Pick Vertical / Model / Brand first"
+                            : (bscBuyerSKUs.length === 0 ? "No SKUs match" : "Choose Buyer SKU...")
+                        } />
                       </SelectTrigger>
                       <SelectContent className="max-h-[300px]">
                         <SelectItem value="_none">— Pick one —</SelectItem>
