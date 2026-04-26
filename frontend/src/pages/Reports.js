@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Download, FileText, Factory, TrendingUp, Users, Package, Filter, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -540,36 +540,40 @@ const Reports = () => {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-7 w-full max-w-5xl">
-          <TabsTrigger value="dispatch-origin" className="text-xs">
-            <Package className="h-3 w-3 mr-1" />
-            Dispatch Origin
-          </TabsTrigger>
-          <TabsTrigger value="production-unit" className="text-xs">
-            <Factory className="h-3 w-3 mr-1" />
-            Production by Unit
-          </TabsTrigger>
-          <TabsTrigger value="forecast-actual" className="text-xs">
-            <TrendingUp className="h-3 w-3 mr-1" />
-            Forecast vs Actual
-          </TabsTrigger>
-          <TabsTrigger value="buyer-history" className="text-xs">
-            <Users className="h-3 w-3 mr-1" />
-            Buyer History
-          </TabsTrigger>
-          <TabsTrigger value="historical" className="text-xs" data-testid="historical-tab">
-            <FileText className="h-3 w-3 mr-1" />
-            Historical Data
-          </TabsTrigger>
-          <TabsTrigger value="margin" className="text-xs" data-testid="margin-tab">
-            <TrendingUp className="h-3 w-3 mr-1" />
-            Margin Report
-          </TabsTrigger>
-          <TabsTrigger value="buyer-sku-bom-cost" className="text-xs" data-testid="buyer-sku-bom-cost-tab">
-            <FileText className="h-3 w-3 mr-1" />
-            Buyer SKU BOM Cost
-          </TabsTrigger>
-        </TabsList>
+        {/* Tabs as a dropdown selector — clearer than horizontal pills when there are many reports */}
+        <div className="flex items-center gap-3 max-w-md" data-testid="reports-tab-selector">
+          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
+            Report
+          </label>
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="h-10 text-sm" data-testid="reports-tab-trigger">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dispatch-origin">
+                <span className="inline-flex items-center"><Package className="h-3 w-3 mr-2" />Dispatch Origin</span>
+              </SelectItem>
+              <SelectItem value="production-unit">
+                <span className="inline-flex items-center"><Factory className="h-3 w-3 mr-2" />Production by Unit</span>
+              </SelectItem>
+              <SelectItem value="forecast-actual">
+                <span className="inline-flex items-center"><TrendingUp className="h-3 w-3 mr-2" />Forecast vs Actual</span>
+              </SelectItem>
+              <SelectItem value="buyer-history">
+                <span className="inline-flex items-center"><Users className="h-3 w-3 mr-2" />Buyer History</span>
+              </SelectItem>
+              <SelectItem value="historical" data-testid="historical-tab">
+                <span className="inline-flex items-center"><FileText className="h-3 w-3 mr-2" />Historical Data</span>
+              </SelectItem>
+              <SelectItem value="margin" data-testid="margin-tab">
+                <span className="inline-flex items-center"><TrendingUp className="h-3 w-3 mr-2" />Margin Report</span>
+              </SelectItem>
+              <SelectItem value="buyer-sku-bom-cost" data-testid="buyer-sku-bom-cost-tab">
+                <span className="inline-flex items-center"><FileText className="h-3 w-3 mr-2" />Buyer SKU BOM Cost</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Dispatch by Manufacturing Origin */}
         <TabsContent value="dispatch-origin" className="space-y-4">
