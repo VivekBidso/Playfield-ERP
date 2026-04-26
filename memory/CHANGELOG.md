@@ -2,6 +2,14 @@
 
 ## April 26, 2026
 
+### Demand Forecasts — "SKU BOM & Cost" tab removed
+- Removed the redundant `SKU BOM & Cost` tab from `/demand` (`Demand.js`). Same functionality lives in **Reports → Buyer SKU BOM Cost**, so we now have a single source of truth.
+- Removed:
+  - `<TabsTrigger value="sku-bom">` and its `<TabsContent>` block (~100 lines of JSX)
+  - `fetchBomData()` helper (~45 lines) and its call in `fetchMasterData()`
+  - State `skuBomMap`, `expandedSku` and the `Layers` icon import (no longer used)
+- Lint clean. Verified the page now shows only the FORECASTS tab.
+
 ### Buyer SKU BOM Cost — UUID-based filtering (production data robustness)
 - **Bug:** In production, picking a Vertical (e.g. Electric Rideon = code `EV`) returned **0** Buyer SKUs and made Export fail with "No Buyer SKUs match the filter". Root cause: the previous filter used a regex on `bidso_sku_id` prefix (`^EV_`) which only worked when SKUs strictly followed the `{vertical_code}_{model_code}_{numeric}` convention. Production data had bidso_sku_ids that didn't conform.
 - **Fix — switch to the same UUID relationships Tech Ops uses:**

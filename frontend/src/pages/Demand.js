@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import useAuthStore from "@/store/authStore";
-import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, Layers, FileSpreadsheet, X, CheckSquare, Package, Pencil, Trash2, AlertTriangle, Filter } from "lucide-react";
+import { Plus, TrendingUp, Upload, Download, ChevronDown, ChevronUp, DollarSign, FileSpreadsheet, X, CheckSquare, Package, Pencil, Trash2, AlertTriangle, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,8 +26,6 @@ const Demand = () => {
   const [verticals, setVerticals] = useState([]);
   const [models, setModels] = useState([]);
   const [brands, setBrands] = useState([]);
-  const [skuBomMap, setSkuBomMap] = useState({});
-  const [expandedSku, setExpandedSku] = useState(null);
   
   // Selection state for bulk confirmation
   const [selectedForecasts, setSelectedForecasts] = useState(new Set());
@@ -122,9 +120,6 @@ const Demand = () => {
       setModels(modelsRes.data);
       setBrands(brandsRes.data);
       
-      // Fetch BOM data for SKUs
-      await fetchBomData(skusRes.data, headers);
-      
     } catch (error) {
       console.error("Failed to fetch master data:", error);
       toast.error("Failed to fetch data");
@@ -154,51 +149,6 @@ const Demand = () => {
   const fetchAllData = async () => {
     await fetchMasterData();
     await fetchForecasts();
-  };
-
-  const fetchBomData = async (skuList, headers) => {
-    try {
-      const bomRes = await axios.get(`${API}/bill-of-materials`, { headers });
-      const rmRes = await axios.get(`${API}/raw-materials`, { headers });
-      
-      let priceMap = {};
-      try {
-        const priceRes = await axios.get(`${API}/vendor-rm-prices/comparison`, { headers });
-        priceRes.data?.forEach(p => { 
-          if (!priceMap[p.rm_id] || p.lowest_price < priceMap[p.rm_id]) {
-            priceMap[p.rm_id] = p.lowest_price;
-          }
-        });
-      } catch (e) {
-        console.log("No price data available");
-      }
-      
-      const rmMap = {};
-      rmRes.data.forEach(rm => { rmMap[rm.rm_id] = rm; });
-      
-      const bomMap = {};
-      bomRes.data.forEach(bom => {
-        if (!bomMap[bom.sku_id]) {
-          bomMap[bom.sku_id] = { items: [], totalCost: 0 };
-        }
-        const rm = rmMap[bom.rm_id] || {};
-        const price = priceMap[bom.rm_id] || 0;
-        const itemCost = price * (bom.quantity || 0);
-        
-        bomMap[bom.sku_id].items.push({
-          rm_id: bom.rm_id,
-          rm_name: rm.category_data?.type || rm.category || bom.rm_id,
-          quantity: bom.quantity,
-          unit_price: price,
-          item_cost: itemCost
-        });
-        bomMap[bom.sku_id].totalCost += itemCost;
-      });
-      
-      setSkuBomMap(bomMap);
-    } catch (error) {
-      console.error("Failed to fetch BOM data:", error);
-    }
   };
 
   // Cascading filter logic
@@ -819,10 +769,6 @@ const Demand = () => {
             <TrendingUp className="w-4 h-4 mr-2" />
             Forecasts
           </TabsTrigger>
-          <TabsTrigger value="sku-bom" className="uppercase text-xs tracking-wide">
-            <Layers className="w-4 h-4 mr-2" />
-            SKU BOM & Cost
-          </TabsTrigger>
         </TabsList>
 
         {/* Forecasts Tab */}
@@ -1325,105 +1271,6 @@ const Demand = () => {
             onPageSizeChange={handlePageSizeChange}
             loading={loading}
           />
-        </TabsContent>
-
-        {/* SKU BOM & Cost Tab */}
-        <TabsContent value="sku-bom">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold">SKU BOM Breakdown & Cost</h2>
-            <p className="text-xs text-zinc-500 font-mono mt-1">View RM mapping and total BOM cost for each SKU</p>
-          </div>
-          
-          <div className="border rounded-sm overflow-hidden bg-white">
-            <table className="w-full">
-              <thead className="bg-zinc-50">
-                <tr>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase w-8"></th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">SKU ID</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Description</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">Vertical</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">RM Count</th>
-                  <th className="h-10 px-4 text-left font-mono text-xs uppercase">BOM Cost (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skus.slice(0, 100).map((sku) => {
-                  const bom = skuBomMap[sku.sku_id];
-                  const isExpanded = expandedSku === sku.sku_id;
-                  
-                  return (
-                    <>
-                      <tr 
-                        key={sku.sku_id} 
-                        className={`border-t cursor-pointer hover:bg-zinc-50 ${isExpanded ? 'bg-zinc-50' : ''}`}
-                        onClick={() => setExpandedSku(isExpanded ? null : sku.sku_id)}
-                      >
-                        <td className="p-4">
-                          {bom?.items?.length > 0 && (
-                            isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
-                          )}
-                        </td>
-                        <td className="p-4 font-mono font-bold text-sm">{sku.sku_id}</td>
-                        <td className="p-4 text-sm text-zinc-600">{sku.description?.slice(0, 40)}</td>
-                        <td className="p-4 text-sm">{sku.vertical}</td>
-                        <td className="p-4 font-mono">{bom?.items?.length || 0}</td>
-                        <td className="p-4">
-                          {bom?.totalCost > 0 ? (
-                            <span className="font-mono font-bold text-green-700">
-                              ₹{bom.totalCost.toFixed(2)}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-zinc-400 font-mono">No cost data</span>
-                          )}
-                        </td>
-                      </tr>
-                      {isExpanded && bom?.items?.length > 0 && (
-                        <tr key={`${sku.sku_id}-bom`}>
-                          <td colSpan={6} className="p-0">
-                            <div className="bg-zinc-100 p-4 border-t">
-                              <h4 className="text-xs uppercase font-bold mb-2 text-zinc-600">BOM Details</h4>
-                              <table className="w-full">
-                                <thead>
-                                  <tr className="text-xs font-mono text-zinc-500 uppercase">
-                                    <th className="text-left py-2 px-3">RM ID</th>
-                                    <th className="text-left py-2 px-3">Type</th>
-                                    <th className="text-right py-2 px-3">Qty</th>
-                                    <th className="text-right py-2 px-3">Unit Price</th>
-                                    <th className="text-right py-2 px-3">Cost</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {bom.items.map((item, idx) => (
-                                    <tr key={idx} className="border-t border-zinc-200">
-                                      <td className="py-2 px-3 font-mono text-sm">{item.rm_id}</td>
-                                      <td className="py-2 px-3 text-sm text-zinc-600">{item.rm_name}</td>
-                                      <td className="py-2 px-3 font-mono text-right">{item.quantity}</td>
-                                      <td className="py-2 px-3 font-mono text-right">
-                                        {item.unit_price > 0 ? `₹${item.unit_price.toFixed(2)}` : '-'}
-                                      </td>
-                                      <td className="py-2 px-3 font-mono text-right font-bold">
-                                        {item.item_cost > 0 ? `₹${item.item_cost.toFixed(2)}` : '-'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                  <tr className="border-t-2 border-zinc-300 bg-zinc-200">
-                                    <td colSpan={4} className="py-2 px-3 text-right font-bold text-sm uppercase">Total BOM Cost</td>
-                                    <td className="py-2 px-3 font-mono text-right font-bold text-green-700">
-                                      ₹{bom.totalCost.toFixed(2)}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </TabsContent>
       </Tabs>
 
