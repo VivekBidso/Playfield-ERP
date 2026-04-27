@@ -7,7 +7,7 @@ import uuid
 
 # Allowed vendor-level payment terms (kept in sync with frontend RMInward PAYMENT_TERMS).
 # `CUSTOM` is intentionally excluded — vendors must commit to a fixed term.
-ALLOWED_PAYMENT_TERMS = {"DUE_ON_RECEIPT", "NET_15", "NET_30", "NET_45", "NET_60"}
+ALLOWED_PAYMENT_TERMS = {"DUE_ON_RECEIPT", "NET_7", "NET_15", "NET_30", "NET_45", "NET_60"}
 DEFAULT_PAYMENT_TERMS = "DUE_ON_RECEIPT"
 
 

@@ -20,6 +20,7 @@ const API = `${BACKEND_URL}/api`;
 // Order matters — first item is the default for new vendors.
 const PAYMENT_TERMS_OPTIONS = [
   { value: "DUE_ON_RECEIPT", label: "Due on Receipt" },
+  { value: "NET_7", label: "Net 7" },
   { value: "NET_15", label: "Net 15" },
   { value: "NET_30", label: "Net 30" },
   { value: "NET_45", label: "Net 45" },

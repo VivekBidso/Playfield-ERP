@@ -388,7 +388,7 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
     Required columns: Name, Payment Terms.
     Optional columns: GST, Address, POC, Email, Phone.
     Skips vendors that already exist by name (case-insensitive).
-    Payment Terms accepts: DUE_ON_RECEIPT, NET_15, NET_30, NET_45, NET_60 (case-insensitive,
+    Payment Terms accepts: DUE_ON_RECEIPT, NET_7, NET_15, NET_30, NET_45, NET_60 (case-insensitive,
     also accepts human labels like 'Due on Receipt', 'Net 30')."""
     from models.vendor import ALLOWED_PAYMENT_TERMS
 
@@ -422,13 +422,14 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
     if 'payment_terms' not in field_indices:
         raise HTTPException(
             status_code=400,
-            detail="'Payment Terms' column is required. Allowed values: Due on Receipt, Net 15, Net 30, Net 45, Net 60",
+            detail="'Payment Terms' column is required. Allowed values: Due on Receipt, Net 7, Net 15, Net 30, Net 45, Net 60",
         )
 
     # Accept both code values and human labels
     label_to_code = {
         "due on receipt": "DUE_ON_RECEIPT",
         "due_on_receipt": "DUE_ON_RECEIPT",
+        "net 7": "NET_7", "net_7": "NET_7", "net7": "NET_7",
         "net 15": "NET_15", "net_15": "NET_15", "net15": "NET_15",
         "net 30": "NET_30", "net_30": "NET_30", "net30": "NET_30",
         "net 45": "NET_45", "net_45": "NET_45", "net45": "NET_45",
@@ -456,7 +457,7 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
             if payment_terms not in ALLOWED_PAYMENT_TERMS:
                 errors.append(
                     f"Row {idx} ({name}): Invalid Payment Terms '{pt_raw}'. "
-                    f"Allowed: Due on Receipt, Net 15, Net 30, Net 45, Net 60"
+                    f"Allowed: Due on Receipt, Net 7, Net 15, Net 30, Net 45, Net 60"
                 )
                 continue
 

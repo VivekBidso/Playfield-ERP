@@ -32,6 +32,7 @@ const STATUS_COLORS = {
 
 const PAYMENT_TERMS = [
   { value: "DUE_ON_RECEIPT", label: "Due on Receipt", days: 0 },
+  { value: "NET_7", label: "Net 7", days: 7 },
   { value: "NET_15", label: "Net 15", days: 15 },
   { value: "NET_30", label: "Net 30", days: 30 },
   { value: "NET_45", label: "Net 45", days: 45 },
