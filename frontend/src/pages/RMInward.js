@@ -80,7 +80,7 @@ const RMInward = () => {
     order_number: "",
     bill_date: new Date().toISOString().split('T')[0],
     due_date: "",
-    payment_terms: "NET_30",
+    payment_terms: "DUE_ON_RECEIPT",
     accounts_payable: "Trade Payables",
     reverse_charge: false,
     notes: ""
@@ -515,7 +515,7 @@ const RMInward = () => {
       order_number: "",
       bill_date: new Date().toISOString().split('T')[0],
       due_date: "",
-      payment_terms: "NET_30",
+      payment_terms: "DUE_ON_RECEIPT",
       accounts_payable: "Trade Payables",
       reverse_charge: false,
       notes: ""
@@ -610,7 +610,14 @@ const RMInward = () => {
                           `${v.name} (${v.vendor_code || v.vendor_id})`.toLowerCase() === e.target.value.toLowerCase()
                         );
                         if (exactMatch) {
-                          setBillData({...billData, vendor_id: exactMatch.id, vendor_name: exactMatch.name});
+                          // Auto-populate payment_terms from vendor; fallback to DUE_ON_RECEIPT for legacy vendors
+                          const vendorPaymentTerms = exactMatch.payment_terms || "DUE_ON_RECEIPT";
+                          setBillData({
+                            ...billData,
+                            vendor_id: exactMatch.id,
+                            vendor_name: exactMatch.name,
+                            payment_terms: vendorPaymentTerms,
+                          });
                         }
                       }}
                       placeholder="Type vendor name..."

@@ -95,8 +95,12 @@ async def get_zoho_status():
 
 @router.get("/vendors")
 async def get_vendors():
-    """Get all vendors"""
+    """Get all vendors. Backfills missing payment_terms with default for legacy docs."""
+    from models.vendor import DEFAULT_PAYMENT_TERMS
     vendors = await db.vendors.find({}, {"_id": 0}).to_list(1000)
+    for v in vendors:
+        if not v.get("payment_terms"):
+            v["payment_terms"] = DEFAULT_PAYMENT_TERMS
     return vendors
 
 
@@ -136,8 +140,16 @@ async def get_vendor_detail(vendor_id: str):
 @require_permission("Vendor", "CREATE")
 async def create_vendor(input: VendorCreate, current_user: User = Depends(get_current_user)):
     """Create a new vendor (MASTER_ADMIN, PROCUREMENT_OFFICER)"""
+    from models.vendor import ALLOWED_PAYMENT_TERMS, DEFAULT_PAYMENT_TERMS
+    payment_terms = (input.payment_terms or DEFAULT_PAYMENT_TERMS).strip().upper()
+    if payment_terms not in ALLOWED_PAYMENT_TERMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid payment_terms '{input.payment_terms}'. Must be one of: {sorted(ALLOWED_PAYMENT_TERMS)}",
+        )
+
     vendor_id = await get_next_vendor_id()
-    
+
     vendor = Vendor(
         vendor_id=vendor_id,
         name=input.name,
@@ -145,14 +157,15 @@ async def create_vendor(input: VendorCreate, current_user: User = Depends(get_cu
         phone=input.phone,
         email=input.email,
         address=input.address,
-        gst=input.gst
+        gst=input.gst,
+        payment_terms=payment_terms,
     )
-    
+
     doc = vendor.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     doc['created_by'] = current_user.id
     await db.vendors.insert_one(doc)
-    
+
     return vendor
 
 
@@ -160,16 +173,29 @@ async def create_vendor(input: VendorCreate, current_user: User = Depends(get_cu
 @require_permission("Vendor", "UPDATE")
 async def update_vendor(vendor_id: str, input: VendorCreate, current_user: User = Depends(get_current_user)):
     """Update a vendor (MASTER_ADMIN, PROCUREMENT_OFFICER)"""
+    from models.vendor import ALLOWED_PAYMENT_TERMS, DEFAULT_PAYMENT_TERMS
     existing = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
     if not existing:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    
+        # Fallback: lookup by internal id (frontend sends `id` for edits)
+        existing = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        vendor_id = existing["vendor_id"]
+
+    payment_terms = (input.payment_terms or DEFAULT_PAYMENT_TERMS).strip().upper()
+    if payment_terms not in ALLOWED_PAYMENT_TERMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid payment_terms '{input.payment_terms}'. Must be one of: {sorted(ALLOWED_PAYMENT_TERMS)}",
+        )
+
     update_data = input.model_dump()
+    update_data["payment_terms"] = payment_terms
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     update_data["updated_by"] = current_user.id
-    
+
     await db.vendors.update_one({"vendor_id": vendor_id}, {"$set": update_data})
-    
+
     updated = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
     return Vendor(**updated)
 
@@ -358,8 +384,14 @@ async def export_vendor_rm_prices():
 
 @router.post("/vendors/bulk-upload")
 async def bulk_upload_vendors(file: UploadFile = File(...)):
-    """Bulk upload vendors from Excel. Columns: Name, GST, Address, POC, Email, Phone.
-    Skips vendors that already exist by name (case-insensitive)."""
+    """Bulk upload vendors from Excel.
+    Required columns: Name, Payment Terms.
+    Optional columns: GST, Address, POC, Email, Phone.
+    Skips vendors that already exist by name (case-insensitive).
+    Payment Terms accepts: DUE_ON_RECEIPT, NET_15, NET_30, NET_45, NET_60 (case-insensitive,
+    also accepts human labels like 'Due on Receipt', 'Net 30')."""
+    from models.vendor import ALLOWED_PAYMENT_TERMS
+
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Only Excel files are supported")
 
@@ -378,6 +410,7 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
         'poc': 'poc', 'point of contact': 'poc', 'contact person': 'poc',
         'email': 'email', 'email address': 'email',
         'phone': 'phone', 'phone number': 'phone', 'mobile': 'phone',
+        'payment terms': 'payment_terms', 'payment_terms': 'payment_terms', 'payment term': 'payment_terms',
     }
     field_indices = {}
     for i, h in enumerate(headers):
@@ -386,6 +419,21 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
 
     if 'name' not in field_indices:
         raise HTTPException(status_code=400, detail="'Name' column is required")
+    if 'payment_terms' not in field_indices:
+        raise HTTPException(
+            status_code=400,
+            detail="'Payment Terms' column is required. Allowed values: Due on Receipt, Net 15, Net 30, Net 45, Net 60",
+        )
+
+    # Accept both code values and human labels
+    label_to_code = {
+        "due on receipt": "DUE_ON_RECEIPT",
+        "due_on_receipt": "DUE_ON_RECEIPT",
+        "net 15": "NET_15", "net_15": "NET_15", "net15": "NET_15",
+        "net 30": "NET_30", "net_30": "NET_30", "net30": "NET_30",
+        "net 45": "NET_45", "net_45": "NET_45", "net45": "NET_45",
+        "net 60": "NET_60", "net_60": "NET_60", "net60": "NET_60",
+    }
 
     created = 0
     skipped = 0
@@ -398,12 +446,26 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
                 continue
             name = str(name).strip()
 
+            # Resolve payment_terms (mandatory)
+            pt_raw = row[field_indices['payment_terms']]
+            if pt_raw is None or str(pt_raw).strip() == "":
+                errors.append(f"Row {idx} ({name}): Payment Terms is required")
+                continue
+            pt_key = str(pt_raw).strip().lower()
+            payment_terms = label_to_code.get(pt_key, str(pt_raw).strip().upper())
+            if payment_terms not in ALLOWED_PAYMENT_TERMS:
+                errors.append(
+                    f"Row {idx} ({name}): Invalid Payment Terms '{pt_raw}'. "
+                    f"Allowed: Due on Receipt, Net 15, Net 30, Net 45, Net 60"
+                )
+                continue
+
             existing = await db.vendors.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
             if existing:
                 skipped += 1
                 continue
 
-            vendor_data = {'name': name}
+            vendor_data = {'name': name, 'payment_terms': payment_terms}
             for field in ['gst', 'address', 'poc', 'email', 'phone']:
                 i = field_indices.get(field)
                 if i is not None and row[i]:

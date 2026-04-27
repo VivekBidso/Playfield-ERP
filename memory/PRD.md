@@ -3041,6 +3041,15 @@ This recomputes the same data repeatedly and gets slow as buyer SKU count grows.
 **Why P2:** Performance is acceptable at current scale; revisit when export latency exceeds ~5s or buyer SKU count > 5k.
 
 
+### Vendor Payment Terms + RM Inward Auto-Population - COMPLETE (Feb 2026)
+**Status:** COMPLETE
+- Added `payment_terms` field to vendor model (default `DUE_ON_RECEIPT`; allowed: `DUE_ON_RECEIPT`, `NET_15`, `NET_30`, `NET_45`, `NET_60`).
+- VendorManagement Add/Edit dialog: required Payment Terms dropdown (default Due on Receipt). Bulk upload template + export now include "Payment Terms" column. Bulk upload validates the column is present and each row has a valid value.
+- RM Inward: when an exact vendor match is selected, `payment_terms` auto-populates from the vendor record. Falls back to `DUE_ON_RECEIPT` for legacy vendors with no value. Initial form default also changed to `DUE_ON_RECEIPT`.
+- Backend: `create_vendor` / `update_vendor` validate payment_terms server-side (400 on invalid). `update_vendor` now accepts both internal id and vendor_code (`VEN_XXXX`) for lookup. `get_vendors` backfills missing payment_terms with default in API response so frontend always has a value.
+- Migration: No DB migration script needed — legacy docs read with default fallback at API layer; will be persisted on first vendor edit.
+- Files: `models/vendor.py`, `routes/vendor_routes.py`, `pages/VendorManagement.js`, `pages/RMInward.js`.
+
 ### Zoho Books Integration - COMPLETE (April 15, 2026)
 **Status:** COMPLETE
 - OAuth 2.0 token management with auto-refresh (`ZohoTokenManager`)

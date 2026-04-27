@@ -8,12 +8,24 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Allowed vendor-level payment terms (mirrors backend ALLOWED_PAYMENT_TERMS).
+// Order matters — first item is the default for new vendors.
+const PAYMENT_TERMS_OPTIONS = [
+  { value: "DUE_ON_RECEIPT", label: "Due on Receipt" },
+  { value: "NET_15", label: "Net 15" },
+  { value: "NET_30", label: "Net 30" },
+  { value: "NET_45", label: "Net 45" },
+  { value: "NET_60", label: "Net 60" },
+];
+const DEFAULT_PAYMENT_TERMS = "DUE_ON_RECEIPT";
 
 const VendorManagement = () => {
   const { token } = useAuthStore();
@@ -36,7 +48,7 @@ const VendorManagement = () => {
   const [editingVendor, setEditingVendor] = useState(null);
 
   const [vendorForm, setVendorForm] = useState({
-    name: "", gst: "", address: "", poc: "", email: "", phone: ""
+    name: "", gst: "", address: "", poc: "", email: "", phone: "", payment_terms: DEFAULT_PAYMENT_TERMS
   });
 
   const [priceForm, setPriceForm] = useState({
@@ -122,6 +134,10 @@ const VendorManagement = () => {
       toast.error("Vendor name is required");
       return;
     }
+    if (!vendorForm.payment_terms) {
+      toast.error("Payment Terms is required");
+      return;
+    }
 
     try {
       if (editingVendor) {
@@ -203,7 +219,7 @@ const VendorManagement = () => {
   };
 
   const resetVendorForm = () => {
-    setVendorForm({ name: "", gst: "", address: "", poc: "", email: "", phone: "" });
+    setVendorForm({ name: "", gst: "", address: "", poc: "", email: "", phone: "", payment_terms: DEFAULT_PAYMENT_TERMS });
     setEditingVendor(null);
   };
 
@@ -219,7 +235,8 @@ const VendorManagement = () => {
       address: vendor.address || "",
       poc: vendor.poc || "",
       email: vendor.email || "",
-      phone: vendor.phone || ""
+      phone: vendor.phone || "",
+      payment_terms: vendor.payment_terms || DEFAULT_PAYMENT_TERMS,
     });
     setEditingVendor(vendor);
     setShowAddVendorDialog(true);
@@ -319,8 +336,9 @@ const VendorManagement = () => {
 
   const downloadVendorTemplate = () => {
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Name', 'GST', 'Address', 'POC', 'Email', 'Phone'],
-      ['Sample Vendor', 'GSTIN123456', '123 Main St, City', 'John Doe', 'vendor@example.com', '9876543210']
+      ['Name', 'Payment Terms', 'GST', 'Address', 'POC', 'Email', 'Phone'],
+      ['Sample Vendor', 'Net 30', 'GSTIN123456', '123 Main St, City', 'John Doe', 'vendor@example.com', '9876543210'],
+      ['Allowed values for Payment Terms:', 'Due on Receipt | Net 15 | Net 30 | Net 45 | Net 60', '', '', '', '', '']
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
@@ -330,9 +348,11 @@ const VendorManagement = () => {
   };
 
   const exportVendors = () => {
+    const ptLabel = (code) => (PAYMENT_TERMS_OPTIONS.find(p => p.value === code)?.label) || code || 'Due on Receipt';
     const ws = XLSX.utils.json_to_sheet(vendors.map(v => ({
       'Vendor ID': v.vendor_id,
       'Name': v.name,
+      'Payment Terms': ptLabel(v.payment_terms),
       'GST': v.gst || '',
       'Address': v.address || '',
       'POC': v.poc || '',
@@ -548,7 +568,28 @@ const VendorManagement = () => {
                           placeholder="Email address"
                         />
                       </div>
-                      <Button onClick={handleAddVendor} className="w-full uppercase text-xs">
+                      <div>
+                        <Label>Payment Terms *</Label>
+                        <Select
+                          value={vendorForm.payment_terms || DEFAULT_PAYMENT_TERMS}
+                          onValueChange={(v) => setVendorForm({...vendorForm, payment_terms: v})}
+                        >
+                          <SelectTrigger data-testid="vendor-payment-terms-select">
+                            <SelectValue placeholder="Select payment terms" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PAYMENT_TERMS_OPTIONS.map(pt => (
+                              <SelectItem key={pt.value} value={pt.value} data-testid={`pt-option-${pt.value}`}>
+                                {pt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Auto-populated in RM Inward when this vendor is selected.
+                        </p>
+                      </div>
+                      <Button onClick={handleAddVendor} className="w-full uppercase text-xs" data-testid="save-vendor-btn">
                         {editingVendor ? "Update Vendor" : "Add Vendor"}
                       </Button>
                     </div>
