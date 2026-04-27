@@ -702,8 +702,8 @@ const RMInward = () => {
                 </div>
               </div>
 
-              {/* Second Row - Payment Terms, Accounts Payable, Reverse Charge */}
-              <div className="grid grid-cols-3 gap-4 mt-4">
+              {/* Second Row - Payment Terms, Accounts Payable */}
+              <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
                   <Label className="text-xs font-bold uppercase">Payment Terms</Label>
                   <Select 
@@ -735,16 +735,6 @@ const RMInward = () => {
                       <SelectItem value="Other Payables">Other Payables</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="flex items-center space-x-2 mt-6">
-                  <Checkbox 
-                    id="reverse-charge"
-                    checked={billData.reverse_charge}
-                    onCheckedChange={(checked) => setBillData({...billData, reverse_charge: checked})}
-                  />
-                  <Label htmlFor="reverse-charge" className="text-sm">
-                    This transaction is applicable for reverse charge
-                  </Label>
                 </div>
               </div>
 
