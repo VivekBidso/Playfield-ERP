@@ -3021,6 +3021,25 @@ Dashboard alerts for delayed lots and lots nearing completion.
 **Status:** PENDING
 Technical debt - merge duplicate endpoints from procurement_routes.py and report_routes.py
 
+### P2 - Buyer SKU BOM Cost Materialized View (Added Feb 2026)
+**Status:** PENDING
+Currently `/api/rm-prices/buyer-sku-cost-detail/{id}` and `/buyer-sku-cost-export` compute everything at runtime per request:
+BOM assembly → RM enrichment → 3-month rolling avg from `rm_prices_history` → vendor_rm_prices fallback → ASP aggregation from `historical_sales` → margin.
+This recomputes the same data repeatedly and gets slow as buyer SKU count grows.
+
+**Proposed solution:**
+- Create new collection `buyer_sku_bom_cost_cache` with documents per `buyer_sku_id` containing pre-computed `total_cost`, per-line `avg_price`, `avg_asp`, `margin_pct`, `last_computed_at`, source counts.
+- Refresh strategy via Event Bus subscriptions:
+  - On `rm_price.updated` (new invoice in `rm_prices_history`) → invalidate cache for all SKUs whose BOM contains affected `rm_id`.
+  - On `vendor_rm_price.updated` → same invalidation logic.
+  - On `bom.updated` (common_bom or brand_specific_bom mutation) → invalidate cache for that `bidso_sku_id`'s buyer SKUs.
+  - On `historical_sales.uploaded` → invalidate ASP/margin only.
+- Background worker (or cron) that re-computes invalidated cache rows in batches.
+- Reports endpoints read from cache; fall back to runtime compute when cache row missing/stale.
+- Add admin "Recompute All" button for full rebuild.
+
+**Why P2:** Performance is acceptable at current scale; revisit when export latency exceeds ~5s or buyer SKU count > 5k.
+
 
 ### Zoho Books Integration - COMPLETE (April 15, 2026)
 **Status:** COMPLETE
