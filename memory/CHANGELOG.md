@@ -1,3 +1,20 @@
+## April 28, 2026
+
+### TDS Tax Mapping in RM Inward (Zoho Books)
+- **Why:** Zoho Books REST API rejects creating TDS taxes programmatically. Admins must create TDS in Zoho UI (Settings → Taxes → TDS) and map the resulting `tax_id` locally.
+- **New collection:** `tds_taxes` — `{id, tax_name, rate, section, status, zoho_tax_id, ...}`. Server validates `zoho_tax_id` against Zoho on create/update.
+- **Backend:**
+  - `GET/POST/PUT/DELETE /api/tds-taxes` (with `?status=ACTIVE` filter and auto-formatted `label = "<Name> <Rate>%"`)
+  - `GET /api/zoho/tds-taxes-available` (helper for picking a Zoho `tax_id`)
+  - `POST /api/rm-inward/bills` now resolves `totals.tds_tcs` (local TDS id) → `zoho_tax_id` and passes it to Zoho `create_bill` as bill-level `tax_id` + `is_tds_amount_in_percent: true`. Returns 400 if the local TDS row is missing or has no Zoho mapping.
+  - `services/zoho_service.create_bill()` now accepts `tds_tax_id` kwarg.
+- **Frontend (`RMInward.js`):**
+  - Removed hardcoded `TDS_TCS_OPTIONS` array.
+  - TDS dropdown now lists ACTIVE rows from `/api/tds-taxes?status=ACTIVE` formatted as `"<Tax Name> <Rate>%"` (with "None" preserved).
+  - New `ManageTdsDialog` component (cog icon next to dropdown) provides inline CRUD for TDS records with validation feedback.
+- **Tested:** 15/15 backend pytest passed; frontend verified end-to-end via testing agent.
+
+
 # CHANGELOG
 
 ## April 26, 2026 (later)
