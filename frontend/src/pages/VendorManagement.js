@@ -279,14 +279,18 @@ const VendorManagement = () => {
       });
       
       setUploadResult(response.data);
-      
-      if (response.data.created > 0) {
-        toast.success(`Created ${response.data.created} vendors`);
+
+      const { created = 0, updated = 0, unchanged = 0 } = response.data;
+      if (created > 0 || updated > 0) {
+        const parts = [];
+        if (created > 0) parts.push(`${created} created`);
+        if (updated > 0) parts.push(`${updated} updated`);
+        if (unchanged > 0) parts.push(`${unchanged} unchanged`);
+        toast.success(parts.join(", "));
+      } else if (unchanged > 0) {
+        toast.info(`No changes — ${unchanged} vendors already up to date`);
       }
-      if (response.data.skipped > 0) {
-        toast.info(`${response.data.skipped} vendors skipped (already exist)`);
-      }
-      
+
       fetchVendors();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Upload failed");

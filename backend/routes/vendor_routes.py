@@ -383,12 +383,21 @@ async def export_vendor_rm_prices():
 
 @router.post("/vendors/bulk-upload")
 async def bulk_upload_vendors(file: UploadFile = File(...)):
-    """Bulk upload vendors from Excel.
+    """Bulk upload vendors from Excel — UPSERT semantics.
+
     Required columns: Name, Payment Terms.
     Optional columns: GST, Address, POC, Email, Phone.
-    Skips vendors that already exist by name (case-insensitive).
-    Payment Terms accepts: DUE_ON_RECEIPT, NET_7, NET_15, NET_30, NET_45, NET_60 (case-insensitive,
-    also accepts human labels like 'Due on Receipt', 'Net 30')."""
+
+    Behavior:
+        - If a row's vendor name does not exist, a new vendor is INSERTED.
+        - If a row's vendor name exists, the vendor is UPDATED with any non-blank
+          values supplied in the row. Blank cells preserve the existing value
+          (so partial updates are safe — only what you put in the file changes).
+        - Match is by Name, case-insensitive.
+
+    Payment Terms accepts: DUE_ON_RECEIPT, NET_7, NET_15, NET_30, NET_45, NET_60
+    (case-insensitive, also accepts human labels like 'Due on Receipt', 'Net 30').
+    """
     import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     from models.vendor import ALLOWED_PAYMENT_TERMS
 
@@ -437,8 +446,10 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
     }
 
     created = 0
-    skipped = 0
+    updated = 0
+    unchanged = 0
     errors: List[str] = []
+    optional_fields = ['gst', 'address', 'poc', 'email', 'phone']
 
     for idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
         try:
@@ -461,17 +472,36 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
                 )
                 continue
 
+            # Collect optional field values from the row (only non-blank ones)
+            row_optional_values = {}
+            for field in optional_fields:
+                i = field_indices.get(field)
+                if i is not None and row[i] is not None and str(row[i]).strip() != "":
+                    row_optional_values[field] = str(row[i]).strip()
+
             existing = await db.vendors.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
+
             if existing:
-                skipped += 1
+                # UPDATE: only apply changes for fields that differ from current
+                update_set = {}
+                if existing.get("payment_terms") != payment_terms:
+                    update_set["payment_terms"] = payment_terms
+                for field, new_val in row_optional_values.items():
+                    if existing.get(field, "") != new_val:
+                        update_set[field] = new_val
+                if update_set:
+                    update_set["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    await db.vendors.update_one(
+                        {"vendor_id": existing["vendor_id"]},
+                        {"$set": update_set},
+                    )
+                    updated += 1
+                else:
+                    unchanged += 1
                 continue
 
-            vendor_data = {'name': name, 'payment_terms': payment_terms}
-            for field in ['gst', 'address', 'poc', 'email', 'phone']:
-                i = field_indices.get(field)
-                if i is not None and row[i]:
-                    vendor_data[field] = str(row[i]).strip()
-
+            # INSERT: brand new vendor
+            vendor_data = {'name': name, 'payment_terms': payment_terms, **row_optional_values}
             vendor_id = await get_next_vendor_id()
             vendor = Vendor(**vendor_data, vendor_id=vendor_id)
             doc = vendor.model_dump()
@@ -481,7 +511,13 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
         except Exception as e:
             errors.append(f"Row {idx}: {e}")
 
-    return {"created": created, "skipped": skipped, "errors": errors[:20], "total_errors": len(errors)}
+    return {
+        "created": created,
+        "updated": updated,
+        "unchanged": unchanged,
+        "errors": errors[:20],
+        "total_errors": len(errors),
+    }
 
 
 @router.post("/vendors/bulk-update-payment-terms")
