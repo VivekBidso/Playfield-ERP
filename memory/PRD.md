@@ -3041,6 +3041,44 @@ This recomputes the same data repeatedly and gets slow as buyer SKU count grows.
 **Why P2:** Performance is acceptable at current scale; revisit when export latency exceeds ~5s or buyer SKU count > 5k.
 
 
+### P0 - IBT Page Load Performance (Added Feb 2026)
+**Status:** PENDING — diagnosed, fix deferred per user.
+
+**Symptom:** IBT page loads slowly in production (tier_0: 250m CPU / 512Mi). On preview the page mounts in <1s; in production it's noticeably slow because the page is gated behind `Promise.all` of 5 calls and the slowest one (`/api/raw-materials`) returns ~1.9 MB / 2,763 items every page load.
+
+**Root causes** (file: `frontend/src/pages/IBT.js` line 107; `backend/routes/rm_routes.py` `get_raw_materials`):
+1. Frontend eagerly loads ALL raw materials and 100 buyer SKUs on mount, just to populate the "Initiate Transfer" dialog dropdown which the user often never opens.
+2. `/api/raw-materials` has no pagination — returns the entire 2,763-item catalog (~1.9 MB JSON).
+3. `/api/raw-materials` does in-memory Python loop search over all items instead of MongoDB indexed query.
+4. `/api/raw-materials` does N+1 query when `branch` param is passed (per-RM `branch_rm_inventory.find_one`).
+5. `/api/ibt-transfers` `to_list(1000)` — fine now but unbounded.
+
+**Proposed fix:**
+- Defer `/api/raw-materials` and `/api/buyer-skus` until the user opens the "Initiate Transfer" dialog. Render the transfer list immediately with the 3 fast calls (`/api/ibt-transfers`, `/api/branches/names`, `/api/ibt-shortages`).
+- Add `?fields=` projection support to `/api/raw-materials` so dropdowns can fetch just `{rm_id, description, category}` (~200 bytes/item × 2,763 ≈ 550 KB instead of 1.9 MB).
+- Add pagination (`page`, `page_size`) to `/api/raw-materials`.
+- Replace the dropdown with an existing search-as-you-type lookup that already exists at `rm_routes.py:349` (`/api/raw-materials/search?q=...`).
+
+**Why P0:** Affects every IBT page interaction in production. User-perceived slowness reduces adoption.
+
+
+### P1 - Delivery Challan Feature for IBT Transfers (Added Feb 2026)
+**Status:** PENDING — never implemented.
+
+**Finding:** Zero references to `challan`, `DeliveryChallan`, `delivery_challan`, or `Delivery Challan` exist anywhere in `backend/` or `frontend/src/`. This is a missing feature, not a regression.
+
+**Scope to define:**
+1. Internal vs GST-compliant — does this need HSN codes, e-way bill reference, vehicle/LR number? (User to clarify before build).
+2. Possible new fields on `ibt_transfers` collection: `vehicle_number`, `transporter`, `driver_name`, `lr_number`.
+
+**Proposed implementation:**
+- Backend: `GET /api/ibt-transfers/{id}/challan-pdf` endpoint using `reportlab` (already installed) — branded PDF with source/dest branches, transfer ID, date, item table, signatures.
+- Frontend: "Print Challan" / "Download Challan" button on each transfer row in `IBT.js`, gated by status (e.g., only when `DISPATCHED` or beyond).
+- Optionally extend the multi-item transfer create form to capture vehicle/transporter info.
+
+**Why P1:** Operational gap — branches doing physical RM/SKU transfers need a printable document for handoff/proof of dispatch.
+
+
 ### Vendor Payment Terms + RM Inward Auto-Population - COMPLETE (Feb 2026)
 **Status:** COMPLETE
 - Added `payment_terms` field to vendor model (default `DUE_ON_RECEIPT`; allowed: `DUE_ON_RECEIPT`, `NET_15`, `NET_30`, `NET_45`, `NET_60`).
