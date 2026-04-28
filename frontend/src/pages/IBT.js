@@ -44,7 +44,16 @@ const IBT = () => {
   const [shortages, setShortages] = useState([]);
   const [branchStockItems, setBranchStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
-  
+
+  // Filters + pagination (replaces old summary-card-based quick filter)
+  const [filterStatus, setFilterStatus] = useState("ALL");
+  const [filterSourceBranch, setFilterSourceBranch] = useState("ALL");
+  const [filterDestBranch, setFilterDestBranch] = useState("ALL");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
@@ -555,12 +564,40 @@ const IBT = () => {
   };
 
   const filteredTransfers = transfers.filter(t => {
-    if (filter === "all") return true;
-    if (filter === "pending") return t.status === "INITIATED" || t.status === "READY_FOR_DISPATCH" || t.status === "APPROVED";
-    if (filter === "in_transit") return t.status === "IN_TRANSIT";
-    if (filter === "completed") return t.status === "COMPLETED";
+    // Status filter
+    if (filterStatus !== "ALL" && t.status !== filterStatus) return false;
+    // Source branch filter
+    if (filterSourceBranch !== "ALL" && t.source_branch !== filterSourceBranch) return false;
+    // Destination branch filter
+    if (filterDestBranch !== "ALL" && t.destination_branch !== filterDestBranch) return false;
+    // Date range filter — compare against initiated_at's date part
+    if (filterDateFrom || filterDateTo) {
+      const initiated = t.initiated_at ? t.initiated_at.split("T")[0] : "";
+      if (filterDateFrom && initiated < filterDateFrom) return false;
+      if (filterDateTo && initiated > filterDateTo) return false;
+    }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredTransfers.length / PAGE_SIZE));
+  const effectivePage = Math.min(currentPage, totalPages);
+  const pagedTransfers = filteredTransfers.slice(
+    (effectivePage - 1) * PAGE_SIZE,
+    effectivePage * PAGE_SIZE
+  );
+
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, filterSourceBranch, filterDestBranch, filterDateFrom, filterDateTo]);
+
+  const clearFilters = () => {
+    setFilterStatus("ALL");
+    setFilterSourceBranch("ALL");
+    setFilterDestBranch("ALL");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+  };
 
   const pendingShortages = shortages.filter(s => s.status === "PENDING_INVESTIGATION").length;
 
@@ -600,45 +637,78 @@ const IBT = () => {
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className={`cursor-pointer ${filter === 'all' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('all')}>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold">{transfers.length}</p>
-            <p className="text-sm text-zinc-500">Total</p>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filter === 'pending' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('pending')}>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-yellow-600">
-              {transfers.filter(t => t.status === "INITIATED" || t.status === "READY_FOR_DISPATCH" || t.status === "APPROVED").length}
-            </p>
-            <p className="text-sm text-zinc-500">Ready to Dispatch</p>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filter === 'in_transit' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('in_transit')}>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-purple-600">
-              {transfers.filter(t => t.status === "IN_TRANSIT").length}
-            </p>
-            <p className="text-sm text-zinc-500">In Transit</p>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filter === 'completed' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilter('completed')}>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">
-              {transfers.filter(t => t.status === "COMPLETED").length}
-            </p>
-            <p className="text-sm text-zinc-500">Completed</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-red-600">{pendingShortages}</p>
-            <p className="text-sm text-zinc-500">Shortages</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Filters */}
+      <Card data-testid="ibt-filters">
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+              <Label className="text-xs font-semibold uppercase text-zinc-500">Status</Label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger data-testid="filter-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Statuses</SelectItem>
+                  <SelectItem value="INITIATED">Initiated</SelectItem>
+                  <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="READY_FOR_DISPATCH">Ready for Dispatch</SelectItem>
+                  <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
+                  <SelectItem value="DISPATCHED">Dispatched</SelectItem>
+                  <SelectItem value="COMPLETED">Completed</SelectItem>
+                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  <SelectItem value="REJECTED">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase text-zinc-500">From Branch</Label>
+              <Select value={filterSourceBranch} onValueChange={setFilterSourceBranch}>
+                <SelectTrigger data-testid="filter-source-branch"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Source Branches</SelectItem>
+                  {branches.map(b => (
+                    <SelectItem key={`src-${b.name}`} value={b.name}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase text-zinc-500">To Branch</Label>
+              <Select value={filterDestBranch} onValueChange={setFilterDestBranch}>
+                <SelectTrigger data-testid="filter-dest-branch"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Destination Branches</SelectItem>
+                  {branches.map(b => (
+                    <SelectItem key={`dst-${b.name}`} value={b.name}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase text-zinc-500">Date From</Label>
+              <Input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                data-testid="filter-date-from"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase text-zinc-500">Date To</Label>
+              <Input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                data-testid="filter-date-to"
+              />
+            </div>
+          </div>
+          <div className="flex justify-between items-center mt-3 text-xs text-zinc-500">
+            <span>Showing <strong>{pagedTransfers.length}</strong> of <strong>{filteredTransfers.length}</strong> transfer(s){filteredTransfers.length !== transfers.length && <> (filtered from {transfers.length})</>}</span>
+            <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters-btn">
+              Clear Filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Transfers Table */}
       <Card>
@@ -648,10 +718,7 @@ const IBT = () => {
               <thead className="bg-zinc-50 border-b">
                 <tr>
                   <th className="text-left p-3">Transfer Code</th>
-                  <th className="text-left p-3">Type</th>
                   <th className="text-left p-3">From → To</th>
-                  <th className="text-left p-3">Item</th>
-                  <th className="text-right p-3">Qty</th>
                   <th className="text-left p-3">Status</th>
                   <th className="text-left p-3">DC</th>
                   <th className="text-left p-3">Date</th>
@@ -659,14 +726,14 @@ const IBT = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredTransfers.length === 0 ? (
+                {pagedTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-zinc-500">
+                    <td colSpan={6} className="p-8 text-center text-zinc-500">
                       No transfers found
                     </td>
                   </tr>
                 ) : (
-                  filteredTransfers.map(transfer => (
+                  pagedTransfers.map(transfer => (
                     <tr key={transfer.id} className="border-b hover:bg-zinc-50">
                       <td className="p-3">
                         <span className="font-mono font-bold text-blue-600">{transfer.transfer_code}</span>
@@ -675,58 +742,11 @@ const IBT = () => {
                         )}
                       </td>
                       <td className="p-3">
-                        <Badge variant="outline">{transfer.transfer_type}</Badge>
-                      </td>
-                      <td className="p-3">
                         <div className="flex items-center gap-1 text-xs">
                           <span>{transfer.source_branch}</span>
                           <ArrowRight className="w-3 h-3 text-zinc-400" />
                           <span>{transfer.destination_branch}</span>
                         </div>
-                      </td>
-                      <td className="p-3">
-                        {transfer.items?.length > 0 ? (
-                          <div>
-                            <Badge variant="outline" className="text-xs">{transfer.items.length} item(s)</Badge>
-                            <div className="text-xs text-zinc-500 mt-1 truncate max-w-[200px]">
-                              {transfer.items.map(i => i.item_id).join(", ")}
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <div className="max-w-[200px] truncate" title={getItemName(transfer)}>
-                              {transfer.item_id}
-                            </div>
-                            <div className="text-xs text-zinc-500 truncate">{getItemName(transfer)}</div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono">
-                        {transfer.items?.length > 0 ? (
-                          <span>
-                            {transfer.total_received !== undefined && transfer.status === "COMPLETED" ? (
-                              <>
-                                {transfer.total_received}
-                                {transfer.total_variance > 0 && (
-                                  <span className="text-red-500 text-xs ml-1">(-{transfer.total_variance})</span>
-                                )}
-                              </>
-                            ) : (
-                              transfer.total_quantity || transfer.items.reduce((sum, i) => sum + i.quantity, 0)
-                            )}
-                          </span>
-                        ) : (
-                          transfer.received_quantity !== undefined && transfer.status === "COMPLETED" ? (
-                            <span>
-                              {transfer.received_quantity}
-                              {transfer.variance > 0 && (
-                                <span className="text-red-500 text-xs ml-1">(-{transfer.variance})</span>
-                              )}
-                            </span>
-                          ) : (
-                            transfer.quantity
-                          )
-                        )}
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -798,6 +818,44 @@ const IBT = () => {
               </tbody>
             </table>
           </div>
+          {/* Pagination */}
+          {filteredTransfers.length > 0 && (
+            <div className="flex items-center justify-between p-3 border-t text-sm" data-testid="ibt-pagination">
+              <div className="text-zinc-500">
+                Page <strong>{effectivePage}</strong> of <strong>{totalPages}</strong> · {PAGE_SIZE} per page
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={effectivePage === 1}
+                  data-testid="page-first-btn"
+                >First</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={effectivePage === 1}
+                  data-testid="page-prev-btn"
+                >Previous</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={effectivePage === totalPages}
+                  data-testid="page-next-btn"
+                >Next</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={effectivePage === totalPages}
+                  data-testid="page-last-btn"
+                >Last</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
