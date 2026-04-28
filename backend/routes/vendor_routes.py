@@ -927,7 +927,28 @@ async def create_rm_inward_bill(
             
             # Auto-apply reverse charge for unregistered vendors (Zoho requires it)
             apply_reverse_charge = input.reverse_charge or not vendor_gst
-            
+
+            # Resolve local TDS row → Zoho tax_id (only for actual TDS selections)
+            tds_zoho_tax_id = None
+            tds_local_id = (input.totals or {}).get("tds_tcs")
+            if tds_local_id and tds_local_id != "NONE":
+                tds_doc = await db.tds_taxes.find_one(
+                    {"id": tds_local_id}, {"_id": 0, "zoho_tax_id": 1, "tax_name": 1, "rate": 1}
+                )
+                if not tds_doc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Selected TDS tax (id={tds_local_id}) was not found. "
+                               "Please refresh the page or pick another option.",
+                    )
+                tds_zoho_tax_id = tds_doc.get("zoho_tax_id")
+                if not tds_zoho_tax_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"TDS '{tds_doc.get('tax_name')}' is missing its Zoho tax_id mapping. "
+                               "Open Manage TDS and set the Zoho tax_id from Settings → Taxes → TDS.",
+                    )
+
             # Create bill in Zoho Books
             zoho_result = await zoho_client.create_bill(
                 vendor_id=zoho_vendor_id,
@@ -938,7 +959,8 @@ async def create_rm_inward_bill(
                 reference_number=input.order_number,
                 notes=input.notes,
                 due_date=input.due_date,
-                is_reverse_charge=apply_reverse_charge
+                is_reverse_charge=apply_reverse_charge,
+                tds_tax_id=tds_zoho_tax_id
             )
             
             logger.info(f"Zoho bill created: {zoho_result.get('zoho_bill_id')}")

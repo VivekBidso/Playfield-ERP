@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import useBranchStore from "@/store/branchStore";
 import useAuthStore from "@/store/authStore";
-import { Plus, Download, Package, Trash2, Calculator, FileText, Loader2 } from "lucide-react";
+import { Plus, Download, Package, Trash2, Calculator, FileText, Loader2, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import ManageTdsDialog from "@/components/ManageTdsDialog";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -42,13 +43,7 @@ const LOCAL_TAX_RATES = {
   "NONE": 0, "GST_5": 5, "GST_12": 12, "GST_18": 18, "GST_28": 28
 };
 
-const TDS_TCS_OPTIONS = [
-  { value: "NONE", label: "None", rate: 0 },
-  { value: "TDS_1", label: "TDS 1%", rate: 1 },
-  { value: "TDS_2", label: "TDS 2%", rate: 2 },
-  { value: "TDS_10", label: "TDS 10%", rate: 10 },
-  { value: "TCS_1", label: "TCS 1%", rate: 1 }
-];
+const TDS_NONE = { id: "NONE", label: "None", rate: 0 };
 
 const RMInward = () => {
   const { selectedBranch } = useBranchStore();
@@ -71,6 +66,10 @@ const RMInward = () => {
   const [zohoAccountsError, setZohoAccountsError] = useState("");
   const [zohoTaxes, setZohoTaxes] = useState([]);
   const [defaultTaxId, setDefaultTaxId] = useState("");
+
+  // Local TDS Tax mappings (from /api/tds-taxes)
+  const [tdsTaxes, setTdsTaxes] = useState([]);
+  const [showManageTds, setShowManageTds] = useState(false);
 
   // Bill/Invoice Form State
   const [billData, setBillData] = useState({
@@ -112,6 +111,7 @@ const RMInward = () => {
     fetchBranches();
     fetchZohoAccounts();
     fetchZohoTaxes();
+    fetchTdsTaxes();
   }, [selectedBranch]);
 
   // Calculate totals when line items or discount changes
@@ -140,8 +140,11 @@ const RMInward = () => {
       discountAmount = totals.discount_value;
     }
 
-    // Calculate TDS/TCS
-    const tdsTcsRate = TDS_TCS_OPTIONS.find(t => t.value === totals.tds_tcs)?.rate || 0;
+    // Calculate TDS/TCS from local tdsTaxes list (id-based) or NONE
+    const tdsRow = (totals.tds_tcs && totals.tds_tcs !== "NONE")
+      ? tdsTaxes.find(t => t.id === totals.tds_tcs)
+      : null;
+    const tdsTcsRate = tdsRow ? parseFloat(tdsRow.rate) || 0 : 0;
     const tdsTcsAmount = (subTotal - discountAmount) * (tdsTcsRate / 100);
 
     // Grand total
@@ -155,7 +158,7 @@ const RMInward = () => {
       tax_total: taxTotal,
       grand_total: grandTotal
     }));
-  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs, zohoTaxes]);
+  }, [lineItems, totals.discount_type, totals.discount_value, totals.tds_tcs, zohoTaxes, tdsTaxes]);
 
   // Auto-calculate due date when payment terms or bill date changes
   useEffect(() => {
@@ -244,6 +247,18 @@ const RMInward = () => {
       console.log("Zoho taxes fetch skipped:", error.message);
     }
   };
+
+  const fetchTdsTaxes = async () => {
+    try {
+      const response = await axios.get(`${API}/tds-taxes?status=ACTIVE`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTdsTaxes(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.log("TDS taxes fetch skipped:", error.message);
+    }
+  };
+
 
 
   const fetchBranchInventory = async () => {
@@ -985,20 +1000,34 @@ const RMInward = () => {
 
                   {/* TDS/TCS */}
                   <div className="flex items-center gap-2">
-                    <span className="text-sm w-20">TDS/TCS</span>
-                    <Select 
-                      value={totals.tds_tcs || undefined} 
+                    <span className="text-sm w-20">TDS</span>
+                    <Select
+                      value={totals.tds_tcs || "NONE"}
                       onValueChange={(v) => setTotals({...totals, tds_tcs: v})}
                     >
-                      <SelectTrigger className="w-32 h-8">
+                      <SelectTrigger className="w-44 h-8" data-testid="tds-select-trigger">
                         <SelectValue placeholder="None" />
                       </SelectTrigger>
                       <SelectContent>
-                        {TDS_TCS_OPTIONS.filter(t => t.value).map(t => (
-                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        <SelectItem value="NONE">None</SelectItem>
+                        {tdsTaxes.map(t => (
+                          <SelectItem key={t.id} value={t.id} data-testid={`tds-option-${t.id}`}>
+                            {t.label || `${t.tax_name} ${t.rate}%`}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setShowManageTds(true)}
+                      title="Manage TDS taxes"
+                      data-testid="manage-tds-btn"
+                    >
+                      <Settings2 className="w-4 h-4" />
+                    </Button>
                     <span className="font-mono text-sm ml-auto">-₹{totals.tds_tcs_amount.toFixed(2)}</span>
                   </div>
 
@@ -1140,6 +1169,12 @@ const RMInward = () => {
           )}
         </div>
       </div>
+
+      <ManageTdsDialog
+        open={showManageTds}
+        onOpenChange={setShowManageTds}
+        onChanged={fetchTdsTaxes}
+      />
     </div>
   );
 };

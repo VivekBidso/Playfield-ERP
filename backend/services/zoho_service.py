@@ -158,7 +158,8 @@ class ZohoBooksClient:
         reference_number: Optional[str] = None,
         notes: Optional[str] = None,
         due_date: Optional[str] = None,
-        is_reverse_charge: bool = False
+        is_reverse_charge: bool = False,
+        tds_tax_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create a bill (purchase invoice) in Zoho Books.
@@ -212,7 +213,12 @@ class ZohoBooksClient:
         
         if is_reverse_charge:
             payload["is_reverse_charge_applied"] = True
-        
+
+        # Bill-level TDS tax (must be a valid Zoho TDS tax_id from Settings → Taxes → TDS)
+        if tds_tax_id:
+            payload["tax_id"] = tds_tax_id
+            payload["is_tds_amount_in_percent"] = True
+
         if reference_number:
             payload["reference_number"] = reference_number
         if notes:
