@@ -12,8 +12,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import uuid
 import io
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
 from pydantic import BaseModel
 
 from database import db
@@ -208,6 +206,7 @@ async def upload_rm_prices(
 
     Columns: Date | Invoice No | Vendor ID | RM ID | Price
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
@@ -317,6 +316,8 @@ async def upload_rm_prices(
 @router.get("/template")
 async def download_rm_price_template():
     """Download Excel template for RM price upload."""
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
+    from openpyxl.styles import Font, PatternFill, Alignment  # noqa: F401
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "RM Prices"
@@ -770,6 +771,8 @@ async def buyer_sku_cost_export(
     `db.bidso_skus` → same source of truth as Tech Ops. Falls back to code-regex
     on bidso_sku_id for backward compat.
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
+    from openpyxl.styles import Font, PatternFill, Alignment  # noqa: F401
     # vertical_code / model_code are encoded as the first two parts of bidso_sku_id
     q = {"status": {"$ne": "INACTIVE"}}
     if vertical_id or model_id:

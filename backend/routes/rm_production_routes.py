@@ -11,9 +11,6 @@ from typing import Optional, List
 from datetime import datetime, timezone
 import uuid
 import io
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-
 from models.production import (
     RMCategory, RMCategoryCreate, RMCategoryUpdate, DescriptionColumn,
     RMBOM, RMBOMCreate, RMBOMUpdate, BOMComponent,
@@ -180,6 +177,8 @@ async def export_rm_boms(
     file can be edited and re-uploaded. Rows for RMs without a BOM appear
     once with empty BOM columns when include_empty=true (seeding mode).
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
+    from openpyxl.styles import Font, PatternFill, Alignment  # noqa: F401
     if level == "2":
         levels = [2]
     elif level == "3":

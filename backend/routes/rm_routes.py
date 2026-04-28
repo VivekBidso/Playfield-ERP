@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
-import openpyxl
 import io
 
 from database import db
@@ -467,6 +466,7 @@ async def bulk_upload_raw_materials(file: UploadFile = File(...)):
     - If file has 'RM Code' column: imports with existing IDs (category auto-detected from prefix)
     - If file has 'Category' column: creates new RMs with auto-generated IDs
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
@@ -648,6 +648,7 @@ async def import_raw_materials_with_ids(file: UploadFile = File(...), category: 
     Supports files with RM Code column (e.g., SP_197, ACC_280).
     Auto-detects category from RM code prefix if not specified.
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
@@ -899,6 +900,7 @@ async def export_raw_materials(
     - If branch is specified: Export only that branch's stock in separate columns
     - If NO branch filter: Export ALL branches, each row = RM + Branch combo with Branch ID column
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     from fastapi.responses import StreamingResponse
     
     query = {"status": {"$ne": "INACTIVE"}}

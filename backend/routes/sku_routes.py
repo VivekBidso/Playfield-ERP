@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
-import openpyxl
 import io
 
 from database import db
@@ -302,6 +301,7 @@ async def create_sku_mapping(input: SKUMappingCreate):
 @router.post("/sku-mappings/bulk-upload")
 async def bulk_upload_sku_mappings(file: UploadFile = File(...)):
     """Bulk upload SKU mappings from Excel - NO OVERWRITES ALLOWED"""
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(content))
     ws = wb.active
@@ -662,6 +662,7 @@ async def activate_rms_for_sku(sku_id: str, branch: str) -> int:
 @router.post("/sku-branch-assignments/upload")
 async def upload_sku_branch_assignments(file: UploadFile = File(...), branch: str = ""):
     """Upload SKU IDs to assign to a branch. Also activates corresponding RMs."""
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     if not branch:
         raise HTTPException(status_code=400, detail="Branch is required")
     

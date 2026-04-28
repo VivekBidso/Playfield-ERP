@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
 import io
-import openpyxl
-
 from database import db
 from services.utils import get_current_user, serialize_doc
 
@@ -363,6 +361,7 @@ async def bulk_upload_lots(
     Expected columns: customer_id, buyer_sku_id, quantity
     Groups by customer_id to create multiple lots
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Please upload an Excel file")
     

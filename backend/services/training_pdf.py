@@ -1,28 +1,96 @@
 """Training PDF generator — assembles a branded, screenshot-rich how-to PDF.
 
 Uses ReportLab. Screenshots are expected to be PNG files at the given paths.
+
+NOTE: ReportLab and PIL are imported lazily via _lazy_load() so that simply
+importing this module (e.g., during FastAPI route registration) does NOT pull
+in the heavy reportlab/PIL dependencies. Imports happen on the first call to
+build_branch_ops_pdf().
 """
 import os
 from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import cm
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak,
-    Table, TableStyle, KeepTogether
-)
 
 SCREENSHOT_DIR = "/app/backend/static/training/branch_ops"
 
-# Color palette
-PRIMARY = colors.HexColor("#1d4ed8")
-SUCCESS = colors.HexColor("#15803d")
-WARNING = colors.HexColor("#b45309")
-DANGER = colors.HexColor("#b91c1c")
-MUTED = colors.HexColor("#475569")
-BG_LIGHT = colors.HexColor("#f1f5f9")
+# Lazy-loaded reportlab handles + color palette. Populated by _lazy_load() on
+# first call to build_branch_ops_pdf(). Declared at module level so the helper
+# functions (_styles, _fig, _table, _draw_page_footer) can reference them by
+# name without re-importing.
+_LAZY_LOADED = False
+A4 = None
+cm = None
+colors = None
+TA_LEFT = None
+TA_CENTER = None
+SimpleDocTemplate = None
+Paragraph = None
+Spacer = None
+Image = None
+PageBreak = None
+Table = None
+TableStyle = None
+KeepTogether = None
+getSampleStyleSheet = None
+ParagraphStyle = None
+PRIMARY = None
+SUCCESS = None
+WARNING = None
+DANGER = None
+MUTED = None
+BG_LIGHT = None
+
+
+def _lazy_load():
+    """Import reportlab + initialize color palette. Idempotent.
+
+    Called at the top of build_branch_ops_pdf(). Subsequent calls are free
+    (Python caches module imports).
+    """
+    global _LAZY_LOADED
+    global A4, cm, colors, TA_LEFT, TA_CENTER
+    global SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
+    global Table, TableStyle, KeepTogether
+    global getSampleStyleSheet, ParagraphStyle
+    global PRIMARY, SUCCESS, WARNING, DANGER, MUTED, BG_LIGHT
+
+    if _LAZY_LOADED:
+        return
+
+    from reportlab.lib.pagesizes import A4 as _A4
+    from reportlab.lib.styles import getSampleStyleSheet as _gss, ParagraphStyle as _PS
+    from reportlab.lib.units import cm as _cm
+    from reportlab.lib import colors as _colors
+    from reportlab.lib.enums import TA_LEFT as _TA_LEFT, TA_CENTER as _TA_CENTER
+    from reportlab.platypus import (
+        SimpleDocTemplate as _SDT, Paragraph as _P, Spacer as _S,
+        Image as _I, PageBreak as _PB, Table as _T, TableStyle as _TS,
+        KeepTogether as _KT,
+    )
+
+    A4 = _A4
+    cm = _cm
+    colors = _colors
+    TA_LEFT = _TA_LEFT
+    TA_CENTER = _TA_CENTER
+    SimpleDocTemplate = _SDT
+    Paragraph = _P
+    Spacer = _S
+    Image = _I
+    PageBreak = _PB
+    Table = _T
+    TableStyle = _TS
+    KeepTogether = _KT
+    getSampleStyleSheet = _gss
+    ParagraphStyle = _PS
+
+    PRIMARY = colors.HexColor("#1d4ed8")
+    SUCCESS = colors.HexColor("#15803d")
+    WARNING = colors.HexColor("#b45309")
+    DANGER = colors.HexColor("#b91c1c")
+    MUTED = colors.HexColor("#475569")
+    BG_LIGHT = colors.HexColor("#f1f5f9")
+
+    _LAZY_LOADED = True
 
 
 def _styles():
@@ -134,6 +202,7 @@ def build_branch_ops_pdf(completed_flow_data: dict = None) -> bytes:
     completed_flow_data keys (optional, from live flow capture):
         schedule_code, sku_id, branch, target_qty, completed_qty, completed_at
     """
+    _lazy_load()
     s = _styles()
     buf = BytesIO()
     doc = SimpleDocTemplate(

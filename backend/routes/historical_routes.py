@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, File, UploadFile, Query, Depends
 from datetime import datetime, timezone
 from typing import Optional
 import uuid
-import openpyxl
 from io import BytesIO
 
 from database import db
@@ -74,6 +73,7 @@ async def upload_historical_sales(
     
     Auto-enriches with: customer name, bidso SKU, model, vertical, revenue.
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     wb = openpyxl.load_workbook(BytesIO(content), read_only=True)
     ws = wb.active
@@ -211,6 +211,7 @@ async def upload_historical_production(
     
     Auto-enriches with: branch name, model, vertical, production value (from avg ASP).
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     content = await file.read()
     wb = openpyxl.load_workbook(BytesIO(content), read_only=True)
     ws = wb.active

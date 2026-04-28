@@ -8,9 +8,6 @@ import uuid
 import io
 import re
 
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-
 from database import db
 from models import User, Vendor, VendorCreate, VendorRMPrice, VendorRMPriceCreate, PurchaseEntry, PurchaseEntryCreate
 from services.utils import get_current_user, get_next_vendor_id, serialize_doc, update_branch_rm_inventory, generate_movement_code, get_branch_rm_stock
@@ -301,6 +298,8 @@ async def export_vendor_rm_prices():
     Columns: Vendor ID | Vendor Name | RM ID | RM Description | Price | Currency | Last Invoice Date
     Last Invoice Date is derived from rm_prices_history (most recent invoice for that vendor+rm pair).
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
+    from openpyxl.styles import Font, PatternFill, Alignment  # noqa: F401
     prices = await db.vendor_rm_prices.find({}, {"_id": 0}).sort("vendor_id", 1).to_list(100000)
     if not prices:
         raise HTTPException(status_code=404, detail="No vendor-RM price mappings exist")
@@ -390,6 +389,7 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
     Skips vendors that already exist by name (case-insensitive).
     Payment Terms accepts: DUE_ON_RECEIPT, NET_7, NET_15, NET_30, NET_45, NET_60 (case-insensitive,
     also accepts human labels like 'Due on Receipt', 'Net 30')."""
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     from models.vendor import ALLOWED_PAYMENT_TERMS
 
     if not file.filename.endswith(('.xlsx', '.xls')):
@@ -489,6 +489,8 @@ async def bulk_upload_vendors(file: UploadFile = File(...)):
 @router.get("/vendor-rm-prices/template")
 async def download_vendor_rm_price_template():
     """Excel template with Vendors and RM IDs reference tabs for bulk price upload."""
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
+    from openpyxl.styles import Font, PatternFill, Alignment  # noqa: F401
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Vendor RM Prices"
@@ -591,6 +593,7 @@ async def bulk_upload_vendor_rm_prices(
     Columns (header row 1): Vendor ID | RM ID | Price | Currency | Min Order Qty | Lead Time Days | Notes
     Unknown Vendor IDs and RM IDs are rejected per row.
     """
+    import openpyxl  # noqa: F401  (lazy import — keeps backend startup fast)
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Only Excel files are supported")
 
