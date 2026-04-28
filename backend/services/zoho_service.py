@@ -143,7 +143,7 @@ class ZohoBooksClient:
             # Check for errors
             if response.status_code >= 400:
                 error_msg = result.get("message", response.text)
-                logger.error(f"Zoho API error ({response.status_code}): {error_msg}")
+                logger.error(f"Zoho API error ({response.status_code}) on {endpoint}: {error_msg}")
                 raise Exception(f"Zoho API error: {error_msg}")
             
             return result
@@ -351,6 +351,133 @@ class ZohoBooksClient:
             }
             for t in taxes
         ]
+
+    # =========================================================================
+    # Delivery Challan API (India region)
+    # =========================================================================
+
+    async def search_customers(self, query: str, page_size: int = 20) -> list:
+        """Search customer-type contacts by name-contains.
+
+        Used for the IBT → Delivery Challan dialog's customer dropdown.
+        Caller should enforce min query length (e.g. >=2 chars) before calling.
+        """
+        params = {
+            "contact_type": "customer",
+            "contact_name_contains": query,
+            "per_page": page_size,
+            "page": 1,
+        }
+        result = await self._make_request("GET", "contacts", params=params)
+        contacts = result.get("contacts", [])
+        return [
+            {
+                "contact_id": c.get("contact_id"),
+                "contact_name": c.get("contact_name"),
+                "company_name": c.get("company_name", ""),
+                "gst_no": c.get("gst_no", ""),
+                "gst_treatment": c.get("gst_treatment", ""),
+            }
+            for c in contacts
+        ]
+
+    async def get_customer(self, contact_id: str) -> Dict[str, Any]:
+        """Fetch full customer details by contact_id."""
+        result = await self._make_request("GET", f"contacts/{contact_id}")
+        return result.get("contact", {})
+
+    async def search_items_by_sku(self, sku: str, page_size: int = 5) -> list:
+        """Lookup Zoho catalog items by SKU/name (used to resolve our internal item_id)."""
+        params = {
+            "search_text": sku,
+            "filter_by": "Status.Active",
+            "per_page": page_size,
+        }
+        result = await self._make_request("GET", "items", params=params)
+        items = result.get("items", [])
+        return [
+            {
+                "item_id": i.get("item_id"),
+                "name": i.get("name"),
+                "sku": i.get("sku", ""),
+                "rate": i.get("rate"),
+                "unit": i.get("unit", ""),
+                "hsn_or_sac": i.get("hsn_or_sac", ""),
+            }
+            for i in items
+        ]
+
+    async def create_delivery_challan(
+        self,
+        customer_id: str,
+        line_items: list,
+        challan_type: str = "others",
+        date: Optional[str] = None,
+        reference_number: Optional[str] = None,
+        notes: Optional[str] = None,
+        terms_and_conditions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a Delivery Challan in Zoho Books.
+
+        DCs are created in 'draft' status by default. They transition to 'open'
+        (i.e. dispatched/approved) when the user marks them as such in Zoho UI
+        or via a status endpoint — at which point our webhook will fire and
+        update the linked IBT.
+
+        Args:
+            customer_id: Zoho contact_id of the customer (required)
+            line_items: list of dicts: {item_id, quantity, rate?, description?,
+                                        hsn_or_sac?, unit?}
+            challan_type: one of `supply_of_liquid_gas`, `job_work`,
+                          `goods_sent_on_approval`, `skip_outward_registration`,
+                          `others`. Default: `job_work` (most common for IBT-style
+                          inter-branch movement).
+            date: YYYY-MM-DD; defaults to today.
+            reference_number: usually the IBT transfer_code.
+            notes / terms_and_conditions: optional free-text fields.
+
+        Returns:
+            Created delivery challan dict (includes deliverychallan_id +
+            deliverychallan_number).
+        """
+        if not date:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        payload: Dict[str, Any] = {
+            "customer_id": customer_id,
+            "challan_type": challan_type,
+            "date": date,
+            "line_items": [
+                {
+                    "item_id": li["item_id"],
+                    "quantity": float(li["quantity"]),
+                    **({"rate": float(li["rate"])} if li.get("rate") is not None else {}),
+                    **({"description": li["description"]} if li.get("description") else {}),
+                    **({"hsn_or_sac": li["hsn_or_sac"]} if li.get("hsn_or_sac") else {}),
+                    **({"unit": li["unit"]} if li.get("unit") else {}),
+                }
+                for li in line_items
+            ],
+        }
+        if reference_number:
+            payload["reference_number"] = reference_number
+        if notes:
+            payload["notes"] = notes
+        if terms_and_conditions:
+            payload["terms_and_conditions"] = terms_and_conditions
+
+        result = await self._make_request("POST", "deliverychallans", json_data=payload)
+
+        if result.get("code") == 0:
+            dc = result.get("deliverychallan", {})
+            logger.info(f"Zoho DC created: {dc.get('deliverychallan_id')} ({dc.get('deliverychallan_number')})")
+            return dc
+        raise Exception(f"Failed to create delivery challan: {result.get('message')}")
+
+    async def get_delivery_challan(self, deliverychallan_id: str) -> Dict[str, Any]:
+        """Fetch a delivery challan by ID (used by webhook handler for verification)."""
+        result = await self._make_request("GET", f"deliverychallans/{deliverychallan_id}")
+        return result.get("deliverychallan", {})
 
 
 # Global client instance

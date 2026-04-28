@@ -3062,8 +3062,39 @@ This recomputes the same data repeatedly and gets slow as buyer SKU count grows.
 **Why P0:** Affects every IBT page interaction in production. User-perceived slowness reduces adoption.
 
 
+### IBT Delivery Challan Integration with Zoho Books - COMPLETE (Feb 2026)
+**Status:** COMPLETE — end-to-end tested against live Zoho Books org.
+
+**Flow:**
+1. User approves an IBT (status >= APPROVED).
+2. New "Create DC" button appears in the new DC column on that IBT row.
+3. Clicking opens a dialog pre-populated from the IBT (transfer code, items, vehicle/driver info as read-only) plus a customer search-as-you-type dropdown (live Zoho contacts API, debounced 300ms, min 2 chars), challan type select (default `others`), date, reference number, notes.
+4. Submit creates a draft DC in Zoho Books — IBT row immediately shows a status badge (`draft`); clicking the badge reveals the Zoho DC number.
+5. When user marks the DC as Open in Zoho UI, Zoho fires our webhook (`POST /api/zoho/webhook/delivery-challan?secret=…`); we verify the shared secret, look up the linked IBT, and auto-advance its status to DISPATCHED.
+6. Manual "Dispatch" button removed — DC approval is now the only path to DISPATCHED (per business decision).
+
+**Backend additions:**
+- Extended `services/zoho_service.py`: `search_customers`, `get_customer`, `search_items_by_sku`, `create_delivery_challan`, `get_delivery_challan`. Auto-fetches each line item's `rate` from Zoho catalog before submission (Zoho rejects DCs without rate even though docs say it's optional).
+- New `routes/zoho_dc_routes.py` with: `GET /zoho/dc/required-fields`, `GET /zoho/customers/search?q=`, `GET /zoho/items/search?q=`, `POST /ibt-transfers/{id}/delivery-challan`, `GET /ibt-transfers/{id}/delivery-challan`, `POST /zoho/webhook/delivery-challan?secret=`.
+- New IBT fields: `zoho_dc_id`, `zoho_dc_number`, `zoho_dc_status`, `zoho_dc_customer_id`, `zoho_dc_created_at`, `zoho_dc_status_updated_at`, `zoho_dc_created_by`. No DB migration needed (added lazily).
+
+**Status mapping (Zoho → IBT):**
+- `open` → DISPATCHED (only advances forward, never downgrades)
+- `delivered` → COMPLETED (only if IBT not already RECEIVED)
+- `returned` / `void` → CANCELLED (forced)
+- `draft` → no IBT change
+
+**Idempotency:** webhook compares `last_modified_time` — stale events skipped.
+
+**One-time user setup in Zoho UI:**
+1. Settings → Automation → Webhooks → New webhook with URL `https://manufacturing-ops-7.emergent.host/api/zoho/webhook/delivery-challan?secret=<value>` (secret stored in `backend/.env` as `ZOHO_WEBHOOK_SECRET`).
+2. Settings → Automation → Workflow Rules → on Delivery Challans, when status changes (open/delivered/returned/void) → call the webhook.
+
+**Files:** `models/vendor.py` (no change), `services/zoho_service.py`, `routes/zoho_dc_routes.py` (NEW), `server.py`, `pages/IBT.js`, `backend/.env` (added `ZOHO_WEBHOOK_SECRET`).
+
+
 ### P1 - Delivery Challan Feature for IBT Transfers (Added Feb 2026)
-**Status:** PENDING — never implemented.
+**Status:** SUPERSEDED — implemented as the "IBT Delivery Challan Integration with Zoho Books" entry above. Original scoping notes preserved below for history.
 
 **Finding:** Zero references to `challan`, `DeliveryChallan`, `delivery_challan`, or `Delivery Challan` exist anywhere in `backend/` or `frontend/src/`. This is a missing feature, not a regression.
 

@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import StockItemSearch from "../components/StockItemSearch";
-import { 
-  Plus, 
-  ArrowRight, 
-  CheckCircle, 
+import {
+  Plus,
+  ArrowRight,
+  CheckCircle,
   Truck,
   Package,
   RefreshCw,
@@ -14,7 +14,9 @@ import {
   AlertTriangle,
   Eye,
   Send,
-  Trash2
+  Trash2,
+  FileText,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +50,24 @@ const IBT = () => {
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showDispatchDialog, setShowDispatchDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
+
+  // Delivery Challan (Zoho integration)
+  const [showDCDialog, setShowDCDialog] = useState(false);
+  const [dcTransfer, setDcTransfer] = useState(null);
+  const [dcSubmitting, setDcSubmitting] = useState(false);
+  const [dcForm, setDcForm] = useState({
+    customer_id: "",
+    customer_name: "",
+    challan_type: "others",
+    date: new Date().toISOString().split("T")[0],
+    reference_number: "",
+    notes: "",
+    terms_and_conditions: ""
+  });
+  const [dcCustomerQuery, setDcCustomerQuery] = useState("");
+  const [dcCustomerResults, setDcCustomerResults] = useState([]);
+  const [dcCustomerSearching, setDcCustomerSearching] = useState(false);
+  const [dcBadgeOpenFor, setDcBadgeOpenFor] = useState(null); // transfer.id when popover open
   
   // Selected transfer
   const [selectedTransfer, setSelectedTransfer] = useState(null);
@@ -289,6 +309,98 @@ const IBT = () => {
       expected_arrival: transfer.expected_arrival || ""
     });
     setShowDispatchDialog(true);
+  };
+
+  // -------- Delivery Challan (Zoho) --------
+  const openDCDialog = (transfer) => {
+    setDcTransfer(transfer);
+    setDcCustomerQuery("");
+    setDcCustomerResults([]);
+    setDcForm({
+      customer_id: "",
+      customer_name: "",
+      challan_type: "job_work",
+      date: new Date().toISOString().split("T")[0],
+      reference_number: transfer.transfer_code || "",
+      notes: "",
+      terms_and_conditions: ""
+    });
+    setShowDCDialog(true);
+  };
+
+  // Debounced customer search — runs whenever query changes
+  useEffect(() => {
+    if (!showDCDialog) return;
+    const q = dcCustomerQuery.trim();
+    if (q.length < 2) {
+      setDcCustomerResults([]);
+      return;
+    }
+    let cancelled = false;
+    setDcCustomerSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await axios.get(
+          `${API}/zoho/customers/search?q=${encodeURIComponent(q)}`,
+          { headers: getHeaders() }
+        );
+        if (!cancelled) setDcCustomerResults(res.data || []);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Customer search failed", err);
+          setDcCustomerResults([]);
+          toast.error("Failed to search customers");
+        }
+      } finally {
+        if (!cancelled) setDcCustomerSearching(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dcCustomerQuery, showDCDialog]);
+
+  const submitDC = async () => {
+    if (!dcTransfer) return;
+    if (!dcForm.customer_id) {
+      toast.error("Please select a customer");
+      return;
+    }
+    setDcSubmitting(true);
+    try {
+      const payload = {
+        customer_id: dcForm.customer_id,
+        challan_type: dcForm.challan_type || "job_work",
+        date: dcForm.date,
+        reference_number: dcForm.reference_number || undefined,
+        notes: dcForm.notes || undefined,
+        terms_and_conditions: dcForm.terms_and_conditions || undefined
+      };
+      const res = await axios.post(
+        `${API}/ibt-transfers/${dcTransfer.id}/delivery-challan`,
+        payload,
+        { headers: getHeaders() }
+      );
+      toast.success(`Draft DC created in Zoho: ${res.data.deliverychallan_number}`);
+      setShowDCDialog(false);
+      fetchAllData();
+    } catch (err) {
+      const detail = err.response?.data?.detail || "Failed to create delivery challan";
+      toast.error(typeof detail === "string" ? detail : "Failed to create delivery challan");
+    } finally {
+      setDcSubmitting(false);
+    }
+  };
+
+  const getDCBadgeColor = (zohoStatus) => {
+    const map = {
+      draft: "bg-zinc-200 text-zinc-700",
+      open: "bg-blue-100 text-blue-700",
+      delivered: "bg-green-100 text-green-700",
+      returned: "bg-amber-100 text-amber-700",
+      void: "bg-red-100 text-red-700",
+      fulfilled: "bg-emerald-100 text-emerald-700",
+    };
+    return map[(zohoStatus || "").toLowerCase()] || "bg-zinc-200 text-zinc-700";
   };
 
   const handleDispatch = async () => {
@@ -541,6 +653,7 @@ const IBT = () => {
                   <th className="text-left p-3">Item</th>
                   <th className="text-right p-3">Qty</th>
                   <th className="text-left p-3">Status</th>
+                  <th className="text-left p-3">DC</th>
                   <th className="text-left p-3">Date</th>
                   <th className="text-left p-3">Actions</th>
                 </tr>
@@ -548,7 +661,7 @@ const IBT = () => {
               <tbody>
                 {filteredTransfers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-zinc-500">
+                    <td colSpan={9} className="p-8 text-center text-zinc-500">
                       No transfers found
                     </td>
                   </tr>
@@ -621,6 +734,33 @@ const IBT = () => {
                           {getStatusBadge(transfer.status)}
                         </div>
                       </td>
+                      <td className="p-3">
+                        {transfer.zoho_dc_id ? (
+                          <div className="relative inline-block" data-testid={`dc-badge-${transfer.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => setDcBadgeOpenFor(dcBadgeOpenFor === transfer.id ? null : transfer.id)}
+                              className={`text-xs px-2 py-1 rounded font-medium uppercase tracking-wide ${getDCBadgeColor(transfer.zoho_dc_status)}`}
+                              title="Click to see DC number"
+                            >
+                              {transfer.zoho_dc_status || "draft"}
+                            </button>
+                            {dcBadgeOpenFor === transfer.id && (
+                              <div className="absolute z-20 mt-1 left-0 bg-white border border-zinc-200 rounded shadow-lg px-3 py-2 text-xs whitespace-nowrap"
+                                   data-testid={`dc-number-popover-${transfer.id}`}>
+                                <div className="font-semibold text-zinc-700">DC Number</div>
+                                <div className="font-mono text-blue-600 mt-0.5">{transfer.zoho_dc_number || transfer.zoho_dc_id}</div>
+                                <button
+                                  className="mt-1 text-zinc-400 hover:text-zinc-600 text-[10px] uppercase"
+                                  onClick={() => setDcBadgeOpenFor(null)}
+                                >Close</button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-zinc-400">—</span>
+                        )}
+                      </td>
                       <td className="p-3 text-xs text-zinc-500">
                         {new Date(transfer.initiated_at).toLocaleDateString()}
                       </td>
@@ -630,11 +770,11 @@ const IBT = () => {
                             <Eye className="w-4 h-4" />
                           </Button>
                           
-                          {/* Dispatch button - available immediately after creation */}
-                          {(transfer.status === "INITIATED" || transfer.status === "READY_FOR_DISPATCH" || transfer.status === "APPROVED") && (
-                            <Button size="sm" variant="outline" onClick={() => openDispatchDialog(transfer)}>
-                              <Send className="w-4 h-4 mr-1" />
-                              Dispatch
+                          {/* Create DC button — replaces manual Dispatch (per business decision: DC approval in Zoho is the only path to DISPATCHED) */}
+                          {(transfer.status === "INITIATED" || transfer.status === "READY_FOR_DISPATCH" || transfer.status === "APPROVED") && !transfer.zoho_dc_id && (
+                            <Button size="sm" variant="outline" onClick={() => openDCDialog(transfer)} data-testid={`create-dc-btn-${transfer.id}`}>
+                              <FileText className="w-4 h-4 mr-1" />
+                              Create DC
                             </Button>
                           )}
                           
@@ -1175,6 +1315,172 @@ const IBT = () => {
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDetailDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Delivery Challan Dialog */}
+      <Dialog open={showDCDialog} onOpenChange={setShowDCDialog}>
+        <DialogContent className="max-w-2xl" data-testid="dc-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Create Delivery Challan
+            </DialogTitle>
+            <DialogDescription>
+              Creates a draft DC in Zoho Books. Once you mark it as Open in Zoho, the IBT will auto-advance to DISPATCHED.
+            </DialogDescription>
+          </DialogHeader>
+
+          {dcTransfer && (
+            <div className="space-y-4">
+              {/* Auto-populated read-only context from IBT */}
+              <div className="grid grid-cols-2 gap-3 bg-zinc-50 p-3 rounded text-sm">
+                <div>
+                  <Label className="text-xs text-zinc-500">Transfer Code</Label>
+                  <div className="font-mono font-bold text-blue-600">{dcTransfer.transfer_code}</div>
+                </div>
+                <div>
+                  <Label className="text-xs text-zinc-500">Source → Destination</Label>
+                  <div>{dcTransfer.source_branch} → {dcTransfer.destination_branch}</div>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs text-zinc-500">Items</Label>
+                  <div className="text-xs">
+                    {dcTransfer.items?.length > 0
+                      ? dcTransfer.items.map(i => `${i.item_id} × ${i.quantity}`).join(", ")
+                      : `${dcTransfer.item_id} × ${dcTransfer.quantity}`}
+                  </div>
+                </div>
+                {(dcTransfer.vehicle_number || dcTransfer.driver_name) && (
+                  <div className="col-span-2 text-xs text-zinc-600">
+                    {dcTransfer.vehicle_number && <>Vehicle: <span className="font-mono">{dcTransfer.vehicle_number}</span></>}
+                    {dcTransfer.vehicle_number && dcTransfer.driver_name && " · "}
+                    {dcTransfer.driver_name && <>Driver: {dcTransfer.driver_name}</>}
+                  </div>
+                )}
+              </div>
+
+              {/* Customer search */}
+              <div>
+                <Label>Customer <span className="text-red-500">*</span></Label>
+                <Input
+                  value={dcCustomerQuery}
+                  onChange={(e) => {
+                    setDcCustomerQuery(e.target.value);
+                    setDcForm({ ...dcForm, customer_id: "", customer_name: "" });
+                  }}
+                  placeholder="Type at least 2 characters to search Zoho customers..."
+                  data-testid="dc-customer-search"
+                />
+                {dcForm.customer_id && (
+                  <div className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    Selected: <span className="font-medium">{dcForm.customer_name}</span>
+                  </div>
+                )}
+                {dcCustomerQuery.length >= 2 && !dcForm.customer_id && (
+                  <div className="border border-zinc-200 rounded mt-1 max-h-48 overflow-y-auto bg-white">
+                    {dcCustomerSearching && (
+                      <div className="p-2 text-xs text-zinc-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Searching...
+                      </div>
+                    )}
+                    {!dcCustomerSearching && dcCustomerResults.length === 0 && (
+                      <div className="p-2 text-xs text-zinc-400">No matches</div>
+                    )}
+                    {dcCustomerResults.map(c => (
+                      <button
+                        key={c.contact_id}
+                        type="button"
+                        className="w-full text-left p-2 text-sm hover:bg-blue-50 border-b last:border-b-0"
+                        data-testid={`dc-customer-option-${c.contact_id}`}
+                        onClick={() => {
+                          setDcForm({ ...dcForm, customer_id: c.contact_id, customer_name: c.contact_name });
+                          setDcCustomerQuery(c.contact_name);
+                          setDcCustomerResults([]);
+                        }}
+                      >
+                        <div className="font-medium">{c.contact_name}</div>
+                        {(c.company_name || c.gst_no) && (
+                          <div className="text-xs text-zinc-500">
+                            {c.company_name}{c.company_name && c.gst_no && " · "}{c.gst_no}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Challan Type <span className="text-red-500">*</span></Label>
+                  <Select value={dcForm.challan_type} onValueChange={(v) => setDcForm({ ...dcForm, challan_type: v })}>
+                    <SelectTrigger data-testid="dc-challan-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="others">Others (recommended default)</SelectItem>
+                      <SelectItem value="job_work">Job Work</SelectItem>
+                      <SelectItem value="goods_sent_on_approval">Goods Sent on Approval</SelectItem>
+                      <SelectItem value="skip_outward_registration">Skip Outward Registration</SelectItem>
+                      <SelectItem value="supply_of_liquid_gas">Supply of Liquid Gas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Challan Date <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="date"
+                    value={dcForm.date}
+                    onChange={(e) => setDcForm({ ...dcForm, date: e.target.value })}
+                    data-testid="dc-date"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label>Reference Number</Label>
+                <Input
+                  value={dcForm.reference_number}
+                  onChange={(e) => setDcForm({ ...dcForm, reference_number: e.target.value })}
+                  placeholder="Defaults to IBT transfer code"
+                  data-testid="dc-reference"
+                />
+              </div>
+
+              <div>
+                <Label>Notes</Label>
+                <Textarea
+                  value={dcForm.notes}
+                  onChange={(e) => setDcForm({ ...dcForm, notes: e.target.value })}
+                  placeholder="If left blank, IBT notes + vehicle/driver info will be used."
+                  rows={2}
+                  data-testid="dc-notes"
+                />
+              </div>
+
+              <div>
+                <Label>Terms & Conditions</Label>
+                <Textarea
+                  value={dcForm.terms_and_conditions}
+                  onChange={(e) => setDcForm({ ...dcForm, terms_and_conditions: e.target.value })}
+                  rows={2}
+                  data-testid="dc-terms"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDCDialog(false)} disabled={dcSubmitting}>
+              Cancel
+            </Button>
+            <Button onClick={submitDC} disabled={dcSubmitting || !dcForm.customer_id} data-testid="dc-submit-btn">
+              {dcSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Create Draft DC in Zoho
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
