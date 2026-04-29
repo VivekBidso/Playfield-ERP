@@ -186,23 +186,29 @@ class ZohoBooksClient:
                 "quantity": float(item.get("quantity", 1)),
                 "rate": float(item.get("rate", 0)),
             }
-            
+
             # Add account_id (required by Zoho)
             if item.get("account_id"):
                 line["account_id"] = item.get("account_id")
-            
+
             # Add HSN if available
             if item.get("hsn"):
                 line["hsn_or_sac"] = item.get("hsn")
-            
-            # Add tax if available - use tax_id for Zoho
+
+            # GST tax (line-level)
             if item.get("tax_id"):
                 line["tax_id"] = item.get("tax_id")
             elif item.get("tax_exemption_id"):
                 line["tax_exemption_id"] = item.get("tax_exemption_id")
-            
+
+            # TDS — Zoho requires tds_tax_id per line item (in addition to the
+            # bill-level is_tds_applied flag below). The same TDS applies to
+            # every line on this bill since it's a bill-level selection.
+            if tds_tax_id:
+                line["tds_tax_id"] = tds_tax_id
+
             zoho_line_items.append(line)
-        
+
         # Build bill payload
         payload = {
             "vendor_id": vendor_id,
@@ -210,14 +216,13 @@ class ZohoBooksClient:
             "date": bill_date,
             "line_items": zoho_line_items
         }
-        
+
         if is_reverse_charge:
             payload["is_reverse_charge_applied"] = True
 
-        # Bill-level TDS tax (must be a valid Zoho TDS tax_id from Settings → Taxes → TDS)
+        # Enable TDS at the bill level so Zoho deducts and shows it in the UI
         if tds_tax_id:
-            payload["tax_id"] = tds_tax_id
-            payload["is_tds_amount_in_percent"] = True
+            payload["is_tds_applied"] = True
 
         if reference_number:
             payload["reference_number"] = reference_number
@@ -226,7 +231,8 @@ class ZohoBooksClient:
         if due_date:
             payload["due_date"] = due_date
         
-        logger.info(f"Creating Zoho bill: {bill_number} for vendor {vendor_name}")
+        logger.info(f"Creating Zoho bill: {bill_number} for vendor {vendor_name}"
+                    + (f" with tds_tax_id={tds_tax_id} on {len(zoho_line_items)} line(s)" if tds_tax_id else ""))
         
         result = await self._make_request("POST", "bills", json_data=payload)
         
