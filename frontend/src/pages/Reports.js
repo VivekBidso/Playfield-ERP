@@ -29,6 +29,7 @@ const Reports = () => {
   const [salesGroupBy, setSalesGroupBy] = useState("customer");
   const [prodGroupBy, setProdGroupBy] = useState("branch");
   const [salesUploading, setSalesUploading] = useState(false);
+  const [salesUploadResult, setSalesUploadResult] = useState(null);
   const [prodUploading, setProdUploading] = useState(false);
   const [uploadMode, setUploadMode] = useState("append");
 
@@ -383,14 +384,53 @@ const Reports = () => {
       const formData = new FormData();
       formData.append("file", file);
       const res = await axios.post(`${API}/historical-sales/upload?mode=${uploadMode}`, formData, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(res.data.message);
-      if (res.data.errors?.length) toast.error(`${res.data.errors.length} errors`);
+      const data = res.data || {};
+      const errors = Array.isArray(data.errors) ? data.errors : [];
+      const errorCount = data.error_count ?? errors.length;
+      setSalesUploadResult({ ...data, fileName: file.name, errors });
+
+      if (data.inserted > 0) {
+        toast.success(data.message);
+      }
+      if (errorCount > 0) {
+        // Auto-download a per-row error report so EVERY failing row is visible
+        downloadSalesErrorReport(file.name, errors);
+        toast.error(
+          `${errorCount} row(s) failed validation — Excel report downloaded. ` +
+          `Fix the rows and re-upload (or click "Download report" again below).`,
+          { duration: 9000 }
+        );
+      }
       fetchHistoricalData();
     } catch (err) {
       toast.error(`Upload failed: ${err.response?.data?.detail || err.message}`);
     }
     setSalesUploading(false);
     e.target.value = "";
+  };
+
+  const downloadSalesErrorReport = (sourceFileName, errors) => {
+    if (!errors?.length) return;
+    const rows = errors.map(er => ({
+      "Row #": er.row,
+      "Buyer SKU": er.buyer_sku_id,
+      "Customer ID": er.customer_id,
+      "Qty": er.qty,
+      "Month": er.month,
+      "ASP": er.asp,
+      "Error": er.error,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    // Auto-fit-ish column widths
+    ws["!cols"] = [
+      { wch: 8 }, { wch: 22 }, { wch: 14 }, { wch: 8 },
+      { wch: 12 }, { wch: 10 }, { wch: 70 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Errors");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const base = (sourceFileName || "sales_upload").replace(/\.xlsx?$/i, "");
+    XLSX.writeFile(wb, `Sales_Upload_Errors_${base}_${stamp}.xlsx`);
   };
 
   const handleProdUpload = async (e) => {
@@ -968,6 +1008,43 @@ const Reports = () => {
                   <Button variant="link" className="px-0 text-xs h-auto" onClick={() => downloadTemplate("sales")} data-testid="download-sales-template">
                     <Download className="w-3 h-3 mr-1" /> Download Template
                   </Button>
+
+                  {salesUploadResult && (
+                    <div className="text-xs rounded border p-2 space-y-1" data-testid="sales-upload-result">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {salesUploadResult.fileName}
+                          {" — "}
+                          <span className="text-emerald-600">{salesUploadResult.inserted || 0} ok</span>
+                          {(salesUploadResult.error_count || 0) > 0 && (
+                            <>
+                              {" / "}
+                              <span className="text-red-600">{salesUploadResult.error_count} failed</span>
+                            </>
+                          )}
+                        </span>
+                        {(salesUploadResult.error_count || 0) > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() =>
+                              downloadSalesErrorReport(salesUploadResult.fileName, salesUploadResult.errors)
+                            }
+                            data-testid="download-sales-error-report"
+                          >
+                            <Download className="w-3 h-3 mr-1" /> Download error report
+                          </Button>
+                        )}
+                      </div>
+                      {(salesUploadResult.error_count || 0) > 0 && (
+                        <div className="text-muted-foreground">
+                          A row-by-row Excel report was downloaded with the exact reason each row failed.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {historicalSalesStats && historicalSalesStats.total_records > 0 && (
                     <div className="text-xs text-muted-foreground bg-zinc-50 rounded p-2">
                       <span className="font-medium">{historicalSalesStats.total_records}</span> records | 

@@ -181,42 +181,55 @@ async def upload_historical_sales(
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if not any(row):
             continue
-        
+
         buyer_sku_id = str(row[header_map["buyer_sku_id"]] or "").strip()
         customer_raw = str(row[header_map["customer_id"]] or "").strip()
         qty_raw = row[header_map["qty"]]
         month_raw = str(row[header_map["month"]] or "").strip()
         asp_raw = row[header_map["asp"]]
-        
+
+        # One structured error record per failing row — frontend renders/downloads
+        # the full list as an Excel report. No truncation, no row left silent.
+        def _err(reason: str):
+            errors.append({
+                "row": idx,
+                "buyer_sku_id": buyer_sku_id,
+                "customer_id": customer_raw,
+                "qty": qty_raw if qty_raw is not None else "",
+                "month": month_raw,
+                "asp": asp_raw if asp_raw is not None else "",
+                "error": reason,
+            })
+
         if not buyer_sku_id or not month_raw:
-            errors.append(f"Row {idx}: Missing Buyer SKU or Month")
+            _err("Missing Buyer SKU or Month")
             continue
-        
+
         try:
-            qty = float(qty_raw) if qty_raw else 0
+            qty = float(qty_raw) if qty_raw not in (None, "") else 0
         except (ValueError, TypeError):
-            errors.append(f"Row {idx}: Invalid qty '{qty_raw}'")
+            _err(f"Invalid qty '{qty_raw}' (must be a number)")
             continue
-        
+
         try:
-            asp = float(asp_raw) if asp_raw else 0
+            asp = float(asp_raw) if asp_raw not in (None, "") else 0
         except (ValueError, TypeError):
-            errors.append(f"Row {idx}: Invalid ASP '{asp_raw}'")
+            _err(f"Invalid ASP '{asp_raw}' (must be a number)")
             continue
-        
+
         try:
             month_info = parse_month(month_raw)
         except ValueError as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            _err(str(e))
             continue
-        
+
         # Resolve customer name
         customer_name = buyer_lookup.get(customer_raw) or buyer_lookup.get(customer_raw.lower()) or customer_raw
-        
+
         # Enrich buyer SKU
         enrichment = await enrich_buyer_sku(buyer_sku_id)
         if not enrichment:
-            errors.append(f"Row {idx}: Buyer SKU '{buyer_sku_id}' not found")
+            _err(f"Buyer SKU '{buyer_sku_id}' not found in SKU master. Create it in SKU Management or fix the SKU id.")
             continue
         
         months_in_file.add(month_info["month_key"])
@@ -245,8 +258,9 @@ async def upload_historical_sales(
     if not rows:
         return {
             "message": f"No valid rows to upload — all {len(errors)} row(s) failed validation",
+            "inserted": 0,
             "error_count": len(errors),
-            "errors": errors[:200],
+            "errors": errors,
         }
 
     # Handle overwrite mode
@@ -254,17 +268,17 @@ async def upload_historical_sales(
     if mode == "overwrite" and months_in_file:
         result = await db.historical_sales.delete_many({"month_key": {"$in": list(months_in_file)}})
         deleted = result.deleted_count
-    
+
     # Insert rows
     await db.historical_sales.insert_many(rows)
-    
+
     return {
         "message": f"Uploaded {len(rows)} sales records for {len(months_in_file)} month(s)",
         "inserted": len(rows),
         "deleted_previous": deleted,
         "months": sorted(list(months_in_file)),
         "error_count": len(errors),
-        "errors": errors[:200]
+        "errors": errors,
     }
 
 
