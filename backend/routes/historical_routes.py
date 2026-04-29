@@ -18,26 +18,91 @@ MONTH_MAP = {
 }
 
 def parse_month(month_str: str) -> dict:
-    """Parse month string like 'Jun 2025', '2025-06', 'June 2025' into {month, year, month_key}"""
-    month_str = str(month_str).strip()
-    
-    # Try "Jun 2025" or "June 2025"
-    parts = month_str.split()
+    """Parse month string into {month, year, month_key}.
+
+    Accepted formats:
+      • 'Jun 2025' / 'June 2025'           (month name + 4-digit year)
+      • '2025 Jun'                         (4-digit year + month name)
+      • '2025-06'                          (YYYY-MM)
+      • 'Jun-25' / 'Jun-2025' / 'June-25'  (Mmm[-YY|-YYYY])
+      • '06-2025' / '06/2025' / '6-25'     (MM[-/]YY|YYYY)
+      • '01/06/2025' / '15-06-2025'        (DD[/-]MM[/-]YYYY — day discarded)
+      • Excel datetime objects             (handled by caller)
+    """
+    import re
+
+    # Excel datetime cell — caller may pass datetime; handle here too
+    if isinstance(month_str, datetime):
+        return {
+            "month": month_str.month,
+            "year": month_str.year,
+            "month_key": f"{month_str.year}-{month_str.month:02d}",
+        }
+
+    s = str(month_str).strip()
+    if not s:
+        raise ValueError("Month is empty")
+
+    def _y4(y: int) -> int:
+        # 2-digit year → 2000-prefixed (so '25' → 2025, '99' → 2099)
+        return 2000 + y if y < 100 else y
+
+    # 1) Whitespace-separated: "Jun 2025" / "June 2025" / "2025 Jun"
+    parts = s.split()
     if len(parts) == 2:
-        month_name = parts[0].lower().rstrip(".")
-        if month_name in MONTH_MAP:
-            return {"month": MONTH_MAP[month_name], "year": int(parts[1]), "month_key": f"{parts[1]}-{MONTH_MAP[month_name]:02d}"}
-        # Try "2025 Jun"
-        month_name = parts[1].lower().rstrip(".")
-        if month_name in MONTH_MAP:
-            return {"month": MONTH_MAP[month_name], "year": int(parts[0]), "month_key": f"{parts[0]}-{MONTH_MAP[month_name]:02d}"}
-    
-    # Try "2025-06"
-    if "-" in month_str and len(month_str) <= 7:
-        p = month_str.split("-")
-        return {"month": int(p[1]), "year": int(p[0]), "month_key": month_str}
-    
-    raise ValueError(f"Cannot parse month: '{month_str}'. Expected format: 'Jun 2025' or '2025-06'")
+        a, b = parts[0].lower().rstrip("."), parts[1].lower().rstrip(".")
+        if a in MONTH_MAP and b.isdigit():
+            y = _y4(int(b))
+            return {"month": MONTH_MAP[a], "year": y, "month_key": f"{y}-{MONTH_MAP[a]:02d}"}
+        if b in MONTH_MAP and a.isdigit():
+            y = _y4(int(a))
+            return {"month": MONTH_MAP[b], "year": y, "month_key": f"{y}-{MONTH_MAP[b]:02d}"}
+
+    # 2) Hyphen / slash separated: 'Jun-25', 'Jun-2025', '2025-06', '06-2025', '06/2025', '01/06/2025'
+    tokens = re.split(r"[-/\s]+", s)
+    tokens = [t for t in tokens if t]
+
+    # 2a) Two tokens
+    if len(tokens) == 2:
+        t1, t2 = tokens[0], tokens[1]
+        # 'Jun-25' / 'Jun-2025'
+        n1 = t1.lower().rstrip(".")
+        if n1 in MONTH_MAP and t2.isdigit():
+            y = _y4(int(t2))
+            return {"month": MONTH_MAP[n1], "year": y, "month_key": f"{y}-{MONTH_MAP[n1]:02d}"}
+        # '25-Jun' / '2025-Jun'
+        n2 = t2.lower().rstrip(".")
+        if n2 in MONTH_MAP and t1.isdigit():
+            y = _y4(int(t1))
+            return {"month": MONTH_MAP[n2], "year": y, "month_key": f"{y}-{MONTH_MAP[n2]:02d}"}
+        # '2025-06' / '06-2025' / '6-25'
+        if t1.isdigit() and t2.isdigit():
+            i1, i2 = int(t1), int(t2)
+            if 1 <= i1 <= 12 and i2 >= 13:        # MM-YYYY or MM-YY (with i2 >= 13 → year)
+                y = _y4(i2)
+                return {"month": i1, "year": y, "month_key": f"{y}-{i1:02d}"}
+            if 1 <= i2 <= 12 and i1 >= 13:        # YYYY-MM or YY-MM
+                y = _y4(i1)
+                return {"month": i2, "year": y, "month_key": f"{y}-{i2:02d}"}
+            # Both <=12 (ambiguous) — prefer YYYY-MM if first is 4-digit
+            if len(t1) == 4 and 1 <= i2 <= 12:
+                return {"month": i2, "year": i1, "month_key": f"{i1}-{i2:02d}"}
+            if len(t2) == 4 and 1 <= i1 <= 12:
+                return {"month": i1, "year": i2, "month_key": f"{i2}-{i1:02d}"}
+
+    # 2b) Three tokens — DD-MM-YYYY (day discarded) or YYYY-MM-DD
+    if len(tokens) == 3 and all(t.isdigit() for t in tokens):
+        a, b, c = (int(x) for x in tokens)
+        if len(tokens[0]) == 4:                   # YYYY-MM-DD
+            return {"month": b, "year": a, "month_key": f"{a}-{b:02d}"}
+        if len(tokens[2]) == 4 or tokens[2].isdigit():   # DD-MM-YYYY (or DD-MM-YY)
+            y = _y4(c)
+            return {"month": b, "year": y, "month_key": f"{y}-{b:02d}"}
+
+    raise ValueError(
+        f"Cannot parse month: '{s}'. Accepted formats: 'Jun 2025', '2025-06', "
+        "'Jun-25', 'Jun-2025', '06-2025', '06/2025'."
+    )
 
 
 async def enrich_buyer_sku(buyer_sku_id: str) -> dict:
@@ -178,8 +243,12 @@ async def upload_historical_sales(
         })
     
     if not rows:
-        return {"message": "No valid rows to upload", "errors": errors[:50]}
-    
+        return {
+            "message": f"No valid rows to upload — all {len(errors)} row(s) failed validation",
+            "error_count": len(errors),
+            "errors": errors[:200],
+        }
+
     # Handle overwrite mode
     deleted = 0
     if mode == "overwrite" and months_in_file:
@@ -194,7 +263,8 @@ async def upload_historical_sales(
         "inserted": len(rows),
         "deleted_previous": deleted,
         "months": sorted(list(months_in_file)),
-        "errors": errors[:50]
+        "error_count": len(errors),
+        "errors": errors[:200]
     }
 
 
