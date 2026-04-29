@@ -20,6 +20,31 @@ A complete factory management system that tracks everything from raw materials t
 
 ---
 
+## 1.A ZOHO BOOKS — TDS RULE (April 28, 2026)
+
+**Rule (binding):** TDS tax IDs **cannot be created** via Zoho's REST API. They must be:
+1. **Created manually in Zoho Books UI** (Settings → Taxes → TDS), and
+2. **Fetched via Zoho API** by Factory OPS (read-only), and
+3. **Echoed back to Zoho** on every bill/invoice create — the same `tax_id` returned by Zoho's API must be passed as the line-item `tds_tax_id` (Factory OPS must never invent or transform this id).
+
+**Implication for our data model:**
+- `tds_taxes` collection in MongoDB stores **only a local mapping** (`tax_name`, `rate`, `section`, `status`, `zoho_tax_id`). The `zoho_tax_id` value is the source of truth — it originates from Zoho.
+- The dropdown in RM Inward → New Bill must list ACTIVE entries from `tds_taxes`; on bill submit, the row's `zoho_tax_id` is resolved server-side and sent to Zoho.
+
+**Zoho payload contract (bill create):**
+- **Bill level:** `is_tds_applied: true`
+- **Per line item:** `tds_tax_id: <zoho_tax_id>` on every line
+- (Without both, Zoho silently ignores the TDS and it does not appear in the Zoho UI.)
+
+**Endpoints:**
+- `GET /api/zoho/tds-taxes-available` — read-only fetch from Zoho `settings/taxes` (used to pick a Zoho `tax_id` when mapping a new local TDS row).
+- `GET/POST/PUT/DELETE /api/tds-taxes` — local CRUD; POST/PUT validate that the supplied `zoho_tax_id` exists in Zoho before saving.
+- `POST /api/rm-inward/bills` — resolves `totals.tds_tcs` (local id) → `zoho_tax_id` and sends it on the Zoho payload.
+
+---
+
+
+
 ## 1.1 SKU ARCHITECTURE (NEW - March 2026)
 
 **Two-Level SKU Structure:**

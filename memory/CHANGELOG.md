@@ -1,3 +1,25 @@
+## April 29, 2026
+
+### Zoho TDS — corrected payload + documented binding rule
+- **Bug found in production:** TDS `tax_id` was being included in the Zoho bill payload but TDS still didn't appear in Zoho's UI.
+- **Root cause:** Zoho Books requires TDS to be set on **two** places per bill — `is_tds_applied: true` at the bill level **and** `tds_tax_id: <id>` on **every line item**. Earlier code only set bill-level `tax_id` (which conflicts with GST) and `is_tds_amount_in_percent: true` (wrong flag), so Zoho silently dropped the TDS.
+- **Fix in `services/zoho_service.py::create_bill`:**
+  - Bill-level: `is_tds_applied: true`
+  - Line-level: `tds_tax_id` injected onto every Zoho line item
+  - Removed the incorrect bill-level `tax_id`/`is_tds_amount_in_percent` keys
+  - Added a debug log: `Creating Zoho bill: <num> ... with tds_tax_id=<id> on N line(s)`
+- **Documented in PRD §1.A:** TDS tax IDs are read-only from Zoho's perspective for our app. They **must** be created manually in Zoho UI, **fetched via `/settings/taxes`**, and **echoed back unchanged** on every bill/invoice. Factory OPS only stores a local mapping (`tds_taxes` collection); `zoho_tax_id` is always sourced from Zoho.
+
+### Sales Upload — every-row error visibility
+- **Bug:** `POST /api/historical-sales/upload` truncated errors to first 50 strings; users had no way to see the rest.
+- **Fix (backend):** Each failing row now produces a structured object `{row, buyer_sku_id, customer_id, qty, month, asp, error}`. Truncation removed — full list returned alongside `error_count`.
+- **Fix (frontend `Reports.js`):** On upload completion the page now (a) auto-downloads `Sales_Upload_Errors_<file>_<ts>.xlsx` with a row-by-row breakdown, and (b) shows a persistent banner `<filename> — N ok / M failed` with a "Download error report" button for re-download.
+
+### Sales Upload — month parser tolerance
+- **Bug:** Excel's default `Mmm-YY` (e.g. `Aug-25`) caused 100% of rows to fail with no clarity.
+- **Fix in `routes/historical_routes.py::parse_month`:** Now accepts `Aug-25`, `Jun-2025`, `06-2025`, `06/2025`, `01/06/2025`, `2025-06-15`, in addition to the previous `Aug 2025` / `2025-06`. Errors now list all accepted formats.
+
+
 ## April 28, 2026
 
 ### TDS Tax Mapping in RM Inward (Zoho Books)
@@ -6,8 +28,9 @@
 - **Backend:**
   - `GET/POST/PUT/DELETE /api/tds-taxes` (with `?status=ACTIVE` filter and auto-formatted `label = "<Name> <Rate>%"`)
   - `GET /api/zoho/tds-taxes-available` (helper for picking a Zoho `tax_id`)
-  - `POST /api/rm-inward/bills` now resolves `totals.tds_tcs` (local TDS id) → `zoho_tax_id` and passes it to Zoho `create_bill` as bill-level `tax_id` + `is_tds_amount_in_percent: true`. Returns 400 if the local TDS row is missing or has no Zoho mapping.
+  - `POST /api/rm-inward/bills` now resolves `totals.tds_tcs` (local TDS id) → `zoho_tax_id` and passes it to Zoho `create_bill`. Returns 400 if the local TDS row is missing or has no Zoho mapping.
   - `services/zoho_service.create_bill()` now accepts `tds_tax_id` kwarg.
+  - **(NOTE: payload contract was corrected on April 29 — see top of changelog. Original Apr 28 implementation used `tax_id` + `is_tds_amount_in_percent` which Zoho silently ignored.)**
 - **Frontend (`RMInward.js`):**
   - Removed hardcoded `TDS_TCS_OPTIONS` array.
   - TDS dropdown now lists ACTIVE rows from `/api/tds-taxes?status=ACTIVE` formatted as `"<Tax Name> <Rate>%"` (with "None" preserved).
